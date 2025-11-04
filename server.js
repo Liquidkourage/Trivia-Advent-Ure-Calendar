@@ -183,7 +183,7 @@ app.get('/', (req, res) => {
     <body style="font-family: system-ui, -apple-system, Segoe UI, Roboto; padding: 24px;">
       <h1>Trivia Advent-ure (Staging)</h1>
       ${loggedIn ? `<p>Signed in as ${req.session.user.email}.</p>` : `
-        <form method="post" action="/auth/request-link" onsubmit="event.preventDefault(); fetch('/auth/request-link',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ email: email.value })}).then(r=>r.json()).then(()=>alert('If you have access, a magic link was sent (or logged).')).catch(()=>alert('Failed.'));">
+        <form method="post" action="/auth/request-link" onsubmit="event.preventDefault(); fetch('/auth/request-link',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ email: email.value })}).then(r=>r.json()).then(d=>{ if (d.link) { alert('Magic link (dev):\n'+d.link); } else { alert('If you have access, a magic link was sent.'); } }).catch(()=>alert('Failed.'));">
           <label>Email (Ko-fi): <input id="email" type="email" required /></label>
           <button type="submit">Send magic link</button>
         </form>
