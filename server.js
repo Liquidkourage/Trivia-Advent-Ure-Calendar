@@ -5,7 +5,7 @@ import crypto from 'crypto';
 import { Pool } from 'pg';
 import nodemailer from 'nodemailer';
 import dotenv from 'dotenv';
-import { utcToZonedTime } from 'date-fns-tz';
+import * as tz from 'date-fns-tz';
 
 dotenv.config();
 
@@ -27,10 +27,16 @@ app.use(session({
 }));
 
 // --- DB ---
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.DATABASE_URL?.includes('railway.app') || process.env.PGSSL === 'require'
+    ? { rejectUnauthorized: false }
+    : false
+});
 
 async function initDb() {
   await pool.query(`
+    CREATE EXTENSION IF NOT EXISTS citext;
     CREATE TABLE IF NOT EXISTS players (
       id SERIAL PRIMARY KEY,
       email CITEXT UNIQUE NOT NULL,
@@ -42,7 +48,6 @@ async function initDb() {
       expires_at TIMESTAMPTZ NOT NULL,
       used BOOLEAN NOT NULL DEFAULT FALSE
     );
-    CREATE EXTENSION IF NOT EXISTS citext;
   `);
 }
 
@@ -146,8 +151,8 @@ app.post('/webhooks/kofi', async (req, res) => {
 
     const cutoffEt = KOFI_CUTOFF_ET; // e.g., '2025-11-01 00:00:00 America/New_York'
     const createdAt = createdAtStr ? new Date(createdAtStr) : new Date();
-    const createdAtET = utcToZonedTime(createdAt, EVENT_TZ);
-    const cutoffDate = new Date(utcToZonedTime(new Date(cutoffEt), EVENT_TZ));
+    const createdAtET = tz.utcToZonedTime(createdAt, EVENT_TZ);
+    const cutoffDate = new Date(tz.utcToZonedTime(new Date(cutoffEt), EVENT_TZ));
     if (!(createdAtET >= cutoffDate)) {
       return res.status(204).send('Before cutoff');
     }
