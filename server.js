@@ -109,7 +109,11 @@ app.post('/auth/request-link', async (req, res) => {
     const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
     await pool.query('INSERT INTO magic_tokens(token,email,expires_at,used) VALUES($1,$2,$3,false)', [token, email, expiresAt]);
     const linkUrl = `${process.env.PUBLIC_BASE_URL || ''}/auth/magic?token=${encodeURIComponent(token)}`;
-    await sendMagicLink(email, token, linkUrl);
+    try {
+      await sendMagicLink(email, token, linkUrl);
+    } catch (mailErr) {
+      console.warn('Send mail failed:', mailErr?.message || mailErr);
+    }
     const expose = (process.env.EXPOSE_MAGIC_LINKS || '').toLowerCase() === 'true';
     res.json({ ok: true, link: expose ? linkUrl : undefined });
   } catch (e) {
