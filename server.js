@@ -287,21 +287,60 @@ app.post('/webhooks/kofi', async (req, res) => {
 
 // --- Basic pages ---
 app.get('/', (req, res) => {
-  const loggedIn = !!req.session.user;
+  const adminEmail = getAdminEmail();
+  if (req.session.user) {
+    const current = (req.session.user.email || '').toLowerCase();
+    if (current === adminEmail) return res.redirect('/admin');
+    return res.redirect('/player');
+  }
+  return res.redirect('/public');
+});
+
+// Public landing (logged-out)
+app.get('/public', (req, res) => {
   res.type('html').send(`
     <html><head><title>Trivia Advent-ure</title></head>
+    <body style="font-family: system-ui, -apple-system, Segoe UI, Roboto; padding: 24px; max-width: 860px; margin: 0 auto;">
+      <h1>Trivia Advent-ure Calendar</h1>
+      <p>48 quizzes unlock at midnight and noon ET from Dec 1–24. Play anytime; per-quiz leaderboards finalize after 24 hours. Overall standings keep updating.</p>
+      <div style="margin:16px 0;">
+        <a href="/calendar">View Calendar</a> · <a href="/login">Login</a>
+      </div>
+      <h3>How it works</h3>
+      <ul>
+        <li>10 questions per quiz, immediate recap on submit</li>
+        <li>Per-quiz leaderboard freezes at +24h</li>
+        <li>Overall board keeps updating with late plays</li>
+      </ul>
+    </body></html>
+  `);
+});
+
+// Player landing (logged-in non-admin)
+app.get('/player', requireAuth, (req, res) => {
+  const adminEmail = getAdminEmail();
+  const email = (req.session.user.email || '').toLowerCase();
+  if (email === adminEmail) return res.redirect('/admin');
+  res.type('html').send(`
+    <html><head><title>Player • Trivia Advent-ure</title></head>
     <body style="font-family: system-ui, -apple-system, Segoe UI, Roboto; padding: 24px;">
-      <h1>Trivia Advent-ure (Staging)</h1>
-      ${loggedIn ? `<p>Signed in as ${req.session.user.email}.</p>` : `
-        <form method="post" action="/auth/request-link" onsubmit="event.preventDefault(); const fd=new FormData(this); const v=String(fd.get('email')||'').trim(); if(!v){alert('Enter your email'); return;} fetch('/auth/request-link',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ email: v })}).then(r=>r.json()).then(d=>{ if (d.link) { alert('Magic link (dev):\n'+d.link); } else { alert('If you have access, a magic link was sent.'); } }).catch(()=>alert('Failed.'));">
-          <label>Email (Ko-fi): <input id="email" name="email" type="email" required /></label>
-          <button type="submit">Send magic link</button>
-        </form>
-      `}
-      <p style="margin-top:16px;">
-        <a href="/calendar">Go to Calendar</a>
-        ${loggedIn ? '| <a href="/admin/upload-quiz">Admin Upload</a> | <a href="/logout">Logout</a>' : '| <a href="/login">Login</a>'}
-      </p>
+      <h1>Welcome, ${req.session.user.email}</h1>
+      <p><a href="/calendar">Calendar</a> · <a href="/logout">Logout</a></p>
+    </body></html>
+  `);
+});
+
+// Admin dashboard
+app.get('/admin', requireAdmin, (req, res) => {
+  res.type('html').send(`
+    <html><head><title>Admin • Trivia Advent-ure</title></head>
+    <body style="font-family: system-ui, -apple-system, Segoe UI, Roboto; padding: 24px;">
+      <h1>Admin Dashboard</h1>
+      <ul>
+        <li><a href="/admin/upload-quiz">Upload Quiz</a></li>
+        <li><a href="/calendar">Calendar</a></li>
+        <li><a href="/logout">Logout</a></li>
+      </ul>
     </body></html>
   `);
 });
