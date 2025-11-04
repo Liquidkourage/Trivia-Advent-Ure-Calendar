@@ -178,6 +178,7 @@ function requireAuth(req, res, next) {
 }
 
 function requireAdmin(req, res, next) {
+  if (req.session && req.session.isAdmin === true) return next();
   if (!req.session.user) return res.status(401).send('Please sign in.');
   const adminEmail = getAdminEmail();
   if ((req.session.user.email || '').toLowerCase() !== adminEmail) {
@@ -367,7 +368,7 @@ app.get('/login', (req, res) => {
           <button type="submit">Send magic link</button>
         </form>
       `}
-      <p style="margin-top:16px;"><a href="/">Home</a></p>
+      <p style="margin-top:16px;"><a href="/">Home</a> · <a href="/admin/pin">Admin PIN</a></p>
     </body></html>
   `);
 });
@@ -377,6 +378,30 @@ app.get('/logout', (req, res) => {
   req.session.destroy(() => {
     res.redirect('/login');
   });
+});
+
+// Admin PIN login (sets admin session without email check)
+app.get('/admin/pin', (req, res) => {
+  res.type('html').send(`
+    <html><head><title>Admin PIN • Trivia Advent-ure</title></head>
+    <body style="font-family: system-ui, -apple-system, Segoe UI, Roboto; padding: 24px;">
+      <h1>Admin PIN</h1>
+      <form method="post" action="/admin/pin">
+        <label>PIN <input type="password" name="pin" required /></label>
+        <button type="submit">Enter</button>
+      </form>
+      <p style="margin-top:16px;"><a href="/">Home</a></p>
+    </body></html>
+  `);
+});
+
+app.post('/admin/pin', (req, res) => {
+  const provided = String((req.body && req.body.pin) || '').trim();
+  const expected = String(process.env.ADMIN_PIN || '').trim();
+  if (!expected) return res.status(500).send('ADMIN_PIN not set');
+  if (provided !== expected) return res.status(403).send('Invalid PIN');
+  req.session.isAdmin = true;
+  res.redirect('/admin');
 });
 
 // --- Calendar ---
