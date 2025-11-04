@@ -50,6 +50,39 @@ async function initDb() {
       expires_at TIMESTAMPTZ NOT NULL,
       used BOOLEAN NOT NULL DEFAULT FALSE
     );
+    CREATE TABLE IF NOT EXISTS quizzes (
+      id SERIAL PRIMARY KEY,
+      title TEXT NOT NULL,
+      unlock_at TIMESTAMPTZ NOT NULL,
+      freeze_at TIMESTAMPTZ NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_quizzes_unlock_at ON quizzes(unlock_at);
+    CREATE INDEX IF NOT EXISTS idx_quizzes_freeze_at ON quizzes(freeze_at);
+    
+    CREATE TABLE IF NOT EXISTS questions (
+      id SERIAL PRIMARY KEY,
+      quiz_id INTEGER NOT NULL REFERENCES quizzes(id) ON DELETE CASCADE,
+      number INTEGER NOT NULL,
+      text TEXT NOT NULL,
+      answer TEXT NOT NULL,
+      category TEXT,
+      ask TEXT,
+      UNIQUE(quiz_id, number)
+    );
+    CREATE INDEX IF NOT EXISTS idx_questions_quiz_id ON questions(quiz_id);
+    
+    CREATE TABLE IF NOT EXISTS responses (
+      id SERIAL PRIMARY KEY,
+      quiz_id INTEGER NOT NULL REFERENCES quizzes(id) ON DELETE CASCADE,
+      question_id INTEGER NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+      user_email CITEXT NOT NULL,
+      response_text TEXT NOT NULL,
+      points NUMERIC NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(user_email, question_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_responses_quiz_user ON responses(quiz_id, user_email);
   `);
 }
 
@@ -105,6 +138,33 @@ async function sendMagicLink(email, token, linkUrl) {
     userId: 'me',
     requestBody: { raw: rawMessage }
   });
+}
+
+function getAdminEmail() {
+  const from = process.env.EMAIL_FROM || '';
+  const m = from.match(/<([^>]+)>/);
+  const fallback = m ? m[1] : from;
+  return (process.env.ADMIN_EMAIL || fallback || '').toLowerCase();
+}
+
+function requireAuth(req, res, next) {
+  if (!req.session.user) return res.status(401).send('Please sign in.');
+  next();
+}
+
+function requireAdmin(req, res, next) {
+  if (!req.session.user) return res.status(401).send('Please sign in.');
+  const adminEmail = getAdminEmail();
+  if ((req.session.user.email || '').toLowerCase() !== adminEmail) {
+    return res.status(403).send('Admins only');
+  }
+  next();
+}
+
+function parseEtToUtc(dateTimeStr) {
+  // Accepts "YYYY-MM-DDTHH:mm" or "YYYY-MM-DD HH:mm" as ET and converts to UTC Date
+  const s = String(dateTimeStr || '').replace(' ', 'T');
+  return tz.zonedTimeToUtc(s, EVENT_TZ);
 }
 
 // --- Auth: request magic link ---
@@ -222,10 +282,166 @@ app.get('/', (req, res) => {
           <button type="submit">Send magic link</button>
         </form>
       `}
+      <p style="margin-top:16px;"><a href="/calendar">Go to Calendar</a> ${loggedIn ? '| <a href="/admin/upload-quiz">Admin Upload</a>' : ''}</p>
     </body></html>
   `);
 });
 
+// --- Calendar ---
+app.get('/calendar', async (req, res) => {
+  try {
+    const { rows: quizzes } = await pool.query('SELECT * FROM quizzes ORDER BY unlock_at ASC, id ASC');
+    const nowEt = tz.utcToZonedTime(new Date(), EVENT_TZ);
+    const email = req.session.user ? (req.session.user.email || '').toLowerCase() : '';
+    let completedMap = {};
+    if (email) {
+      const { rows: c } = await pool.query('SELECT DISTINCT quiz_id FROM responses WHERE user_email = $1', [email]);
+      completedMap = Object.fromEntries(c.map(r => [String(r.quiz_id), true]));
+    }
+    const tiles = quizzes.map(q => {
+      const unlockEt = tz.utcToZonedTime(new Date(q.unlock_at), EVENT_TZ);
+      const freezeEt = tz.utcToZonedTime(new Date(q.freeze_at), EVENT_TZ);
+      let status = 'Locked';
+      if (nowEt >= freezeEt) status = 'Finalized'; else if (nowEt >= unlockEt) status = 'Unlocked';
+      const completed = completedMap[String(q.id)] ? 'Completed' : '';
+      return { id: q.id, title: q.title, status, completed };
+    });
+    const grid = tiles.map(t => `<div style="border:1px solid #ccc;padding:10px;border-radius:8px;">
+      <div><strong>#${t.id}:</strong> ${t.title}</div>
+      <div>Status: ${t.status}${t.completed ? ' • '+t.completed : ''}</div>
+      <div style="margin-top:6px;"><a href="/quiz/${t.id}">Open</a></div>
+    </div>`).join('\n');
+    res.type('html').send(`
+      <html><head><title>Calendar</title></head>
+      <body style="font-family: system-ui, -apple-system, Segoe UI, Roboto; padding: 24px;">
+        <h1>Advent Calendar</h1>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;">${grid}</div>
+        <p style="margin-top:16px;"><a href="/">Home</a></p>
+      </body></html>
+    `);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to load calendar');
+  }
+});
+
+// --- Admin: upload quiz ---
+app.get('/admin/upload-quiz', requireAdmin, (req, res) => {
+  res.type('html').send(`
+    <html><head><title>Upload Quiz</title></head>
+    <body style="font-family: system-ui, -apple-system, Segoe UI, Roboto; padding: 24px;">
+      <h1>Upload Quiz</h1>
+      <form method="post" action="/admin/upload-quiz">
+        <div><label>Title <input name="title" required /></label></div>
+        <div style="margin-top:8px;"><label>Unlock (ET) <input name="unlock_at" type="datetime-local" required /></label></div>
+        <fieldset style="margin-top:12px;">
+          <legend>Questions (10)</legend>
+          ${Array.from({length:10}, (_,i)=>{
+            const n=i+1;
+            return `<div style=\"border:1px solid #ddd;padding:8px;margin:6px 0;border-radius:6px;\">
+              <div><strong>Q${n}</strong></div>
+              <div><label>Text <input name=\"q${n}_text\" required style=\"width:90%\"/></label></div>
+              <div><label>Answer <input name=\"q${n}_answer\" required style=\"width:90%\"/></label></div>
+              <div><label>Category <input name=\"q${n}_category\" value=\"General\"/></label>
+              <label style=\"margin-left:12px;\">Ask <input name=\"q${n}_ask\"/></label></div>
+            </div>`
+          }).join('')}
+        </fieldset>
+        <div style="margin-top:12px;"><button type="submit">Create Quiz</button></div>
+      </form>
+      <p style="margin-top:16px;"><a href="/">Home</a></p>
+    </body></html>
+  `);
+});
+
+app.post('/admin/upload-quiz', requireAdmin, async (req, res) => {
+  try {
+    const title = String(req.body.title || '').trim();
+    const unlockInput = String(req.body.unlock_at || '').trim();
+    if (!title || !unlockInput) return res.status(400).send('Missing title or unlock time');
+    const unlockUtc = parseEtToUtc(unlockInput);
+    const freezeUtc = new Date(unlockUtc.getTime() + 24*60*60*1000);
+    const qInsert = await pool.query('INSERT INTO quizzes(title, unlock_at, freeze_at) VALUES($1,$2,$3) RETURNING id', [title, unlockUtc, freezeUtc]);
+    const quizId = qInsert.rows[0].id;
+    for (let i=1;i<=10;i++) {
+      const qt = String(req.body[`q${i}_text`] || '').trim();
+      const qa = String(req.body[`q${i}_answer`] || '').trim();
+      const qc = String(req.body[`q${i}_category`] || 'General').trim();
+      const qk = String(req.body[`q${i}_ask`] || '').trim() || null;
+      if (!qt || !qa) continue;
+      await pool.query(
+        'INSERT INTO questions(quiz_id, number, text, answer, category, ask) VALUES($1,$2,$3,$4,$5,$6)',
+        [quizId, i, qt, qa, qc, qk]
+      );
+    }
+    res.redirect(`/quiz/${quizId}`);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to create quiz');
+  }
+});
+
+// --- Play quiz ---
+app.get('/quiz/:id', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const { rows: qr } = await pool.query('SELECT * FROM quizzes WHERE id = $1', [id]);
+    if (qr.length === 0) return res.status(404).send('Quiz not found');
+    const quiz = qr[0];
+    const nowEt = tz.utcToZonedTime(new Date(), EVENT_TZ);
+    const unlockEt = tz.utcToZonedTime(new Date(quiz.unlock_at), EVENT_TZ);
+    const freezeEt = tz.utcToZonedTime(new Date(quiz.freeze_at), EVENT_TZ);
+    const { rows: qs } = await pool.query('SELECT * FROM questions WHERE quiz_id = $1 ORDER BY number ASC', [id]);
+    const locked = nowEt < unlockEt;
+    const status = locked ? 'Locked' : (nowEt >= freezeEt ? 'Finalized' : 'Unlocked');
+    const loggedIn = !!req.session.user;
+    const email = loggedIn ? (req.session.user.email || '') : '';
+    const form = locked ? '<p>This quiz is locked until unlock time (ET).</p>' : (loggedIn ? `
+      <form method="post" action="/quiz/${id}/submit">
+        ${qs.map(q=>`
+          <div style=\"border:1px solid #ddd;padding:8px;margin:6px 0;border-radius:6px;\">
+            <div><strong>Q${q.number}:</strong> ${q.text}</div>
+            <div><label>Your answer <input name=\"q${q.number}\" style=\"width:90%\"/></label></div>
+          </div>
+        `).join('')}
+        <div><button type="submit">Submit</button></div>
+      </form>
+    ` : '<p>Please sign in to play.</p>');
+    res.type('html').send(`
+      <html><head><title>Quiz ${id}</title></head>
+      <body style="font-family: system-ui, -apple-system, Segoe UI, Roboto; padding: 24px;">
+        <h1>${quiz.title} (Quiz #${id})</h1>
+        <div>Status: ${status}</div>
+        ${form}
+        <p style="margin-top:16px;"><a href="/calendar">Back to Calendar</a></p>
+      </body></html>
+    `);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to load quiz');
+  }
+});
+
+app.post('/quiz/:id/submit', requireAuth, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const email = (req.session.user.email || '').toLowerCase();
+    const { rows: qs } = await pool.query('SELECT id, number FROM questions WHERE quiz_id = $1 ORDER BY number ASC', [id]);
+    for (const q of qs) {
+      const key = `q${q.number}`;
+      const val = String(req.body[key] || '').trim();
+      if (!val) continue;
+      await pool.query(
+        'INSERT INTO responses(quiz_id, question_id, user_email, response_text) VALUES($1,$2,$3,$4) ON CONFLICT (user_email, question_id) DO UPDATE SET response_text = EXCLUDED.response_text',
+        [id, q.id, email, val]
+      );
+    }
+    res.redirect(`/quiz/${id}?submitted=1`);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to submit');
+  }
+});
 initDb().then(() => {
   app.listen(PORT, () => {
     console.log(`Advent staging listening on :${PORT}`);
