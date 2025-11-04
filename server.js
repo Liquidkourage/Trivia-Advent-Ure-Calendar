@@ -4,6 +4,7 @@ import cookieParser from 'cookie-parser';
 import crypto from 'crypto';
 import { Pool } from 'pg';
 import nodemailer from 'nodemailer';
+import { google } from 'googleapis';
 import dotenv from 'dotenv';
 import * as tz from 'date-fns-tz';
 
@@ -54,24 +55,8 @@ async function initDb() {
 
 // --- Mailer (Gmail OAuth via nodemailer) ---
 function createMailer() {
-  const provider = process.env.EMAIL_PROVIDER || 'gmail-oauth';
-  if (provider !== 'gmail-oauth') {
-    throw new Error('Only gmail-oauth provider is wired in this scaffold');
-  }
-  const user = parseEmailAddress(process.env.EMAIL_FROM);
-  const transporter = nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 465,
-    secure: true,
-    auth: {
-      type: 'OAuth2',
-      user,
-      clientId: process.env.GMAIL_CLIENT_ID,
-      clientSecret: process.env.GMAIL_CLIENT_SECRET,
-      refreshToken: process.env.GMAIL_REFRESH_TOKEN
-    }
-  });
-  return transporter;
+  // Deprecated path: using Gmail HTTP API instead of SMTP to avoid 530/535 issues
+  return null;
 }
 
 function parseEmailAddress(from) {
@@ -85,19 +70,40 @@ const transporter = (() => {
 })();
 
 async function sendMagicLink(email, token, linkUrl) {
-  if (!transporter) {
-    console.log('[dev] Magic link:', linkUrl || `https://localhost:${PORT}/auth/magic?token=${token}`);
-    return;
-  }
-  const from = process.env.EMAIL_FROM || parseEmailAddress(process.env.EMAIL_FROM) || 'no-reply@example.com';
+  const fromHeader = process.env.EMAIL_FROM || 'no-reply@example.com';
+  const fromEmail = parseEmailAddress(fromHeader) || 'no-reply@example.com';
   const url = linkUrl || `${process.env.PUBLIC_BASE_URL || ''}/auth/magic?token=${encodeURIComponent(token)}`;
   console.log('[info] Magic link:', url);
-  await transporter.sendMail({
-    to: email,
-    from,
-    subject: 'Your Trivia Advent-ure magic link',
-    text: `Click to sign in: ${url}\nThis link expires in 30 minutes and can be used once.`,
-    html: `<p>Click to sign in:</p><p><a href="${url}">${url}</a></p><p>This link expires in 30 minutes and can be used once.</p>`
+
+  // Use Gmail HTTP API with OAuth2
+  const oAuth2Client = new google.auth.OAuth2(
+    process.env.GMAIL_CLIENT_ID,
+    process.env.GMAIL_CLIENT_SECRET
+  );
+  oAuth2Client.setCredentials({ refresh_token: process.env.GMAIL_REFRESH_TOKEN });
+  const gmail = google.gmail({ version: 'v1', auth: oAuth2Client });
+
+  const subject = 'Your Trivia Advent-ure magic link';
+  const text = `Click to sign in: ${url}\r\nThis link expires in 30 minutes and can be used once.`;
+
+  const rawLines = [
+    `From: ${fromHeader}`,
+    `To: ${email}`,
+    `Subject: ${subject}`,
+    'MIME-Version: 1.0',
+    'Content-Type: text/plain; charset=UTF-8',
+    '',
+    text
+  ];
+  const rawMessage = Buffer.from(rawLines.join('\r\n'))
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+
+  await gmail.users.messages.send({
+    userId: 'me',
+    requestBody: { raw: rawMessage }
   });
 }
 
