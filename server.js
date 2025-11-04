@@ -11,6 +11,7 @@ dotenv.config();
 
 const app = express();
 app.use(express.json());
+app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser());
 
 const PORT = process.env.PORT || 8080;
@@ -101,7 +102,8 @@ async function sendMagicLink(email, token, linkUrl) {
 // --- Auth: request magic link ---
 app.post('/auth/request-link', async (req, res) => {
   try {
-    const { email } = req.body || {};
+    const emailRaw = (req.body && req.body.email) || (req.query && req.query.email) || '';
+    const email = String(emailRaw).trim();
     if (!email) return res.status(400).json({ error: 'Email required' });
     const { rows } = await pool.query('SELECT 1 FROM players WHERE email = $1', [email]);
     if (rows.length === 0) return res.status(403).json({ error: 'No access. Donate on Ko-fi to join.' });
@@ -119,6 +121,26 @@ app.post('/auth/request-link', async (req, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'Failed to send link' });
+  }
+});
+
+// Dev helper: request magic link via GET with ?email= when EXPOSE_MAGIC_LINKS=true
+app.get('/auth/dev-link', async (req, res) => {
+  if ((process.env.EXPOSE_MAGIC_LINKS || '').toLowerCase() !== 'true') return res.status(404).send('Not found');
+  try {
+    const email = String(req.query.email || '').trim();
+    if (!email) return res.status(400).json({ error: 'Email required' });
+    const { rows } = await pool.query('SELECT 1 FROM players WHERE email = $1', [email]);
+    if (rows.length === 0) return res.status(403).json({ error: 'No access. Donate on Ko-fi to join.' });
+    const token = crypto.randomBytes(24).toString('base64url');
+    const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
+    await pool.query('INSERT INTO magic_tokens(token,email,expires_at,used) VALUES($1,$2,$3,false)', [token, email, expiresAt]);
+    const linkUrl = `${process.env.PUBLIC_BASE_URL || ''}/auth/magic?token=${encodeURIComponent(token)}`;
+    console.log('[info] Magic link (dev):', linkUrl);
+    return res.json({ ok: true, link: linkUrl });
+  } catch (e) {
+    console.error(e);
+    return res.status(500).json({ error: 'Failed to create link' });
   }
 });
 
