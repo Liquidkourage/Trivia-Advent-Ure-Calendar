@@ -6,7 +6,7 @@ import { Pool } from 'pg';
 import nodemailer from 'nodemailer';
 import { google } from 'googleapis';
 import dotenv from 'dotenv';
-import * as tz from 'date-fns-tz';
+// Avoid timezone library; store UTC in DB and compare in UTC
 
 dotenv.config();
 
@@ -140,6 +140,22 @@ async function sendMagicLink(email, token, linkUrl) {
   });
 }
 
+// --- Time helpers ---
+function etToUtc(dateTimeStr) {
+  // dateTimeStr: 'YYYY-MM-DDTHH:mm' or 'YYYY-MM-DD HH:mm' in Eastern Time (Dec = EST, UTC-5)
+  const s = String(dateTimeStr || '').trim().replace(' ', 'T');
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})[T](\d{2}):(\d{2})$/);
+  if (!m) return new Date(s);
+  const year = Number(m[1]);
+  const mon = Number(m[2]) - 1;
+  const day = Number(m[3]);
+  const hour = Number(m[4]);
+  const min = Number(m[5]);
+  // December: EST (UTC-5) → UTC = ET + 5 hours
+  const utcMillis = Date.UTC(year, mon, day, hour + 5, min, 0);
+  return new Date(utcMillis);
+}
+
 function getAdminEmail() {
   const from = process.env.EMAIL_FROM || '';
   const m = from.match(/<([^>]+)>/);
@@ -246,11 +262,11 @@ app.post('/webhooks/kofi', async (req, res) => {
     if (!email) return res.status(400).send('No email');
     if (type !== 'donation') return res.status(204).send('Ignored');
 
-    const cutoffEt = KOFI_CUTOFF_ET; // e.g., '2025-11-01 00:00:00 America/New_York'
-    const createdAt = createdAtStr ? new Date(createdAtStr) : new Date();
-    const createdAtET = tz.utcToZonedTime(createdAt, EVENT_TZ);
-    const cutoffDate = new Date(tz.utcToZonedTime(new Date(cutoffEt), EVENT_TZ));
-    if (!(createdAtET >= cutoffDate)) {
+  const createdAt = createdAtStr ? new Date(createdAtStr) : new Date();
+  // Prefer UTC cutoff env if provided
+  const cutoffUtcEnv = process.env.KOFI_CUTOFF_UTC || '';
+  const cutoffDate = cutoffUtcEnv ? new Date(cutoffUtcEnv) : new Date('2025-11-01T04:00:00Z');
+  if (!(createdAt >= cutoffDate)) {
       return res.status(204).send('Before cutoff');
     }
 
@@ -291,7 +307,7 @@ app.get('/', (req, res) => {
 app.get('/calendar', async (req, res) => {
   try {
     const { rows: quizzes } = await pool.query('SELECT * FROM quizzes ORDER BY unlock_at ASC, id ASC');
-    const nowEt = tz.utcToZonedTime(new Date(), EVENT_TZ);
+  const nowUtc = new Date();
     const email = req.session.user ? (req.session.user.email || '').toLowerCase() : '';
     let completedMap = {};
     if (email) {
@@ -299,10 +315,10 @@ app.get('/calendar', async (req, res) => {
       completedMap = Object.fromEntries(c.map(r => [String(r.quiz_id), true]));
     }
     const tiles = quizzes.map(q => {
-      const unlockEt = tz.utcToZonedTime(new Date(q.unlock_at), EVENT_TZ);
-      const freezeEt = tz.utcToZonedTime(new Date(q.freeze_at), EVENT_TZ);
+      const unlockUtc = new Date(q.unlock_at);
+      const freezeUtc = new Date(q.freeze_at);
       let status = 'Locked';
-      if (nowEt >= freezeEt) status = 'Finalized'; else if (nowEt >= unlockEt) status = 'Unlocked';
+      if (nowUtc >= freezeUtc) status = 'Finalized'; else if (nowUtc >= unlockUtc) status = 'Unlocked';
       const completed = completedMap[String(q.id)] ? 'Completed' : '';
       return { id: q.id, title: q.title, status, completed };
     });
@@ -359,7 +375,7 @@ app.post('/admin/upload-quiz', requireAdmin, async (req, res) => {
     const title = String(req.body.title || '').trim();
     const unlockInput = String(req.body.unlock_at || '').trim();
     if (!title || !unlockInput) return res.status(400).send('Missing title or unlock time');
-    const unlockUtc = parseEtToUtc(unlockInput);
+    const unlockUtc = etToUtc(unlockInput);
     const freezeUtc = new Date(unlockUtc.getTime() + 24*60*60*1000);
     const qInsert = await pool.query('INSERT INTO quizzes(title, unlock_at, freeze_at) VALUES($1,$2,$3) RETURNING id', [title, unlockUtc, freezeUtc]);
     const quizId = qInsert.rows[0].id;
@@ -388,12 +404,12 @@ app.get('/quiz/:id', async (req, res) => {
     const { rows: qr } = await pool.query('SELECT * FROM quizzes WHERE id = $1', [id]);
     if (qr.length === 0) return res.status(404).send('Quiz not found');
     const quiz = qr[0];
-    const nowEt = tz.utcToZonedTime(new Date(), EVENT_TZ);
-    const unlockEt = tz.utcToZonedTime(new Date(quiz.unlock_at), EVENT_TZ);
-    const freezeEt = tz.utcToZonedTime(new Date(quiz.freeze_at), EVENT_TZ);
+    const nowUtc = new Date();
+    const unlockUtc = new Date(quiz.unlock_at);
+    const freezeUtc = new Date(quiz.freeze_at);
     const { rows: qs } = await pool.query('SELECT * FROM questions WHERE quiz_id = $1 ORDER BY number ASC', [id]);
-    const locked = nowEt < unlockEt;
-    const status = locked ? 'Locked' : (nowEt >= freezeEt ? 'Finalized' : 'Unlocked');
+    const locked = nowUtc < unlockUtc;
+    const status = locked ? 'Locked' : (nowUtc >= freezeUtc ? 'Finalized' : 'Unlocked');
     const loggedIn = !!req.session.user;
     const email = loggedIn ? (req.session.user.email || '') : '';
     const form = locked ? '<p>This quiz is locked until unlock time (ET).</p>' : (loggedIn ? `
