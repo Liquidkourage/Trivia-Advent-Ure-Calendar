@@ -81,13 +81,14 @@ const transporter = (() => {
   try { return createMailer(); } catch (e) { console.warn('Mailer not configured:', e.message); return null; }
 })();
 
-async function sendMagicLink(email, token) {
+async function sendMagicLink(email, token, linkUrl) {
   if (!transporter) {
-    console.log('[dev] Magic link:', `https://localhost:${PORT}/auth/magic?token=${token}`);
+    console.log('[dev] Magic link:', linkUrl || `https://localhost:${PORT}/auth/magic?token=${token}`);
     return;
   }
   const from = process.env.EMAIL_FROM || parseEmailAddress(process.env.EMAIL_FROM) || 'no-reply@example.com';
-  const url = `${process.env.PUBLIC_BASE_URL || ''}/auth/magic?token=${encodeURIComponent(token)}`;
+  const url = linkUrl || `${process.env.PUBLIC_BASE_URL || ''}/auth/magic?token=${encodeURIComponent(token)}`;
+  console.log('[info] Magic link:', url);
   await transporter.sendMail({
     to: email,
     from,
@@ -107,8 +108,10 @@ app.post('/auth/request-link', async (req, res) => {
     const token = crypto.randomBytes(24).toString('base64url');
     const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
     await pool.query('INSERT INTO magic_tokens(token,email,expires_at,used) VALUES($1,$2,$3,false)', [token, email, expiresAt]);
-    await sendMagicLink(email, token);
-    res.json({ ok: true });
+    const linkUrl = `${process.env.PUBLIC_BASE_URL || ''}/auth/magic?token=${encodeURIComponent(token)}`;
+    await sendMagicLink(email, token, linkUrl);
+    const expose = (process.env.EXPOSE_MAGIC_LINKS || '').toLowerCase() === 'true';
+    res.json({ ok: true, link: expose ? linkUrl : undefined });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'Failed to send link' });
