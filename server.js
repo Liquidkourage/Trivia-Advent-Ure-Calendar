@@ -298,9 +298,37 @@ app.get('/', (req, res) => {
           <button type="submit">Send magic link</button>
         </form>
       `}
-      <p style="margin-top:16px;"><a href="/calendar">Go to Calendar</a> ${loggedIn ? '| <a href="/admin/upload-quiz">Admin Upload</a>' : ''}</p>
+      <p style="margin-top:16px;">
+        <a href="/calendar">Go to Calendar</a>
+        ${loggedIn ? '| <a href="/admin/upload-quiz">Admin Upload</a> | <a href="/logout">Logout</a>' : '| <a href="/login">Login</a>'}
+      </p>
     </body></html>
   `);
+});
+
+// Dedicated login page (magic-link)
+app.get('/login', (req, res) => {
+  const loggedIn = !!req.session.user;
+  res.type('html').send(`
+    <html><head><title>Login • Trivia Advent-ure</title></head>
+    <body style="font-family: system-ui, -apple-system, Segoe UI, Roboto; padding: 24px;">
+      <h1>Login</h1>
+      ${loggedIn ? `<p>You are signed in as ${req.session.user.email}. <a href="/logout">Logout</a></p>` : `
+        <form method="post" action="/auth/request-link" onsubmit="event.preventDefault(); const fd=new FormData(this); const v=String(fd.get('email')||'').trim(); if(!v){alert('Enter your email'); return;} fetch('/auth/request-link',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ email: v })}).then(r=>r.json()).then(d=>{ if (d.link) { alert('Magic link (dev):\n'+d.link); } else { alert('If you have access, a magic link was sent.'); } }).catch(()=>alert('Failed.'));">
+          <label>Email (Ko-fi): <input id="email" name="email" type="email" required /></label>
+          <button type="submit">Send magic link</button>
+        </form>
+      `}
+      <p style="margin-top:16px;"><a href="/">Home</a></p>
+    </body></html>
+  `);
+});
+
+// Logout route
+app.get('/logout', (req, res) => {
+  req.session.destroy(() => {
+    res.redirect('/login');
+  });
 });
 
 // --- Calendar ---
