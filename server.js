@@ -1,5 +1,6 @@
 import express from 'express';
 import session from 'express-session';
+import connectPgSimple from 'connect-pg-simple';
 import cookieParser from 'cookie-parser';
 import crypto from 'crypto';
 import { Pool } from 'pg';
@@ -11,6 +12,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 const app = express();
+app.set('trust proxy', 1);
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser());
@@ -21,11 +23,18 @@ const EVENT_TZ = process.env.EVENT_TZ || 'America/New_York';
 const KOFI_CUTOFF_ET = process.env.KOFI_CUTOFF_ET || '2025-11-01 00:00:00 America/New_York';
 const WEBHOOK_SHARED_SECRET = process.env.WEBHOOK_SHARED_SECRET || '';
 
+const PgSession = connectPgSimple(session);
 app.use(session({
   secret: SESSION_SECRET,
   resave: false,
   saveUninitialized: false,
-  cookie: { secure: false, sameSite: 'lax', httpOnly: true }
+  store: new PgSession({ pool, createTableIfMissing: true }),
+  cookie: {
+    secure: true,
+    sameSite: 'lax',
+    httpOnly: true,
+    maxAge: 1000 * 60 * 60 * 24 * 30 // 30 days
+  }
 }));
 
 // --- DB ---
