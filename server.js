@@ -458,17 +458,36 @@ app.get('/calendar', async (req, res) => {
       const completed = completedMap[String(q.id)] ? 'Completed' : '';
       return { id: q.id, title: q.title, status, completed };
     });
-    const grid = tiles.map(t => `<div style="border:1px solid #ccc;padding:10px;border-radius:8px;">
-      <div><strong>#${t.id}:</strong> ${t.title}</div>
-      <div>Status: ${t.status}${t.completed ? ' • '+t.completed : ''}</div>
-      <div style="margin-top:6px;"><a href="/quiz/${t.id}">Open</a></div>
-    </div>`).join('\n');
+    const grid = tiles.map(t => {
+      const cls = `ta-door ${t.status === 'Unlocked' ? 'is-unlocked' : t.status === 'Finalized' ? 'is-finalized' : 'is-locked'}`;
+      const badge = t.completed ? '<span class="ta-badge">Completed</span>' : '';
+      return `
+      <div class="${cls}" data-id="${t.id}">
+        <div class="ta-door-inner">
+          <div class="ta-door-front">
+            <div class="ta-door-number">${t.id}</div>
+            <div class="ta-door-label">${t.status}</div>
+            ${badge}
+          </div>
+          <div class="ta-door-back">
+            <div class="ta-door-content">
+              <div class="title">${t.title}</div>
+              <a class="ta-btn-small" href="/quiz/${t.id}">Open</a>
+            </div>
+          </div>
+        </div>
+      </div>`;
+    }).join('\n');
     res.type('html').send(`
-      <html><head><title>Calendar</title></head>
-      <body style="font-family: system-ui, -apple-system, Segoe UI, Roboto; padding: 24px;">
-        <h1>Advent Calendar</h1>
-        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;">${grid}</div>
-        <p style="margin-top:16px;"><a href="/">Home</a></p>
+      <html><head><title>Calendar</title><link rel="stylesheet" href="/style.css"></head>
+      <body class="ta-body">
+        <header class="ta-header"><div class="ta-header-inner"><div class="ta-brand"><img class="ta-logo" src="/logo.png" onerror="this.src='https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQYrGR-0VPcFSsSMbI2w8LA8_DwMlG63qO_3A&s'"/><span class="ta-title">Trivia Advent‑ure</span></div><nav class="ta-nav"><a href="/player">Player</a> <a href="/logout">Logout</a></nav></div></header>
+        <main class="ta-main ta-container ta-calendar">
+          <h1 class="ta-page-title">Advent Calendar</h1>
+          <div class="ta-calendar-grid">${grid}</div>
+        </main>
+        <footer class="ta-footer"><div class="ta-container">© Trivia Advent‑ure</div></footer>
+        <script>setTimeout(()=>{document.querySelectorAll('.ta-door.is-unlocked').forEach(e=>e.classList.add('is-open'));},300);</script>
       </body></html>
     `);
   } catch (e) {
