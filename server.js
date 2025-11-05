@@ -23,6 +23,21 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 app.use(express.static(path.join(__dirname, 'public')));
 
+// --- Security: force HTTPS and set security headers ---
+app.use((req, res, next) => {
+  // HSTS for one year
+  res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  // Upgrade insecure HTTP asset requests to HTTPS
+  res.setHeader('Content-Security-Policy', "upgrade-insecure-requests");
+  const force = (process.env.FORCE_HTTPS || 'true').toLowerCase() === 'true';
+  const proto = req.headers['x-forwarded-proto'];
+  if (force && proto && proto !== 'https') {
+    const host = req.headers['x-forwarded-host'] || req.headers.host;
+    return res.redirect(301, `https://${host}${req.originalUrl}`);
+  }
+  next();
+});
+
 const PORT = process.env.PORT || 8080;
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
 const EVENT_TZ = process.env.EVENT_TZ || 'America/New_York';
