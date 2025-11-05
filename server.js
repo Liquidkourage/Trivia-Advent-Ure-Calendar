@@ -341,12 +341,12 @@ app.get('/', (req, res) => {
 // Public landing (logged-out)
 app.get('/public', (req, res) => {
   res.type('html').send(`
-    <html><head><title>Trivia Advent-ure</title><link rel="stylesheet" href="/style.css"></head>
+    <html><head><title>Trivia Advent-ure</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
     <body class="ta-body">
       <header class="ta-header">
         <div class="ta-header-inner">
           <div class="ta-brand">
-            <img class="ta-logo" src="/logo.png" onerror="this.src='https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQYrGR-0VPcFSsSMbI2w8LA8_DwMlG63qO_3A&s'" alt="Trivia Advent-ure"/>
+            <img class="ta-logo" src="/logo.svg" alt="Trivia Advent-ure"/>
             <span class="ta-title">Trivia Advent‑ure</span>
           </div>
           <nav class="ta-nav"><a href="/login">Login</a> <a href="/calendar">Calendar</a></nav>
@@ -377,9 +377,9 @@ app.get('/player', requireAuth, (req, res) => {
   const email = (req.session.user.email || '').toLowerCase();
   if (email === adminEmail) return res.redirect('/admin');
   res.type('html').send(`
-    <html><head><title>Player • Trivia Advent-ure</title><link rel="stylesheet" href="/style.css"></head>
+    <html><head><title>Player • Trivia Advent-ure</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
     <body class="ta-body">
-      <header class="ta-header"><div class="ta-header-inner"><div class="ta-brand"><img class="ta-logo" src="/logo.png" onerror="this.src='https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQYrGR-0VPcFSsSMbI2w8LA8_DwMlG63qO_3A&s'"/><span class="ta-title">Trivia Advent‑ure</span></div><nav class="ta-nav"><a href="/calendar">Calendar</a> <a href="/logout">Logout</a></nav></div></header>
+      <header class="ta-header"><div class="ta-header-inner"><div class="ta-brand"><img class="ta-logo" src="/logo.svg"/><span class="ta-title">Trivia Advent‑ure</span></div><nav class="ta-nav"><a href="/calendar">Calendar</a> <a href="/logout">Logout</a></nav></div></header>
       <main class="ta-main ta-container">
         <h1 class="ta-page-title">Welcome, ${req.session.user.email}</h1>
         <p class="ta-lead">Head to the calendar to play unlocked quizzes.</p>
@@ -393,9 +393,9 @@ app.get('/player', requireAuth, (req, res) => {
 // Admin dashboard
 app.get('/admin', requireAdmin, (req, res) => {
   res.type('html').send(`
-    <html><head><title>Admin • Trivia Advent-ure</title><link rel="stylesheet" href="/style.css"></head>
+    <html><head><title>Admin • Trivia Advent-ure</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
     <body class="ta-body">
-      <header class="ta-header"><div class="ta-header-inner"><div class="ta-brand"><img class="ta-logo" src="/logo.png" onerror="this.src='https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQYrGR-0VPcFSsSMbI2w8LA8_DwMlG63qO_3A&s'"/><span class="ta-title">Trivia Advent‑ure</span></div><nav class="ta-nav"><a href="/calendar">Calendar</a> <a href="/logout">Logout</a></nav></div></header>
+      <header class="ta-header"><div class="ta-header-inner"><div class="ta-brand"><img class="ta-logo" src="/logo.svg"/><span class="ta-title">Trivia Advent‑ure</span></div><nav class="ta-nav"><a href="/calendar">Calendar</a> <a href="/logout">Logout</a></nav></div></header>
       <main class="ta-main ta-container">
         <h1 class="ta-page-title">Admin Dashboard</h1>
         <div class="ta-card-grid">
@@ -546,9 +546,9 @@ app.get('/calendar', async (req, res) => {
       </div>`;
     }).join('\n');
     res.type('html').send(`
-      <html><head><title>Calendar</title><link rel="stylesheet" href="/style.css"></head>
+      <html><head><title>Calendar</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
       <body class="ta-body">
-        <header class="ta-header"><div class="ta-header-inner"><div class="ta-brand"><img class="ta-logo" src="/logo.png" onerror="this.src='https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQYrGR-0VPcFSsSMbI2w8LA8_DwMlG63qO_3A&s'"/><span class="ta-title">Trivia Advent‑ure</span></div><nav class="ta-nav"><a href="/player">Player</a> <a href="/logout">Logout</a></nav></div></header>
+        <header class="ta-header"><div class="ta-header-inner"><div class="ta-brand"><img class="ta-logo" src="/logo.svg"/><span class="ta-title">Trivia Advent‑ure</span></div><nav class="ta-nav"><a href="/player">Player</a> <a href="/logout">Logout</a></nav></div></header>
         <main class="ta-main ta-container ta-calendar">
           <h1 class="ta-page-title">Advent Calendar</h1>
           <div class="ta-calendar-grid">${grid}</div>
