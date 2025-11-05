@@ -11,8 +11,9 @@
 @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800&family=Cinzel+Decorative:wght@700&display=swap');
 *{box-sizing:border-box}
 body.ta-body{margin:0;background:linear-gradient(180deg,var(--deep) 0%, #1b173a 60%, var(--evergreen) 100%);color:var(--snow);font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;position:relative;overflow-x:hidden}
-.ta-body:before{content:"";position:fixed;inset:0;pointer-events:none;opacity:.25;z-index:0;background-image:radial-gradient(2px 2px at 20px 30px, #fff 50%, rgba(255,255,255,0) 51%),radial-gradient(2px 2px at 80px 120px, #fff 50%, rgba(255,255,255,0) 51%),radial-gradient(2px 2px at 200px 50px, #fff 50%, rgba(255,255,255,0) 51%),radial-gradient(2px 2px at 320px 80px, #fff 50%, rgba(255,255,255,0) 51%);
+.ta-body:before{content:"";position:fixed;inset:0;pointer-events:none;opacity:.3;z-index:2;background-image:radial-gradient(2px 2px at 20px 30px, #fff 50%, rgba(255,255,255,0) 51%),radial-gradient(2px 2px at 80px 120px, #fff 50%, rgba(255,255,255,0) 51%),radial-gradient(2px 2px at 200px 50px, #fff 50%, rgba(255,255,255,0) 51%),radial-gradient(2px 2px at 320px 80px, #fff 50%, rgba(255,255,255,0) 51%);
   background-size: 400px 200px;animation:snowfall 18s linear infinite}
+.ta-header,.ta-main,.ta-footer{position:relative;z-index:1}
 @keyframes snowfall{from{background-position:0 0, 0 0, 0 0, 0 0}to{background-position:0 200px, 0 200px, 0 200px, 0 200px}}
 .ta-container{max-width:960px;margin:0 auto;padding:24px}
 .ta-header{background:rgba(0,0,0,0.4);backdrop-filter:saturate(120%) blur(6px);position:sticky;top:0;z-index:10;border-bottom:1px solid rgba(255,255,255,0.08)}
@@ -49,10 +50,10 @@ body.ta-body{margin:0;background:linear-gradient(180deg,var(--deep) 0%, #1b173a 
 /* Double door leaves */
 .ta-door-leaf{position:absolute;top:0;bottom:0;width:50%;transition:transform .9s cubic-bezier(.2,.65,.2,1);transform-origin:center;backface-visibility:hidden;
   background:
-    linear-gradient(180deg, rgba(255,255,255,.05), rgba(0,0,0,.28)),
-    repeating-linear-gradient(90deg, rgba(255,255,255,.04) 0 3px, rgba(0,0,0,.06) 3px 6px),
-    radial-gradient(120% 60% at 50% 0%, rgba(255,255,255,.06), rgba(255,255,255,0) 60%),
-    #5f3d1e;
+    radial-gradient(120% 80% at 50% 0%, rgba(255,255,255,.07), rgba(255,255,255,0) 60%),
+    repeating-linear-gradient(90deg, rgba(255,255,255,.035) 0 2px, rgba(0,0,0,.055) 2px 5px),
+    repeating-linear-gradient(0deg, rgba(0,0,0,.05) 0 1px, rgba(255,255,255,.03) 1px 3px),
+    #5a3b1d;
   background-size:100% 100%, 6px 100%, 100% 100%, auto;
   box-shadow:
     inset 0 0 0 2px rgba(0,0,0,.45),
@@ -72,8 +73,8 @@ body.ta-body{margin:0;background:linear-gradient(180deg,var(--deep) 0%, #1b173a 
 /* Gold knobs */
 .ta-door-leaf.right::before{content:"";position:absolute;left:12px;top:50%;transform:translateY(-50%);width:12px;height:12px;border-radius:50%;background:radial-gradient(circle at 30% 30%, #f7dfa6, #c49b22);box-shadow:0 1px 0 #fff inset, 0 0 0 2px rgba(0,0,0,.2)}
 .ta-door-leaf.left::before{content:"";position:absolute;right:12px;top:50%;transform:translateY(-50%);width:12px;height:12px;border-radius:50%;background:radial-gradient(circle at 30% 30%, #f7dfa6, #c49b22);box-shadow:0 1px 0 #fff inset, 0 0 0 2px rgba(0,0,0,.2)}
-.ta-door-number{position:relative;z-index:2;font-family:"Cinzel Decorative","Cinzel", Georgia, serif;font-size:64px;letter-spacing:.5px;color:var(--gold);
-  text-shadow:0 2px 0 rgba(0,0,0,.5), 0 6px 16px rgba(0,0,0,.35)}
+.ta-door-number{position:relative;z-index:2;font-family:"Cinzel Decorative","Cinzel", Georgia, serif;font-size:68px;letter-spacing:.5px;color:#fff;-webkit-text-stroke:1px #D4AF37;
+  text-shadow:0 2px 0 rgba(0,0,0,.7), 0 6px 18px rgba(0,0,0,.45), 0 0 8px rgba(212,175,55,.35)}
 .ta-door-label{font-size:12px;opacity:.9}
 .ta-door-back{
   transform:rotateY(180deg);
