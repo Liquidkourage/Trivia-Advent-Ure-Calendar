@@ -62,6 +62,9 @@ body.ta-body{margin:0;background:linear-gradient(180deg,var(--deep) 0%, #1b173a 
 .ta-door.is-finalized .ta-door-front::after{content:"";position:absolute;right:10px;bottom:10px;width:38px;height:38px;border-radius:50%;background:radial-gradient(circle at 30% 30%, #b0242b, #7a1015);box-shadow:0 3px 0 rgba(0,0,0,.35), inset 0 2px 6px rgba(255,255,255,.2)}
 /* Subtle center seam */
 .ta-door-front::before{content:"";position:absolute;top:6px;bottom:6px;left:50%;width:2px;transform:translateX(-50%);background:linear-gradient(180deg, rgba(255,255,255,.25), rgba(0,0,0,.5), rgba(255,255,255,.2));opacity:.5;border-radius:2px}
+/* Gold knobs */
+.ta-door-leaf.right::before{content:"";position:absolute;left:12px;top:50%;transform:translateY(-50%);width:12px;height:12px;border-radius:50%;background:radial-gradient(circle at 30% 30%, #f7dfa6, #c49b22);box-shadow:0 1px 0 #fff inset, 0 0 0 2px rgba(0,0,0,.2)}
+.ta-door-leaf.left::before{content:"";position:absolute;right:12px;top:50%;transform:translateY(-50%);width:12px;height:12px;border-radius:50%;background:radial-gradient(circle at 30% 30%, #f7dfa6, #c49b22);box-shadow:0 1px 0 #fff inset, 0 0 0 2px rgba(0,0,0,.2)}
 .ta-door-number{position:relative;z-index:2;font-family:"Bebas Neue", Inter, system-ui, sans-serif;font-size:42px;letter-spacing:1px;color:var(--gold);text-shadow:0 2px 0 rgba(0,0,0,.45), 0 1px 6px rgba(0,0,0,.3)}
 .ta-door-label{font-size:12px;opacity:.9}
 .ta-door-back{
@@ -88,4 +91,34 @@ body.ta-body{margin:0;background:linear-gradient(180deg,var(--deep) 0%, #1b173a 
 .ta-door.is-locked .ta-door-leaf{filter:saturate(.6) brightness(.85)}
 .ta-badge{display:inline-block;padding:2px 6px;border-radius:999px;background:#2ECC71;color:#111;font-size:11px;font-weight:800;box-shadow:0 2px 0 rgba(0,0,0,.3)}
 .ta-door.is-finalized .ta-badge{background:#d79c6c;color:#111}
+
+/* THEME VARIANTS */
+.ta-door.ta-style-argyle .ta-door-leaf{
+  background:
+    linear-gradient(180deg, rgba(0,0,0,.08), rgba(0,0,0,.25)),
+    repeating-linear-gradient(60deg, #b73739 0 14px, #e07a7c 14px 28px),
+    repeating-linear-gradient(-60deg, #b73739 0 14px, #e07a7c 14px 28px);
+}
+.ta-door.ta-style-green .ta-door-leaf{
+  background:
+    radial-gradient(120% 80% at 0% 0%, rgba(255,255,255,.15), rgba(255,255,255,0) 50%),
+    radial-gradient(120% 80% at 100% 0%, rgba(255,255,255,.1), rgba(255,255,255,0) 50%),
+    #0f5a3a;
+}
+.ta-door.ta-style-plaid .ta-door-leaf{
+  background:
+    linear-gradient(180deg, rgba(0,0,0,.06), rgba(0,0,0,.25)),
+    repeating-linear-gradient(90deg, #3c2a1a 0 6px, #6d4b2b 6px 12px),
+    repeating-linear-gradient(0deg, rgba(212,175,55,.25) 0 4px, rgba(212,175,55,0) 4px 10px);
+}
+.ta-door.ta-style-vintage .ta-door-leaf{
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.08), rgba(0,0,0,.2)),
+    linear-gradient(135deg, #e8d3b5, #d2b48c);
+}
+.ta-door.ta-style-redgold .ta-door-leaf{
+  background:
+    linear-gradient(180deg, rgba(0,0,0,.06), rgba(0,0,0,.25)),
+    linear-gradient(135deg, #9a1d1d, #5e1212);
+}
 

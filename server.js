@@ -467,6 +467,7 @@ app.get('/calendar', async (req, res) => {
       byDay.get(key)[slot] = q;
     }
     const doors = Array.from(byDay.values());
+    const variants = ['ta-style-argyle','ta-style-green','ta-style-plaid','ta-style-vintage','ta-style-redgold'];
     const grid = doors.map(d => {
       const am = d.am, pm = d.pm;
       function qStatus(q){
@@ -483,7 +484,8 @@ app.get('/calendar', async (req, res) => {
       const doorUnlocked = sAm.unlocked || sPm.unlocked;
       const doorFinal = sAm.finalized && sPm.finalized;
       const completedCount = (sAm.completed?1:0) + (sPm.completed?1:0);
-      const cls = `ta-door ${doorFinal ? 'is-finalized' : doorUnlocked ? 'is-unlocked' : 'is-locked'}`;
+      const variant = variants[(num-1) % variants.length];
+      const cls = `ta-door ${variant} ${doorFinal ? 'is-finalized' : doorUnlocked ? 'is-unlocked' : 'is-locked'}`;
       const badge = completedCount>0 ? `<span class=\"ta-badge\">${completedCount}/2 complete</span>` : '';
       const num = Number(d.day.slice(-2));
       const amBtn = sAm.unlocked ? `<a class=\"ta-btn-small\" href=\"/quiz/${sAm.id}\">Open AM</a>` : `<span class=\"ta-door-label\">${sAm.label}</span>`;
