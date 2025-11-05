@@ -521,24 +521,25 @@ app.get('/calendar', async (req, res) => {
       const amBtn = (sAm.unlocked && sAm.id) ? `<a class=\"ta-btn-small\" href=\"/quiz/${sAm.id}\">Open AM</a>` : `<span class=\"ta-door-label\">${sAm.label || 'Locked'}</span>`;
       const pmBtn = (sPm.unlocked && sPm.id) ? `<a class=\"ta-btn-small\" href=\"/quiz/${sPm.id}\">Open PM</a>` : `<span class=\"ta-door-label\">${sPm.label || 'Locked'}</span>`;
       return `
-      <div class="${cls}" data-day="${d.day}">
-        <div class="ta-door-inner">
-          <div class="ta-door-front">
-            <div class="ta-door-leaf left"></div>
-            <div class="ta-door-leaf right"></div>
-            <div class="ta-door-number">${num}</div>
-            <div class="ta-door-label">${doorFinal ? 'Finalized' : doorUnlocked ? 'Unlocked' : 'Locked'}</div>
-            ${badge}
+      <div class="ta-door-slot">
+        <div class="${cls}" data-day="${d.day}">
+          <div class="ta-door-inner">
+            <div class="ta-door-front">
+              <div class="ta-door-leaf left"></div>
+              <div class="ta-door-leaf right"></div>
+              <div class="ta-door-number">${num}</div>
+              <div class="ta-door-label">${doorFinal ? 'Finalized' : doorUnlocked ? 'Unlocked' : 'Locked'}</div>
+              ${badge}
+            </div>
+            <div class="ta-door-back"></div>
           </div>
-          <div class="ta-door-back"></div>
         </div>
-      </div>
-      ${doorUnlocked ? `
+        ${doorUnlocked ? `
         <div class=\"ta-door-actions\">
           ${sAm.unlocked && sAm.id ? `<a class=\"slot-btn unlocked\" href=\"/quiz/${sAm.id}\">AM</a>` : `<span class=\"slot-btn ${sAm.unlocked?'unlocked':'locked'}\">AM</span>`}
           ${sPm.unlocked && sPm.id ? `<a class=\"slot-btn unlocked\" href=\"/quiz/${sPm.id}\">PM</a>` : `<span class=\"slot-btn ${sPm.unlocked?'unlocked':'locked'}\">PM</span>`}
-        </div>
-      ` : ''}
+        </div>` : ''}
+      </div>
       `;
     }).join('\n');
     res.type('html').send(`
