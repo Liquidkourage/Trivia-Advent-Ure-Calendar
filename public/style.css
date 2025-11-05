@@ -7,16 +7,22 @@
   --red:#8B1E3F;
   --snow:#F7F5EC;
   --ink:#111111;
+  --blue-top:#0f1d5a;
+  --blue-mid:#15124a;
+  --blue-bottom:#0b1338;
 }
 @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800&family=Cinzel+Decorative:wght@700&display=swap');
-html{background:linear-gradient(180deg,var(--deep) 0%, #1b173a 60%, var(--evergreen) 100%);min-height:100%;background-color:#1b173a}
-body{background:linear-gradient(180deg,var(--deep) 0%, #1b173a 60%, var(--evergreen) 100%);background-color:#1b173a}
+html{background:linear-gradient(180deg,var(--blue-top) 0%, var(--blue-mid) 60%, var(--blue-bottom) 100%);min-height:100%;background-color:#0b1338}
+body{background:linear-gradient(180deg,var(--blue-top) 0%, var(--blue-mid) 60%, var(--blue-bottom) 100%);background-color:#0b1338}
 *{box-sizing:border-box}
-body.ta-body{margin:0;background:linear-gradient(180deg,var(--deep) 0%, #1b173a 60%, var(--evergreen) 100%);color:var(--snow);font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;position:relative;overflow-x:hidden;min-height:100vh;background-color:#1b173a}
-.ta-body:before{content:"";position:fixed;inset:0;pointer-events:none;opacity:.3;z-index:2;background-image:radial-gradient(2px 2px at 20px 30px, #fff 50%, rgba(255,255,255,0) 51%),radial-gradient(2px 2px at 80px 120px, #fff 50%, rgba(255,255,255,0) 51%),radial-gradient(2px 2px at 200px 50px, #fff 50%, rgba(255,255,255,0) 51%),radial-gradient(2px 2px at 320px 80px, #fff 50%, rgba(255,255,255,0) 51%);
-  background-size: 400px 200px;animation:snowfall 18s linear infinite}
+body.ta-body{margin:0;background:linear-gradient(180deg,var(--blue-top) 0%, var(--blue-mid) 60%, var(--blue-bottom) 100%);color:var(--snow);font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;position:relative;overflow-x:hidden;min-height:100vh;background-color:#0b1338}
+.ta-body:before{content:"";position:fixed;inset:0;pointer-events:none;opacity:.32;z-index:2;background-image:radial-gradient(1.8px 1.8px at 20px 30px, #fff 50%, rgba(255,255,255,0) 51%),radial-gradient(1.8px 1.8px at 80px 120px, #fff 50%, rgba(255,255,255,0) 51%),radial-gradient(1.8px 1.8px at 200px 50px, #fff 50%, rgba(255,255,255,0) 51%),radial-gradient(1.8px 1.8px at 320px 80px, #fff 50%, rgba(255,255,255,0) 51%);
+  background-size: 420px 220px;animation:snowfall 18s linear infinite}
+.ta-body:after{content:"";position:fixed;inset:0;pointer-events:none;opacity:.18;z-index:2;background-image:radial-gradient(2.6px 2.6px at 60px 40px, #fff 50%, rgba(255,255,255,0) 51%),radial-gradient(2.6px 2.6px at 220px 160px, #fff 50%, rgba(255,255,255,0) 51%),radial-gradient(2.6px 2.6px at 360px 120px, #fff 50%, rgba(255,255,255,0) 51%),radial-gradient(2.6px 2.6px at 480px 200px, #fff 50%, rgba(255,255,255,0) 51%);
+  background-size: 600px 300px;animation:snowfallSlow 28s linear infinite}
 .ta-header,.ta-main,.ta-footer{position:relative;z-index:1}
-@keyframes snowfall{from{background-position:0 0, 0 0, 0 0, 0 0}to{background-position:0 200px, 0 200px, 0 200px, 0 200px}}
+@keyframes snowfall{from{background-position:0 0, 0 0, 0 0, 0 0}to{background-position:0 220px, 0 220px, 0 220px, 0 220px}}
+@keyframes snowfallSlow{from{background-position:0 0, 0 0, 0 0, 0 0}to{background-position:0 320px, 0 320px, 0 320px, 0 320px}}
 .ta-container{max-width:960px;margin:0 auto;padding:24px}
 .ta-header{background:rgba(0,0,0,0.4);backdrop-filter:saturate(120%) blur(6px);position:sticky;top:0;z-index:10;border-bottom:1px solid rgba(255,255,255,0.08)}
 .ta-header-inner{display:flex;align-items:center;justify-content:space-between;gap:16px;max-width:1100px;margin:0 auto;padding:12px 24px}
