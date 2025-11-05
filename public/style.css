@@ -45,6 +45,10 @@ body.ta-body{margin:0;background:linear-gradient(180deg,var(--deep) 0%, #1b173a 
 .ta-door-label{font-size:12px;opacity:.85}
 .ta-door-back{transform:rotateY(180deg);background:linear-gradient(180deg,rgba(0,0,0,.35), rgba(0,0,0,.15));border:1px solid rgba(255,255,255,.12);display:flex;align-items:center;justify-content:center}
 .ta-door-content{padding:12px;text-align:center}
+.ta-door-panels{display:grid;grid-template-columns:1fr;gap:10px;width:100%;padding:12px}
+.ta-door-panel{border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:10px;background:rgba(0,0,0,.25)}
+.ta-door-panel.locked{opacity:.7}
+.ta-door-panel .label{font-size:12px;opacity:.9;margin-bottom:6px}
 .ta-door-content .title{font-weight:700;margin-bottom:8px}
 .ta-btn-small{display:inline-block;padding:6px 10px;border-radius:8px;background:linear-gradient(90deg,var(--gold) 0%,var(--gold-2) 100%);color:#111;text-decoration:none;font-weight:800}
 

@@ -173,6 +173,12 @@ function etToUtc(dateTimeStr) {
   return new Date(utcMillis);
 }
 
+function utcToEtParts(d){
+  // December ET assumed (UTC-5)
+  const et = new Date(d.getTime() - 5*60*60*1000);
+  return {y: et.getUTCFullYear(), m: et.getUTCMonth()+1, d: et.getUTCDate(), h: et.getUTCHours(), et};
+}
+
 function getAdminEmail() {
   const from = process.env.EMAIL_FROM || '';
   const m = from.match(/<([^>]+)>/);
@@ -443,36 +449,63 @@ app.post('/admin/pin', (req, res) => {
 app.get('/calendar', async (req, res) => {
   try {
     const { rows: quizzes } = await pool.query('SELECT * FROM quizzes ORDER BY unlock_at ASC, id ASC');
-  const nowUtc = new Date();
+    const nowUtc = new Date();
     const email = req.session.user ? (req.session.user.email || '').toLowerCase() : '';
-    let completedMap = {};
+    let completedSet = new Set();
     if (email) {
       const { rows: c } = await pool.query('SELECT DISTINCT quiz_id FROM responses WHERE user_email = $1', [email]);
-      completedMap = Object.fromEntries(c.map(r => [String(r.quiz_id), true]));
+      c.forEach(r => completedSet.add(Number(r.quiz_id)));
     }
-    const tiles = quizzes.map(q => {
+    // Group quizzes by ET date (YYYY-MM-DD), expect two per day: 00:00 and 12:00
+    const byDay = new Map();
+    for (const q of quizzes) {
       const unlockUtc = new Date(q.unlock_at);
-      const freezeUtc = new Date(q.freeze_at);
-      let status = 'Locked';
-      if (nowUtc >= freezeUtc) status = 'Finalized'; else if (nowUtc >= unlockUtc) status = 'Unlocked';
-      const completed = completedMap[String(q.id)] ? 'Completed' : '';
-      return { id: q.id, title: q.title, status, completed };
-    });
-    const grid = tiles.map(t => {
-      const cls = `ta-door ${t.status === 'Unlocked' ? 'is-unlocked' : t.status === 'Finalized' ? 'is-finalized' : 'is-locked'}`;
-      const badge = t.completed ? '<span class="ta-badge">Completed</span>' : '';
+      const p = utcToEtParts(unlockUtc);
+      const key = `${p.y}-${String(p.m).padStart(2,'0')}-${String(p.d).padStart(2,'0')}`;
+      const slot = p.h === 0 ? 'am' : 'pm';
+      if (!byDay.has(key)) byDay.set(key, { day:key, am:null, pm:null });
+      byDay.get(key)[slot] = q;
+    }
+    const doors = Array.from(byDay.values());
+    const grid = doors.map(d => {
+      const am = d.am, pm = d.pm;
+      function qStatus(q){
+        if (!q) return { label:'Missing', finalized:false, unlocked:false, completed:false, id:null, title:'' };
+        const unlockUtc = new Date(q.unlock_at);
+        const freezeUtc = new Date(q.freeze_at);
+        const unlocked = nowUtc >= unlockUtc;
+        const finalized = nowUtc >= freezeUtc;
+        const completed = completedSet.has(q.id);
+        const label = finalized ? 'Finalized' : (unlocked ? 'Unlocked' : 'Locked');
+        return { label, finalized, unlocked, completed, id:q.id, title:q.title };
+      }
+      const sAm = qStatus(am), sPm = qStatus(pm);
+      const doorUnlocked = sAm.unlocked || sPm.unlocked;
+      const doorFinal = sAm.finalized && sPm.finalized;
+      const completedCount = (sAm.completed?1:0) + (sPm.completed?1:0);
+      const cls = `ta-door ${doorFinal ? 'is-finalized' : doorUnlocked ? 'is-unlocked' : 'is-locked'}`;
+      const badge = completedCount>0 ? `<span class=\"ta-badge\">${completedCount}/2 complete</span>` : '';
+      const num = Number(d.day.slice(-2));
+      const amBtn = sAm.unlocked ? `<a class=\"ta-btn-small\" href=\"/quiz/${sAm.id}\">Open AM</a>` : `<span class=\"ta-door-label\">${sAm.label}</span>`;
+      const pmBtn = sPm.unlocked ? `<a class=\"ta-btn-small\" href=\"/quiz/${sPm.id}\">Open PM</a>` : `<span class=\"ta-door-label\">${sPm.label}</span>`;
       return `
-      <div class="${cls}" data-id="${t.id}">
+      <div class="${cls}" data-day="${d.day}">
         <div class="ta-door-inner">
           <div class="ta-door-front">
-            <div class="ta-door-number">${t.id}</div>
-            <div class="ta-door-label">${t.status}</div>
+            <div class="ta-door-number">${num}</div>
+            <div class="ta-door-label">${doorFinal ? 'Finalized' : doorUnlocked ? 'Unlocked' : 'Locked'}</div>
             ${badge}
           </div>
           <div class="ta-door-back">
-            <div class="ta-door-content">
-              <div class="title">${t.title}</div>
-              <a class="ta-btn-small" href="/quiz/${t.id}">Open</a>
+            <div class="ta-door-panels">
+              <div class="ta-door-panel ${sAm.unlocked?'':'locked'}">
+                <div class="label">AM (Midnight ET)</div>
+                ${amBtn}
+              </div>
+              <div class="ta-door-panel ${sPm.unlocked?'':'locked'}">
+                <div class="label">PM (Noon ET)</div>
+                ${pmBtn}
+              </div>
             </div>
           </div>
         </div>
