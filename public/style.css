@@ -9,6 +9,8 @@
   --ink:#111111;
 }
 @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800&family=Cinzel+Decorative:wght@700&display=swap');
+html{background:linear-gradient(180deg,var(--deep) 0%, #1b173a 60%, var(--evergreen) 100%);min-height:100%}
+body{background:linear-gradient(180deg,var(--deep) 0%, #1b173a 60%, var(--evergreen) 100%)}
 *{box-sizing:border-box}
 body.ta-body{margin:0;background:linear-gradient(180deg,var(--deep) 0%, #1b173a 60%, var(--evergreen) 100%);color:var(--snow);font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;position:relative;overflow-x:hidden}
 .ta-body:before{content:"";position:fixed;inset:0;pointer-events:none;opacity:.3;z-index:2;background-image:radial-gradient(2px 2px at 20px 30px, #fff 50%, rgba(255,255,255,0) 51%),radial-gradient(2px 2px at 80px 120px, #fff 50%, rgba(255,255,255,0) 51%),radial-gradient(2px 2px at 200px 50px, #fff 50%, rgba(255,255,255,0) 51%),radial-gradient(2px 2px at 320px 80px, #fff 50%, rgba(255,255,255,0) 51%);
