@@ -47,8 +47,10 @@ body.ta-body{margin:0;background:linear-gradient(180deg,var(--deep) 0%, #1b173a 
 /* Double door leaves */
 .ta-door-leaf{position:absolute;top:0;bottom:0;width:50%;transition:transform .9s cubic-bezier(.2,.65,.2,1);transform-origin:center;backface-visibility:hidden;
   background:
-    linear-gradient(180deg, rgba(0,0,0,.1), rgba(0,0,0,.3)),
-    repeating-linear-gradient(25deg, #6b4a23 0 12px, #5a3e1c 12px 24px);
+    linear-gradient(180deg, rgba(255,255,255,.06), rgba(0,0,0,.25)),
+    linear-gradient(90deg, rgba(255,255,255,.05) 0, rgba(255,255,255,0) 2px, rgba(0,0,0,.06) 3px, rgba(255,255,255,0) 6px),
+    #6d4b2b;
+  background-size:100% 100%, 6px 100%, auto;
   box-shadow: inset 0 0 0 2px rgba(0,0,0,.35), 0 8px 20px rgba(0,0,0,.35);
 }
 .ta-door-leaf.left{left:0;border-top-left-radius:14px;border-bottom-left-radius:14px;transform-origin:left center}
@@ -58,6 +60,8 @@ body.ta-body{margin:0;background:linear-gradient(180deg,var(--deep) 0%, #1b173a 
 .ta-door-leaf.right:after{content:"";position:absolute;left:-1px;top:0;bottom:0;width:2px;background:linear-gradient(180deg,#D4AF37,#8f6e1a);opacity:.8}
 /* Wax seal for finalized */
 .ta-door.is-finalized .ta-door-front::after{content:"";position:absolute;right:10px;bottom:10px;width:38px;height:38px;border-radius:50%;background:radial-gradient(circle at 30% 30%, #b0242b, #7a1015);box-shadow:0 3px 0 rgba(0,0,0,.35), inset 0 2px 6px rgba(255,255,255,.2)}
+/* Subtle center seam */
+.ta-door-front::before{content:"";position:absolute;top:6px;bottom:6px;left:50%;width:2px;transform:translateX(-50%);background:linear-gradient(180deg, rgba(255,255,255,.25), rgba(0,0,0,.5), rgba(255,255,255,.2));opacity:.5;border-radius:2px}
 .ta-door-number{position:relative;z-index:2;font-family:"Bebas Neue", Inter, system-ui, sans-serif;font-size:42px;letter-spacing:1px;color:var(--gold);text-shadow:0 2px 0 rgba(0,0,0,.45), 0 1px 6px rgba(0,0,0,.3)}
 .ta-door-label{font-size:12px;opacity:.9}
 .ta-door-back{
