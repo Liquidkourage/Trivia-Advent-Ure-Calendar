@@ -466,7 +466,15 @@ app.get('/calendar', async (req, res) => {
       if (!byDay.has(key)) byDay.set(key, { day:key, am:null, pm:null });
       byDay.get(key)[slot] = q;
     }
-    const doors = Array.from(byDay.values());
+    // Ensure placeholder doors exist for Dec 1–24 even if DB has none
+    const baseYear = quizzes.length > 0
+      ? utcToEtParts(new Date(quizzes[0].unlock_at)).y
+      : new Date().getUTCFullYear();
+    for (let d = 1; d <= 24; d++) {
+      const key = `${baseYear}-12-${String(d).padStart(2,'0')}`;
+      if (!byDay.has(key)) byDay.set(key, { day: key, am: null, pm: null });
+    }
+    const doors = Array.from(byDay.values()).sort((a,b)=> a.day.localeCompare(b.day));
     const grid = doors.map(d => {
       const am = d.am, pm = d.pm;
       function qStatus(q){
@@ -479,22 +487,24 @@ app.get('/calendar', async (req, res) => {
         const label = finalized ? 'Finalized' : (unlocked ? 'Unlocked' : 'Locked');
         return { label, finalized, unlocked, completed, id:q.id, title:q.title };
       }
-      const sAm = qStatus(am), sPm = qStatus(pm);
+      let sAm = qStatus(am), sPm = qStatus(pm);
       const num = Number(d.day.slice(-2));
       // Demo: force Day 1 unlocked when ?demo=1 (temporary preview)
       const demo = String(req.query.demo || '').toLowerCase();
       const isDemoDay1 = (demo === '1' || demo === 'day1') && num === 1;
       if (isDemoDay1) {
-        if (am) { sAm.unlocked = true; sAm.finalized = false; sAm.label = 'Unlocked'; }
-        if (pm) { sPm.unlocked = true; sPm.finalized = false; sPm.label = 'Unlocked'; }
+        if (!am) { sAm = { label:'Unlocked', finalized:false, unlocked:true, completed:false, id:null, title:'Opens at Midnight ET' }; }
+        else { sAm.unlocked = true; sAm.finalized = false; sAm.label = 'Unlocked'; }
+        if (!pm) { sPm = { label:'Unlocked', finalized:false, unlocked:true, completed:false, id:null, title:'Opens at Noon ET' }; }
+        else { sPm.unlocked = true; sPm.finalized = false; sPm.label = 'Unlocked'; }
       }
       const doorUnlocked = sAm.unlocked || sPm.unlocked;
       const doorFinal = sAm.finalized && sPm.finalized;
       const completedCount = (sAm.completed?1:0) + (sPm.completed?1:0);
       const cls = `ta-door ${doorFinal ? 'is-finalized' : doorUnlocked ? 'is-unlocked' : 'is-locked'} ${isDemoDay1 ? 'is-open' : ''}`;
       const badge = completedCount>0 ? `<span class=\"ta-badge\">${completedCount}/2 complete</span>` : '';
-      const amBtn = (sAm.unlocked && sAm.id) ? `<a class=\"ta-btn-small\" href=\"/quiz/${sAm.id}\">Open AM</a>` : `<span class=\"ta-door-label\">${sAm.label}</span>`;
-      const pmBtn = (sPm.unlocked && sPm.id) ? `<a class=\"ta-btn-small\" href=\"/quiz/${sPm.id}\">Open PM</a>` : `<span class=\"ta-door-label\">${sPm.label}</span>`;
+      const amBtn = (sAm.unlocked && sAm.id) ? `<a class=\"ta-btn-small\" href=\"/quiz/${sAm.id}\">Open AM</a>` : `<span class=\"ta-door-label\">${sAm.label || 'Locked'}</span>`;
+      const pmBtn = (sPm.unlocked && sPm.id) ? `<a class=\"ta-btn-small\" href=\"/quiz/${sPm.id}\">Open PM</a>` : `<span class=\"ta-door-label\">${sPm.label || 'Locked'}</span>`;
       return `
       <div class="${cls}" data-day="${d.day}">
         <div class="ta-door-inner">
