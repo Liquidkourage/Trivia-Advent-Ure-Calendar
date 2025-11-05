@@ -400,8 +400,8 @@ app.get('/admin', requireAdmin, (req, res) => {
 app.get('/login', (req, res) => {
   const loggedIn = !!req.session.user;
   res.type('html').send(`
-    <html><head><title>Login • Trivia Advent-ure</title></head>
-    <body style="font-family: system-ui, -apple-system, Segoe UI, Roboto; padding: 24px;">
+    <html><head><title>Login • Trivia Advent-ure</title><link rel="stylesheet" href="/style.css"></head>
+    <body class="ta-body" style="padding: 24px;">
       <h1>Login</h1>
       ${loggedIn ? `<p>You are signed in as ${req.session.user.email}. <a href="/logout">Logout</a></p>` : `
         <form method="post" action="/auth/request-link" onsubmit="event.preventDefault(); const fd=new FormData(this); const v=String(fd.get('email')||'').trim(); if(!v){alert('Enter your email'); return;} fetch('/auth/request-link',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ email: v })}).then(r=>r.json()).then(d=>{ if (d.link) { alert('Magic link (dev):\n'+d.link); } else { alert('If you have access, a magic link was sent.'); } }).catch(()=>alert('Failed.'));">
@@ -424,8 +424,8 @@ app.get('/logout', (req, res) => {
 // Admin PIN login (sets admin session without email check)
 app.get('/admin/pin', (req, res) => {
   res.type('html').send(`
-    <html><head><title>Admin PIN • Trivia Advent-ure</title></head>
-    <body style="font-family: system-ui, -apple-system, Segoe UI, Roboto; padding: 24px;">
+    <html><head><title>Admin PIN • Trivia Advent-ure</title><link rel="stylesheet" href="/style.css"></head>
+    <body class="ta-body" style="padding: 24px;">
       <h1>Admin PIN</h1>
       <form method="post" action="/admin/pin">
         <label>PIN <input type="password" name="pin" required /></label>
@@ -534,8 +534,8 @@ app.get('/calendar', async (req, res) => {
 // --- Admin: upload quiz ---
 app.get('/admin/upload-quiz', requireAdmin, (req, res) => {
   res.type('html').send(`
-    <html><head><title>Upload Quiz</title></head>
-    <body style="font-family: system-ui, -apple-system, Segoe UI, Roboto; padding: 24px;">
+    <html><head><title>Upload Quiz</title><link rel="stylesheet" href="/style.css"></head>
+    <body class="ta-body" style="padding: 24px;">
       <h1>Upload Quiz</h1>
       <form method="post" action="/admin/upload-quiz">
         <div><label>Title <input name="title" required /></label></div>
@@ -590,8 +590,8 @@ app.post('/admin/upload-quiz', requireAdmin, async (req, res) => {
 // --- Admin: generate schedule ---
 app.get('/admin/generate-schedule', requireAdmin, (req, res) => {
   res.type('html').send(`
-    <html><head><title>Generate Schedule</title></head>
-    <body style="font-family: system-ui, -apple-system, Segoe UI, Roboto; padding: 24px;">
+    <html><head><title>Generate Schedule</title><link rel="stylesheet" href="/style.css"></head>
+    <body class="ta-body" style="padding: 24px;">
       <h1>Generate 48-quiz Schedule</h1>
       <p>This will create placeholders for Dec 1–24 at 12:00am and 12:00pm ET. Existing entries are skipped.</p>
       <form method="post" action="/admin/generate-schedule">
@@ -660,8 +660,8 @@ app.get('/quiz/:id', async (req, res) => {
       </form>
     ` : '<p>Please sign in to play.</p>');
     res.type('html').send(`
-      <html><head><title>Quiz ${id}</title></head>
-      <body style="font-family: system-ui, -apple-system, Segoe UI, Roboto; padding: 24px;">
+      <html><head><title>Quiz ${id}</title><link rel="stylesheet" href="/style.css"></head>
+      <body class="ta-body" style="padding: 24px;">
         <h1>${quiz.title} (Quiz #${id})</h1>
         <div>Status: ${status}</div>
         ${form}
@@ -691,8 +691,8 @@ app.get('/quiz/:id/leaderboard', async (req, res) => {
     );
     const items = rows.map(r => `<tr><td>${r.user_email}</td><td>${r.points}</td><td>${new Date(r.first_time).toLocaleString()}</td></tr>`).join('');
     res.type('html').send(`
-      <html><head><title>Leaderboard • Quiz ${id}</title></head>
-      <body style="font-family: system-ui; padding:24px;">
+      <html><head><title>Leaderboard • Quiz ${id}</title><link rel="stylesheet" href="/style.css"></head>
+      <body class="ta-body" style="padding:24px;">
         <h1>Leaderboard • ${qr[0].title}</h1>
         <table border="1" cellspacing="0" cellpadding="6">
           <tr><th>Player</th><th>Points</th><th>First Submitted</th></tr>
@@ -718,8 +718,8 @@ app.get('/leaderboard', async (_req, res) => {
     );
     const items = rows.map(r => `<tr><td>${r.user_email}</td><td>${r.points}</td></tr>`).join('');
     res.type('html').send(`
-      <html><head><title>Overall Leaderboard</title></head>
-      <body style="font-family: system-ui; padding:24px;">
+      <html><head><title>Overall Leaderboard</title><link rel="stylesheet" href="/style.css"></head>
+      <body class="ta-body" style="padding:24px;">
         <h1>Overall Leaderboard</h1>
         <table border="1" cellspacing="0" cellpadding="6">
           <tr><th>Player</th><th>Points</th></tr>
@@ -771,8 +771,8 @@ app.get('/admin/quizzes', requireAdmin, async (req, res) => {
       <td><a href="/admin/quiz/${q.id}">View/Edit</a> · <a href="/quiz/${q.id}">Open</a></td>
     </tr>`).join('');
     res.type('html').send(`
-      <html><head><title>Quizzes</title></head>
-      <body style="font-family: system-ui; padding:24px;">
+      <html><head><title>Quizzes</title><link rel="stylesheet" href="/style.css"></head>
+      <body class="ta-body" style="padding:24px;">
         <h1>Quizzes</h1>
         <table border="1" cellspacing="0" cellpadding="6">
           <tr><th>ID</th><th>Title</th><th>Unlock</th><th>Freeze</th><th>Actions</th></tr>
@@ -796,9 +796,9 @@ app.get('/admin/quiz/:id', requireAdmin, async (req, res) => {
     const quiz = qr.rows[0];
     const qs = await pool.query('SELECT * FROM questions WHERE quiz_id = $1 ORDER BY number ASC', [id]);
     const list = qs.rows.map(q => `<li><strong>Q${q.number}</strong> ${q.text} <em>(Ans: ${q.answer})</em></li>`).join('');
-    res.type('html').send(`
-      <html><head><title>Edit Quiz #${id}</title></head>
-      <body style="font-family: system-ui; padding:24px;">
+  res.type('html').send(`
+    <html><head><title>Edit Quiz #${id}</title><link rel="stylesheet" href="/style.css"></head>
+    <body class="ta-body" style="padding:24px;">
         <h1>Edit Quiz #${id}</h1>
         <form method="post" action="/admin/quiz/${id}">
           <div><label>Title <input name="title" value="${quiz.title}" required /></label></div>
@@ -898,8 +898,8 @@ app.post('/admin/quiz/:id/delete', requireAdmin, async (req, res) => {
 // --- Admin: access & links ---
 app.get('/admin/access', requireAdmin, (req, res) => {
   res.type('html').send(`
-    <html><head><title>Access & Links</title></head>
-    <body style="font-family: system-ui; padding:24px;">
+    <html><head><title>Access & Links</title><link rel="stylesheet" href="/style.css"></head>
+    <body class="ta-body" style="padding:24px;">
       <h1>Access & Links</h1>
       <h3>Grant Access</h3>
       <form method="post" action="/admin/grant">
@@ -952,8 +952,8 @@ app.get('/onboarding', requireAuth, async (req, res) => {
     const done = r.rows[0] && r.rows[0].onboarding_complete === true;
     if (done) return res.redirect('/');
     res.type('html').send(`
-      <html><head><title>Welcome • Trivia Advent-ure</title></head>
-      <body style="font-family: system-ui; padding:24px; max-width:860px; margin:0 auto;">
+      <html><head><title>Welcome • Trivia Advent-ure</title><link rel="stylesheet" href="/style.css"></head>
+      <body class="ta-body" style="padding:24px; max-width:860px; margin:0 auto;">
         <h1>Welcome!</h1>
         <p>Choose how to apply your donation:</p>
 
