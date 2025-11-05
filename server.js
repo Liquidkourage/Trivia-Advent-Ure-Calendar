@@ -875,20 +875,38 @@ app.get('/onboarding', requireAuth, async (req, res) => {
       <html><head><title>Welcome • Trivia Advent-ure</title></head>
       <body style="font-family: system-ui; padding:24px; max-width:860px; margin:0 auto;">
         <h1>Welcome!</h1>
-        <p>Is this donation for you or a gift?</p>
-        <form method="post" action="/onboarding/self" style="display:inline-block; margin-right:12px;">
-          <button type="submit">It’s for me</button>
-        </form>
-        <details style="margin-top:12px;">
-          <summary>It’s a gift</summary>
-          <form method="post" action="/onboarding/gift" style="margin-top:8px;">
+        <p>Choose how to apply your donation:</p>
+
+        <section style="border:1px solid #ddd; padding:12px; border-radius:8px; margin-bottom:12px;">
+          <h3>1) For me only</h3>
+          <p>You keep access under <strong>${req.session.user.email}</strong>.</p>
+          <form method="post" action="/onboarding/self">
+            <button type="submit">Continue as me</button>
+          </form>
+        </section>
+
+        <section style="border:1px solid #ddd; padding:12px; border-radius:8px; margin-bottom:12px;">
+          <h3>2) As a gift only</h3>
+          <p>Give access to someone else. You will <em>not</em> keep access.</p>
+          <form method="post" action="/onboarding/gift">
             <label>Recipient email(s) (comma-separated)<br/>
               <input name="recipients" style="width: 100%;" required />
             </label>
-            <div style="margin-top:8px;"><label><input type="checkbox" name="gift_only" value="1"/> Gift only (donor does not need access)</label></div>
-            <div style="margin-top:8px;"><button type="submit">Send Gift</button></div>
+            <input type="hidden" name="gift_only" value="1" />
+            <div style="margin-top:8px;"><button type="submit">Send gift only</button></div>
           </form>
-        </details>
+        </section>
+
+        <section style="border:1px solid #ddd; padding:12px; border-radius:8px;">
+          <h3>3) For me <em>and</em> as a gift</h3>
+          <p>You keep access, and also gift access to someone else.</p>
+          <form method="post" action="/onboarding/gift">
+            <label>Recipient email(s) (comma-separated)<br/>
+              <input name="recipients" style="width: 100%;" required />
+            </label>
+            <div style="margin-top:8px;"><button type="submit">Keep mine & send gift</button></div>
+          </form>
+        </section>
       </body></html>
     `);
   } catch (e) {
