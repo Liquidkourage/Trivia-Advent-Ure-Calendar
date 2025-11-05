@@ -24,6 +24,15 @@ const KOFI_CUTOFF_ET = process.env.KOFI_CUTOFF_ET || '2025-11-01 00:00:00 Americ
 const WEBHOOK_SHARED_SECRET = process.env.WEBHOOK_SHARED_SECRET || '';
 
 const PgSession = connectPgSimple(session);
+
+// --- DB ---
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.DATABASE_URL?.includes('railway.app') || process.env.PGSSL === 'require'
+    ? { rejectUnauthorized: false }
+    : false
+});
+
 app.use(session({
   secret: SESSION_SECRET,
   resave: false,
@@ -36,14 +45,6 @@ app.use(session({
     maxAge: 1000 * 60 * 60 * 24 * 30 // 30 days
   }
 }));
-
-// --- DB ---
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.DATABASE_URL?.includes('railway.app') || process.env.PGSSL === 'require'
-    ? { rejectUnauthorized: false }
-    : false
-});
 
 async function initDb() {
   await pool.query(`
