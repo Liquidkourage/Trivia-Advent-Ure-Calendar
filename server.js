@@ -510,13 +510,13 @@ app.get('/calendar', async (req, res) => {
       if (isDemoDay1) {
         if (!am) { sAm = { label:'Unlocked', finalized:false, unlocked:true, completed:false, id:null, title:'Opens at Midnight ET' }; }
         else { sAm.unlocked = true; sAm.finalized = false; sAm.label = 'Unlocked'; }
-        if (!pm) { sPm = { label:'Unlocked', finalized:false, unlocked:true, completed:false, id:null, title:'Opens at Noon ET' }; }
-        else { sPm.unlocked = true; sPm.finalized = false; sPm.label = 'Unlocked'; }
+        if (!pm) { sPm = { label:'Locked', finalized:false, unlocked:false, completed:false, id:null, title:'Opens at Noon ET' }; }
+        else { sPm.unlocked = false; sPm.finalized = false; sPm.label = 'Locked'; }
       }
       const doorUnlocked = (sAm.unlocked || sPm.unlocked) || isDemoDay1;
       const doorFinal = sAm.finalized && sPm.finalized;
       const completedCount = (sAm.completed?1:0) + (sPm.completed?1:0);
-      const cls = `ta-door ${doorFinal ? 'is-finalized' : doorUnlocked ? 'is-unlocked' : 'is-locked'} ${isDemoDay1 ? 'is-open' : ''}`;
+      const cls = `ta-door ${doorFinal ? 'is-finalized' : doorUnlocked ? 'is-unlocked' : 'is-locked'}`;
       const badge = completedCount>0 ? `<span class=\"ta-badge\">${completedCount}/2 complete</span>` : '';
       const amBtn = (sAm.unlocked && sAm.id) ? `<a class=\"ta-btn-small\" href=\"/quiz/${sAm.id}\">Open AM</a>` : `<span class=\"ta-door-label\">${sAm.label || 'Locked'}</span>`;
       const pmBtn = (sPm.unlocked && sPm.id) ? `<a class=\"ta-btn-small\" href=\"/quiz/${sPm.id}\">Open PM</a>` : `<span class=\"ta-door-label\">${sPm.label || 'Locked'}</span>`;
@@ -530,14 +530,16 @@ app.get('/calendar', async (req, res) => {
             <div class="ta-door-label">${doorFinal ? 'Finalized' : doorUnlocked ? 'Unlocked' : 'Locked'}</div>
             ${badge}
           </div>
-          <div class="ta-door-back">
-            <div class="slot-grid">
-              ${sAm.unlocked && sAm.id ? `<a class=\"slot-btn unlocked\" href=\"/quiz/${sAm.id}\">AM</a>` : `<span class=\"slot-btn ${sAm.unlocked?'unlocked':'locked'}\" title=\"${sAm.unlocked?'Opens soon':'Locked'}\">AM</span>`}
-              ${sPm.unlocked && sPm.id ? `<a class=\"slot-btn unlocked\" href=\"/quiz/${sPm.id}\">PM</a>` : `<span class=\"slot-btn ${sPm.unlocked?'unlocked':'locked'}\" title=\"${sPm.unlocked?'Opens soon':'Locked'}\">PM</span>`}
-            </div>
-          </div>
+          <div class="ta-door-back"></div>
         </div>
-      </div>`;
+      </div>
+      ${doorUnlocked ? `
+        <div class=\"ta-door-actions\">
+          ${sAm.unlocked && sAm.id ? `<a class=\"slot-btn unlocked\" href=\"/quiz/${sAm.id}\">AM</a>` : `<span class=\"slot-btn ${sAm.unlocked?'unlocked':'locked'}\">AM</span>`}
+          ${sPm.unlocked && sPm.id ? `<a class=\"slot-btn unlocked\" href=\"/quiz/${sPm.id}\">PM</a>` : `<span class=\"slot-btn ${sPm.unlocked?'unlocked':'locked'}\">PM</span>`}
+        </div>
+      ` : ''}
+      `;
     }).join('\n');
     res.type('html').send(`
       <html><head><title>Calendar</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
@@ -548,7 +550,6 @@ app.get('/calendar', async (req, res) => {
           <div class="ta-calendar-grid">${grid}</div>
         </main>
         <footer class="ta-footer"><div class="ta-container">© Trivia Advent‑ure</div></footer>
-        <script>setTimeout(()=>{document.querySelectorAll('.ta-door.is-unlocked').forEach(e=>e.classList.add('is-open'));},300);</script>
       </body></html>
     `);
   } catch (e) {
