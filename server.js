@@ -52,7 +52,8 @@ async function initDb() {
     CREATE TABLE IF NOT EXISTS players (
       id SERIAL PRIMARY KEY,
       email CITEXT UNIQUE NOT NULL,
-      access_granted_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      access_granted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      onboarding_complete BOOLEAN NOT NULL DEFAULT FALSE
     );
     CREATE TABLE IF NOT EXISTS magic_tokens (
       token TEXT PRIMARY KEY,
@@ -251,7 +252,10 @@ app.get('/auth/magic', async (req, res) => {
     if (new Date(row.expires_at) < new Date()) return res.status(400).send('Token expired');
     await pool.query('UPDATE magic_tokens SET used = true WHERE token = $1', [token]);
     req.session.user = { email: row.email };
-    res.redirect('/');
+    // Check onboarding
+    const orow = await pool.query('SELECT onboarding_complete FROM players WHERE email = $1', [row.email]);
+    const done = orow.rows[0] && orow.rows[0].onboarding_complete === true;
+    res.redirect(done ? '/' : '/onboarding');
   } catch (e) {
     console.error(e);
     res.status(500).send('Auth failed');
@@ -857,6 +861,83 @@ app.post('/admin/send-link', requireAdmin, async (req, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).send('Failed to send');
+  }
+});
+
+// --- Onboarding ---
+app.get('/onboarding', requireAuth, async (req, res) => {
+  try {
+    const email = (req.session.user.email || '').toLowerCase();
+    const r = await pool.query('SELECT onboarding_complete FROM players WHERE email = $1', [email]);
+    const done = r.rows[0] && r.rows[0].onboarding_complete === true;
+    if (done) return res.redirect('/');
+    res.type('html').send(`
+      <html><head><title>Welcome • Trivia Advent-ure</title></head>
+      <body style="font-family: system-ui; padding:24px; max-width:860px; margin:0 auto;">
+        <h1>Welcome!</h1>
+        <p>Is this donation for you or a gift?</p>
+        <form method="post" action="/onboarding/self" style="display:inline-block; margin-right:12px;">
+          <button type="submit">It’s for me</button>
+        </form>
+        <details style="margin-top:12px;">
+          <summary>It’s a gift</summary>
+          <form method="post" action="/onboarding/gift" style="margin-top:8px;">
+            <label>Recipient email(s) (comma-separated)<br/>
+              <input name="recipients" style="width: 100%;" required />
+            </label>
+            <div style="margin-top:8px;"><label><input type="checkbox" name="gift_only" value="1"/> Gift only (donor does not need access)</label></div>
+            <div style="margin-top:8px;"><button type="submit">Send Gift</button></div>
+          </form>
+        </details>
+      </body></html>
+    `);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to load onboarding');
+  }
+});
+
+app.post('/onboarding/self', requireAuth, async (req, res) => {
+  try {
+    const email = (req.session.user.email || '').toLowerCase();
+    await pool.query('UPDATE players SET onboarding_complete = TRUE WHERE email = $1', [email]);
+    res.redirect('/player');
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to complete onboarding');
+  }
+});
+
+function parseRecipientEmails(input) {
+  const raw = String(input || '').toLowerCase();
+  return raw.split(/[;,\s]+/).map(s => s.trim()).filter(s => /.+@.+\..+/.test(s));
+}
+
+app.post('/onboarding/gift', requireAuth, async (req, res) => {
+  try {
+    const donor = (req.session.user.email || '').toLowerCase();
+    const recipients = parseRecipientEmails(req.body.recipients || '');
+    const giftOnly = String(req.body.gift_only || '').toLowerCase() === '1';
+    if (recipients.length === 0) return res.status(400).send('Enter at least one valid recipient email');
+    // Grant recipients and send magic links
+    for (const r of recipients) {
+      await pool.query('INSERT INTO players(email, access_granted_at) VALUES($1, NOW()) ON CONFLICT (email) DO NOTHING', [r]);
+      const token = crypto.randomBytes(24).toString('base64url');
+      const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
+      await pool.query('INSERT INTO magic_tokens(token,email,expires_at,used) VALUES($1,$2,$3,false)', [token, r, expiresAt]);
+      const linkUrl = `${process.env.PUBLIC_BASE_URL || ''}/auth/magic?token=${encodeURIComponent(token)}`;
+      await sendMagicLink(r, token, linkUrl).catch(err => console.warn('Send mail failed:', err?.message || err));
+    }
+    // Optionally grant donor (default true)
+    if (!giftOnly) {
+      await pool.query('UPDATE players SET onboarding_complete = TRUE WHERE email = $1', [donor]);
+    } else {
+      await pool.query('UPDATE players SET onboarding_complete = TRUE WHERE email = $1', [donor]);
+    }
+    res.type('html').send(`<html><body style="font-family: system-ui; padding:24px;"><h1>Gift sent</h1><p>We emailed ${recipients.length} recipient(s).</p><p><a href="/player">Continue</a></p></body></html>`);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to process gift');
   }
 });
 
