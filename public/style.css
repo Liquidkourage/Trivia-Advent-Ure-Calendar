@@ -1,4 +1,5 @@
 :root{
+:root{
   --gold:#FFA726;
   --gold-2:#FFC46B;
   --evergreen:#0F3D2E;
@@ -7,6 +8,7 @@
   --snow:#F7F5EC;
   --ink:#111111;
 }
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800&family=Cinzel+Decorative:wght@700&display=swap');
 *{box-sizing:border-box}
 body.ta-body{margin:0;background:linear-gradient(180deg,var(--deep) 0%, #1b173a 60%, var(--evergreen) 100%);color:var(--snow);font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;position:relative;overflow-x:hidden}
 .ta-body:before{content:"";position:fixed;inset:0;pointer-events:none;opacity:.25;z-index:0;background-image:radial-gradient(2px 2px at 20px 30px, #fff 50%, rgba(255,255,255,0) 51%),radial-gradient(2px 2px at 80px 120px, #fff 50%, rgba(255,255,255,0) 51%),radial-gradient(2px 2px at 200px 50px, #fff 50%, rgba(255,255,255,0) 51%),radial-gradient(2px 2px at 320px 80px, #fff 50%, rgba(255,255,255,0) 51%);
@@ -39,19 +41,24 @@ body.ta-body{margin:0;background:linear-gradient(180deg,var(--deep) 0%, #1b173a 
 /* Calendar tiles (simple baseline styles applied via inline HTML already) */
 .ta-calendar{margin-top:12px}
 .ta-calendar-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:16px}
-.ta-door{position:relative;height:190px;perspective:900px;border-radius:14px}
+.ta-door{position:relative;height:240px;perspective:1000px;border-radius:16px}
 .ta-door-inner{position:relative;width:100%;height:100%;transform-style:preserve-3d;transition:transform .9s cubic-bezier(.2,.65,.2,1)}
-.ta-door-front,.ta-door-back{position:absolute;inset:0;border-radius:14px;backface-visibility:hidden}
+.ta-door-front,.ta-door-back{position:absolute;inset:0;border-radius:16px;backface-visibility:hidden}
 /* Ornate wood door with gold bevel */
 .ta-door-front{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;position:relative}
 /* Double door leaves */
 .ta-door-leaf{position:absolute;top:0;bottom:0;width:50%;transition:transform .9s cubic-bezier(.2,.65,.2,1);transform-origin:center;backface-visibility:hidden;
   background:
-    linear-gradient(180deg, rgba(255,255,255,.06), rgba(0,0,0,.25)),
-    linear-gradient(90deg, rgba(255,255,255,.05) 0, rgba(255,255,255,0) 2px, rgba(0,0,0,.06) 3px, rgba(255,255,255,0) 6px),
-    #6d4b2b;
-  background-size:100% 100%, 6px 100%, auto;
-  box-shadow: inset 0 0 0 2px rgba(0,0,0,.35), 0 8px 20px rgba(0,0,0,.35);
+    linear-gradient(180deg, rgba(255,255,255,.05), rgba(0,0,0,.28)),
+    repeating-linear-gradient(90deg, rgba(255,255,255,.04) 0 3px, rgba(0,0,0,.06) 3px 6px),
+    radial-gradient(120% 60% at 50% 0%, rgba(255,255,255,.06), rgba(255,255,255,0) 60%),
+    #5f3d1e;
+  background-size:100% 100%, 6px 100%, 100% 100%, auto;
+  box-shadow:
+    inset 0 0 0 2px rgba(0,0,0,.45),
+    inset 0 0 0 8px rgba(255,255,255,.06),
+    inset 0 0 0 14px rgba(0,0,0,.35),
+    0 10px 24px rgba(0,0,0,.35);
 }
 .ta-door-leaf.left{left:0;border-top-left-radius:14px;border-bottom-left-radius:14px;transform-origin:left center}
 .ta-door-leaf.right{right:0;border-top-right-radius:14px;border-bottom-right-radius:14px;transform-origin:right center}
@@ -65,7 +72,8 @@ body.ta-body{margin:0;background:linear-gradient(180deg,var(--deep) 0%, #1b173a 
 /* Gold knobs */
 .ta-door-leaf.right::before{content:"";position:absolute;left:12px;top:50%;transform:translateY(-50%);width:12px;height:12px;border-radius:50%;background:radial-gradient(circle at 30% 30%, #f7dfa6, #c49b22);box-shadow:0 1px 0 #fff inset, 0 0 0 2px rgba(0,0,0,.2)}
 .ta-door-leaf.left::before{content:"";position:absolute;right:12px;top:50%;transform:translateY(-50%);width:12px;height:12px;border-radius:50%;background:radial-gradient(circle at 30% 30%, #f7dfa6, #c49b22);box-shadow:0 1px 0 #fff inset, 0 0 0 2px rgba(0,0,0,.2)}
-.ta-door-number{position:relative;z-index:2;font-family:"Bebas Neue", Inter, system-ui, sans-serif;font-size:42px;letter-spacing:1px;color:var(--gold);text-shadow:0 2px 0 rgba(0,0,0,.45), 0 1px 6px rgba(0,0,0,.3)}
+.ta-door-number{position:relative;z-index:2;font-family:"Cinzel Decorative","Cinzel", Georgia, serif;font-size:64px;letter-spacing:.5px;color:var(--gold);
+  text-shadow:0 2px 0 rgba(0,0,0,.5), 0 6px 16px rgba(0,0,0,.35)}
 .ta-door-label{font-size:12px;opacity:.9}
 .ta-door-back{
   transform:rotateY(180deg);
