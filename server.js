@@ -351,6 +351,8 @@ app.get('/admin', requireAdmin, (req, res) => {
         <li><a href="/admin/upload-quiz">Upload Quiz</a></li>
         <li><a href="/admin/generate-schedule">Generate 48-quiz Schedule</a></li>
         <li><a href="/leaderboard">Overall Leaderboard</a></li>
+        <li><a href="/admin/quizzes">Manage Quizzes</a></li>
+        <li><a href="/admin/access">Access & Links</a></li>
         <li><a href="/calendar">Calendar</a></li>
         <li><a href="/logout">Logout</a></li>
       </ul>
@@ -673,4 +675,224 @@ initDb().then(() => {
   });
 });
 
+// --- Admin: list quizzes ---
+app.get('/admin/quizzes', requireAdmin, async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT id, title, unlock_at, freeze_at FROM quizzes ORDER BY unlock_at ASC, id ASC LIMIT 200');
+    const items = rows.map(q => `<tr>
+      <td>#${q.id}</td>
+      <td>${q.title}</td>
+      <td>${new Date(q.unlock_at).toLocaleString()}</td>
+      <td>${new Date(q.freeze_at).toLocaleString()}</td>
+      <td><a href="/admin/quiz/${q.id}">View/Edit</a> · <a href="/quiz/${q.id}">Open</a></td>
+    </tr>`).join('');
+    res.type('html').send(`
+      <html><head><title>Quizzes</title></head>
+      <body style="font-family: system-ui; padding:24px;">
+        <h1>Quizzes</h1>
+        <table border="1" cellspacing="0" cellpadding="6">
+          <tr><th>ID</th><th>Title</th><th>Unlock</th><th>Freeze</th><th>Actions</th></tr>
+          ${items || '<tr><td colspan="5">No quizzes</td></tr>'}
+        </table>
+        <p style="margin-top:16px;"><a href="/admin">Back</a></p>
+      </body></html>
+    `);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to list quizzes');
+  }
+});
+
+// --- Admin: view/edit quiz ---
+app.get('/admin/quiz/:id', requireAdmin, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const qr = await pool.query('SELECT * FROM quizzes WHERE id = $1', [id]);
+    if (qr.rows.length === 0) return res.status(404).send('Not found');
+    const quiz = qr.rows[0];
+    const qs = await pool.query('SELECT * FROM questions WHERE quiz_id = $1 ORDER BY number ASC', [id]);
+    const list = qs.rows.map(q => `<li><strong>Q${q.number}</strong> ${q.text} <em>(Ans: ${q.answer})</em></li>`).join('');
+    res.type('html').send(`
+      <html><head><title>Edit Quiz #${id}</title></head>
+      <body style="font-family: system-ui; padding:24px;">
+        <h1>Edit Quiz #${id}</h1>
+        <form method="post" action="/admin/quiz/${id}">
+          <div><label>Title <input name="title" value="${quiz.title}" required /></label></div>
+          <div style="margin-top:8px;"><label>Unlock (ET) <input name="unlock_at" type="datetime-local" /></label> <small>Leave blank to keep</small></div>
+          <div style="margin-top:8px;"><button type="submit">Save</button></div>
+        </form>
+        <h3 style="margin-top:16px;">Questions</h3>
+        <ul>${list || '<li>No questions</li>'}</ul>
+        <h3>Bulk replace questions</h3>
+        <form method="post" action="/admin/quiz/${id}/questions">
+          <textarea name="json" rows="12" cols="100" placeholder='[
+  {"number":1, "text":"...", "answer":"...", "category":"General", "ask":"..."},
+  ... 10 items total ...
+]'></textarea>
+          <div style="margin-top:8px;"><button type="submit">Replace Questions</button></div>
+        </form>
+        <form method="post" action="/admin/quiz/${id}/clone" style="margin-top:16px; display:inline-block;"><button type="submit">Clone Quiz</button></form>
+        <form method="post" action="/admin/quiz/${id}/delete" style="margin-top:16px; display:inline-block; margin-left:8px;" onsubmit="return confirm('Delete this quiz? This cannot be undone.');"><button type="submit">Delete Quiz</button></form>
+        <p style="margin-top:16px;"><a href="/admin/quizzes">Back</a></p>
+      </body></html>
+    `);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to load quiz');
+  }
+});
+
+app.post('/admin/quiz/:id', requireAdmin, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const title = String(req.body.title || '').trim();
+    const unlock = String(req.body.unlock_at || '').trim();
+    if (!title) return res.status(400).send('Title required');
+    if (unlock) {
+      const unlockUtc = etToUtc(unlock);
+      const freezeUtc = new Date(unlockUtc.getTime() + 24*60*60*1000);
+      await pool.query('UPDATE quizzes SET title=$1, unlock_at=$2, freeze_at=$3 WHERE id=$4', [title, unlockUtc, freezeUtc, id]);
+    } else {
+      await pool.query('UPDATE quizzes SET title=$1 WHERE id=$2', [title, id]);
+    }
+    res.redirect(`/admin/quiz/${id}`);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to save');
+  }
+});
+
+app.post('/admin/quiz/:id/questions', requireAdmin, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const payload = String(req.body.json || '').trim();
+    const arr = JSON.parse(payload);
+    if (!Array.isArray(arr) || arr.length === 0) return res.status(400).send('Invalid JSON');
+    await pool.query('DELETE FROM questions WHERE quiz_id = $1', [id]);
+    for (const item of arr) {
+      const n = Number(item.number || 0);
+      if (!n || !item.text || !item.answer) continue;
+      await pool.query('INSERT INTO questions(quiz_id, number, text, answer, category, ask) VALUES($1,$2,$3,$4,$5,$6)', [id, n, String(item.text), String(item.answer), String(item.category || 'General'), item.ask ? String(item.ask) : null]);
+    }
+    res.redirect(`/admin/quiz/${id}`);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to replace questions');
+  }
+});
+
+app.post('/admin/quiz/:id/clone', requireAdmin, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const qr = await pool.query('SELECT * FROM quizzes WHERE id=$1', [id]);
+    if (qr.rows.length === 0) return res.status(404).send('Not found');
+    const qz = qr.rows[0];
+    const ins = await pool.query('INSERT INTO quizzes(title, unlock_at, freeze_at) VALUES($1,$2,$3) RETURNING id', [`${qz.title} (Copy)`, qz.unlock_at, qz.freeze_at]);
+    const newId = ins.rows[0].id;
+    const qs = await pool.query('SELECT * FROM questions WHERE quiz_id=$1 ORDER BY number ASC', [id]);
+    for (const q of qs.rows) {
+      await pool.query('INSERT INTO questions(quiz_id, number, text, answer, category, ask) VALUES($1,$2,$3,$4,$5,$6)', [newId, q.number, q.text, q.answer, q.category, q.ask]);
+    }
+    res.redirect(`/admin/quiz/${newId}`);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to clone');
+  }
+});
+
+app.post('/admin/quiz/:id/delete', requireAdmin, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    await pool.query('DELETE FROM quizzes WHERE id=$1', [id]);
+    res.redirect('/admin/quizzes');
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to delete');
+  }
+});
+
+// --- Admin: access & links ---
+app.get('/admin/access', requireAdmin, (req, res) => {
+  res.type('html').send(`
+    <html><head><title>Access & Links</title></head>
+    <body style="font-family: system-ui; padding:24px;">
+      <h1>Access & Links</h1>
+      <h3>Grant Access</h3>
+      <form method="post" action="/admin/grant">
+        <label>Email <input name="email" type="email" required /></label>
+        <button type="submit">Grant</button>
+      </form>
+      <h3 style="margin-top:12px;">Send Magic Link</h3>
+      <form method="post" action="/admin/send-link">
+        <label>Email <input name="email" type="email" required /></label>
+        <button type="submit">Send</button>
+      </form>
+      <p style="margin-top:16px;"><a href="/admin">Back</a></p>
+    </body></html>
+  `);
+});
+
+app.post('/admin/grant', requireAdmin, async (req, res) => {
+  try {
+    const email = String(req.body.email || '').trim().toLowerCase();
+    if (!email) return res.status(400).send('Email required');
+    await pool.query('INSERT INTO players(email, access_granted_at) VALUES($1, NOW()) ON CONFLICT (email) DO NOTHING', [email]);
+    res.redirect('/admin/access');
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to grant');
+  }
+});
+
+app.post('/admin/send-link', requireAdmin, async (req, res) => {
+  try {
+    const email = String(req.body.email || '').trim().toLowerCase();
+    if (!email) return res.status(400).send('Email required');
+    const token = crypto.randomBytes(24).toString('base64url');
+    const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
+    await pool.query('INSERT INTO magic_tokens(token,email,expires_at,used) VALUES($1,$2,$3,false)', [token, email, expiresAt]);
+    const linkUrl = `${process.env.PUBLIC_BASE_URL || ''}/auth/magic?token=${encodeURIComponent(token)}`;
+    await sendMagicLink(email, token, linkUrl);
+    res.redirect('/admin/access');
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to send');
+  }
+});
+
+// --- CSV exports ---
+app.get('/admin/quiz/:id/export.csv', requireAdmin, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const { rows } = await pool.query('SELECT user_email, question_id, response_text, points, created_at FROM responses WHERE quiz_id=$1 ORDER BY user_email, question_id', [id]);
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="quiz_${id}_responses.csv"`);
+    res.write('user_email,question_id,response_text,points,created_at\n');
+    for (const r of rows) {
+      const line = `${r.user_email},${r.question_id},"${String(r.response_text).replace(/"/g,'\"')}",${r.points},${new Date(r.created_at).toISOString()}\n`;
+      res.write(line);
+    }
+    res.end();
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to export');
+  }
+});
+
+app.get('/admin/export-overall.csv', requireAdmin, async (_req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT quiz_id, user_email, question_id, response_text, points, created_at FROM responses ORDER BY quiz_id, user_email, question_id');
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename="overall_responses.csv"');
+    res.write('quiz_id,user_email,question_id,response_text,points,created_at\n');
+    for (const r of rows) {
+      const line = `${r.quiz_id},${r.user_email},${r.question_id},"${String(r.response_text).replace(/"/g,'\"')}",${r.points},${new Date(r.created_at).toISOString()}\n`;
+      res.write(line);
+    }
+    res.end();
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to export');
+  }
+});
 
