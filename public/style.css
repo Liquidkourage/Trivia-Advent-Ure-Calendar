@@ -43,22 +43,22 @@ body.ta-body{margin:0;background:linear-gradient(180deg,var(--deep) 0%, #1b173a 
 .ta-door-inner{position:relative;width:100%;height:100%;transform-style:preserve-3d;transition:transform .9s cubic-bezier(.2,.65,.2,1)}
 .ta-door-front,.ta-door-back{position:absolute;inset:0;border-radius:14px;backface-visibility:hidden}
 /* Ornate wood door with gold bevel */
-.ta-door-front{
-  border:2px solid transparent;
+.ta-door-front{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;position:relative}
+/* Double door leaves */
+.ta-door-leaf{position:absolute;top:0;bottom:0;width:50%;transition:transform .9s cubic-bezier(.2,.65,.2,1);transform-origin:center;backface-visibility:hidden;
   background:
-    linear-gradient(180deg, rgba(0,0,0,.15), rgba(0,0,0,.35)) padding-box,
-    linear-gradient(135deg, #D4AF37, #9E7B1E) border-box,
-    repeating-linear-gradient(25deg, #6b4a23 0 12px, #5a3e1c 12px 24px) content-box;
-  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;
+    linear-gradient(180deg, rgba(0,0,0,.1), rgba(0,0,0,.3)),
+    repeating-linear-gradient(25deg, #6b4a23 0 12px, #5a3e1c 12px 24px);
   box-shadow: inset 0 0 0 2px rgba(0,0,0,.35), 0 8px 20px rgba(0,0,0,.35);
-  position:relative;
 }
-/* Ribbon tag */
-.ta-door-front::before{content:"";position:absolute;right:10px;top:-8px;width:70px;height:26px;background:linear-gradient(180deg,#c12236,#8B1E3F);border:1px solid rgba(0,0,0,.25);border-bottom-left-radius:8px;border-bottom-right-radius:8px;box-shadow:0 3px 0 rgba(0,0,0,.2)}
-/* Knob / Wax seal depending on state */
-.ta-door-front::after{content:"";position:absolute;left:10px;top:50%;transform:translateY(-50%);width:12px;height:12px;border-radius:50%;background:radial-gradient(circle at 30% 30%, #f7dfa6, #c49b22);box-shadow:0 1px 0 #fff inset, 0 0 0 2px rgba(0,0,0,.2)}
-.ta-door.is-finalized .ta-door-front::after{left:auto;right:10px;top:auto;bottom:10px;transform:none;width:38px;height:38px;border-radius:50%;background:radial-gradient(circle at 30% 30%, #b0242b, #7a1015);box-shadow:0 3px 0 rgba(0,0,0,.35), inset 0 2px 6px rgba(255,255,255,.2)}
-.ta-door-number{font-family:"Bebas Neue", Inter, system-ui, sans-serif;font-size:42px;letter-spacing:1px;color:var(--gold);text-shadow:0 2px 0 rgba(0,0,0,.45), 0 1px 6px rgba(0,0,0,.3)}
+.ta-door-leaf.left{left:0;border-top-left-radius:14px;border-bottom-left-radius:14px;transform-origin:left center}
+.ta-door-leaf.right{right:0;border-top-right-radius:14px;border-bottom-right-radius:14px;transform-origin:right center}
+/* subtle gold bevel edges */
+.ta-door-leaf.left:after{content:"";position:absolute;right:-1px;top:0;bottom:0;width:2px;background:linear-gradient(180deg,#D4AF37,#8f6e1a);opacity:.8}
+.ta-door-leaf.right:after{content:"";position:absolute;left:-1px;top:0;bottom:0;width:2px;background:linear-gradient(180deg,#D4AF37,#8f6e1a);opacity:.8}
+/* Wax seal for finalized */
+.ta-door.is-finalized .ta-door-front::after{content:"";position:absolute;right:10px;bottom:10px;width:38px;height:38px;border-radius:50%;background:radial-gradient(circle at 30% 30%, #b0242b, #7a1015);box-shadow:0 3px 0 rgba(0,0,0,.35), inset 0 2px 6px rgba(255,255,255,.2)}
+.ta-door-number{position:relative;z-index:2;font-family:"Bebas Neue", Inter, system-ui, sans-serif;font-size:42px;letter-spacing:1px;color:var(--gold);text-shadow:0 2px 0 rgba(0,0,0,.45), 0 1px 6px rgba(0,0,0,.3)}
 .ta-door-label{font-size:12px;opacity:.9}
 .ta-door-back{
   transform:rotateY(180deg);
@@ -78,10 +78,10 @@ body.ta-body{margin:0;background:linear-gradient(180deg,var(--deep) 0%, #1b173a 
 .ta-btn-small{display:inline-block;padding:6px 10px;border-radius:8px;background:linear-gradient(90deg,var(--gold) 0%,var(--gold-2) 100%);color:#111;text-decoration:none;font-weight:800}
 
 /* States */
-.ta-door.is-unlocked:hover .ta-door-inner{transform:rotateY(170deg)}
-.ta-door.is-open .ta-door-inner{transform:rotateY(170deg)}
-.ta-door.is-finalized .ta-door-front{background:linear-gradient(180deg,#2b2b2b,#1a1a1a)}
-.ta-door.is-locked .ta-door-front{filter:saturate(.6) brightness(.8)}
+.ta-door.is-unlocked:hover .ta-door-leaf.left, .ta-door.is-open .ta-door-leaf.left{transform:rotateY(-155deg)}
+.ta-door.is-unlocked:hover .ta-door-leaf.right, .ta-door.is-open .ta-door-leaf.right{transform:rotateY(155deg)}
+.ta-door.is-unlocked:hover .ta-door-number, .ta-door.is-open .ta-door-number, .ta-door.is-unlocked:hover .ta-door-label, .ta-door.is-open .ta-door-label{opacity:0}
+.ta-door.is-locked .ta-door-leaf{filter:saturate(.6) brightness(.85)}
 .ta-badge{display:inline-block;padding:2px 6px;border-radius:999px;background:#2ECC71;color:#111;font-size:11px;font-weight:800;box-shadow:0 2px 0 rgba(0,0,0,.3)}
 .ta-door.is-finalized .ta-badge{background:#d79c6c;color:#111}
 

@@ -492,6 +492,8 @@ app.get('/calendar', async (req, res) => {
       <div class="${cls}" data-day="${d.day}">
         <div class="ta-door-inner">
           <div class="ta-door-front">
+            <div class="ta-door-leaf left"></div>
+            <div class="ta-door-leaf right"></div>
             <div class="ta-door-number">${num}</div>
             <div class="ta-door-label">${doorFinal ? 'Finalized' : doorUnlocked ? 'Unlocked' : 'Locked'}</div>
             ${badge}
