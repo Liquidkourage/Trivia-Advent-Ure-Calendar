@@ -531,15 +531,9 @@ app.get('/calendar', async (req, res) => {
             ${badge}
           </div>
           <div class="ta-door-back">
-            <div class="ta-door-panels">
-              <div class="ta-door-panel ${sAm.unlocked?'':'locked'}">
-                <div class="label">AM (Midnight ET)</div>
-                ${amBtn}
-              </div>
-              <div class="ta-door-panel ${sPm.unlocked?'':'locked'}">
-                <div class="label">PM (Noon ET)</div>
-                ${pmBtn}
-              </div>
+            <div class="slot-grid">
+              ${sAm.unlocked && sAm.id ? `<a class=\"slot-btn unlocked\" href=\"/quiz/${sAm.id}\">AM</a>` : `<span class=\"slot-btn ${sAm.unlocked?'unlocked':'locked'}\" title=\"${sAm.unlocked?'Opens soon':'Locked'}\">AM</span>`}
+              ${sPm.unlocked && sPm.id ? `<a class=\"slot-btn unlocked\" href=\"/quiz/${sPm.id}\">PM</a>` : `<span class=\"slot-btn ${sPm.unlocked?'unlocked':'locked'}\" title=\"${sPm.unlocked?'Opens soon':'Locked'}\">PM</span>`}
             </div>
           </div>
         </div>
