@@ -498,7 +498,7 @@ app.get('/calendar', async (req, res) => {
         if (!pm) { sPm = { label:'Unlocked', finalized:false, unlocked:true, completed:false, id:null, title:'Opens at Noon ET' }; }
         else { sPm.unlocked = true; sPm.finalized = false; sPm.label = 'Unlocked'; }
       }
-      const doorUnlocked = sAm.unlocked || sPm.unlocked;
+      const doorUnlocked = (sAm.unlocked || sPm.unlocked) || isDemoDay1;
       const doorFinal = sAm.finalized && sPm.finalized;
       const completedCount = (sAm.completed?1:0) + (sPm.completed?1:0);
       const cls = `ta-door ${doorFinal ? 'is-finalized' : doorUnlocked ? 'is-unlocked' : 'is-locked'} ${isDemoDay1 ? 'is-open' : ''}`;
