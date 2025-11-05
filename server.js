@@ -349,6 +349,8 @@ app.get('/admin', requireAdmin, (req, res) => {
       <h1>Admin Dashboard</h1>
       <ul>
         <li><a href="/admin/upload-quiz">Upload Quiz</a></li>
+        <li><a href="/admin/generate-schedule">Generate 48-quiz Schedule</a></li>
+        <li><a href="/leaderboard">Overall Leaderboard</a></li>
         <li><a href="/calendar">Calendar</a></li>
         <li><a href="/logout">Logout</a></li>
       </ul>
@@ -499,6 +501,52 @@ app.post('/admin/upload-quiz', requireAdmin, async (req, res) => {
   }
 });
 
+// --- Admin: generate schedule ---
+app.get('/admin/generate-schedule', requireAdmin, (req, res) => {
+  res.type('html').send(`
+    <html><head><title>Generate Schedule</title></head>
+    <body style="font-family: system-ui, -apple-system, Segoe UI, Roboto; padding: 24px;">
+      <h1>Generate 48-quiz Schedule</h1>
+      <p>This will create placeholders for Dec 1–24 at 12:00am and 12:00pm ET. Existing entries are skipped.</p>
+      <form method="post" action="/admin/generate-schedule">
+        <label>Year <input name="year" type="number" value="${new Date().getUTCFullYear()}" required /></label>
+        <button type="submit" style="margin-left:8px;">Generate</button>
+      </form>
+      <p style="margin-top:16px;"><a href="/admin">Back</a></p>
+    </body></html>
+  `);
+});
+
+app.post('/admin/generate-schedule', requireAdmin, async (req, res) => {
+  try {
+    const year = Number(req.body.year || new Date().getUTCFullYear());
+    const inserts = [];
+    let count = 0;
+    for (let day = 1; day <= 24; day++) {
+      for (const hh of [0, 12]) {
+        const mm = '00';
+        const month = '12';
+        const dd = String(day).padStart(2, '0');
+        const hhStr = String(hh).padStart(2, '0');
+        const etStr = `${year}-${month}-${dd}T${hhStr}:${mm}`; // ET
+        const unlockUtc = etToUtc(etStr);
+        const freezeUtc = new Date(unlockUtc.getTime() + 24*60*60*1000);
+        const label = `${year}-12-${dd} ${hh === 0 ? 'Midnight' : 'Noon'} ET`;
+        // Skip if quiz already exists at same unlock
+        const exist = await pool.query('SELECT id FROM quizzes WHERE unlock_at = $1', [unlockUtc]);
+        if (exist.rows.length === 0) {
+          await pool.query('INSERT INTO quizzes(title, unlock_at, freeze_at) VALUES($1,$2,$3)', [label, unlockUtc, freezeUtc]);
+          count++;
+        }
+      }
+    }
+    res.type('html').send(`<html><body style="font-family: system-ui; padding:24px;"><h1>Generated ${count} quizzes</h1><p><a href="/calendar">View Calendar</a> · <a href="/admin">Back</a></p></body></html>`);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to generate');
+  }
+});
+
 // --- Play quiz ---
 app.get('/quiz/:id', async (req, res) => {
   try {
@@ -540,6 +588,65 @@ app.get('/quiz/:id', async (req, res) => {
   }
 });
 
+// --- Per-quiz leaderboard ---
+app.get('/quiz/:id/leaderboard', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const { rows: qr } = await pool.query('SELECT id, title, freeze_at FROM quizzes WHERE id = $1', [id]);
+    if (qr.length === 0) return res.status(404).send('Quiz not found');
+    const freezeUtc = new Date(qr[0].freeze_at);
+    const { rows } = await pool.query(
+      `SELECT user_email, SUM(points) AS points, MIN(created_at) AS first_time
+       FROM responses
+       WHERE quiz_id = $1 AND created_at <= $2
+       GROUP BY user_email
+       ORDER BY points DESC, first_time ASC`,
+      [id, freezeUtc]
+    );
+    const items = rows.map(r => `<tr><td>${r.user_email}</td><td>${r.points}</td><td>${new Date(r.first_time).toLocaleString()}</td></tr>`).join('');
+    res.type('html').send(`
+      <html><head><title>Leaderboard • Quiz ${id}</title></head>
+      <body style="font-family: system-ui; padding:24px;">
+        <h1>Leaderboard • ${qr[0].title}</h1>
+        <table border="1" cellspacing="0" cellpadding="6">
+          <tr><th>Player</th><th>Points</th><th>First Submitted</th></tr>
+          ${items || '<tr><td colspan="3">No submissions yet.</td></tr>'}
+        </table>
+        <p style="margin-top:16px;"><a href="/quiz/${id}">Back to Quiz</a> · <a href="/calendar">Calendar</a></p>
+      </body></html>
+    `);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to load leaderboard');
+  }
+});
+
+// --- Overall leaderboard ---
+app.get('/leaderboard', async (_req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT user_email, SUM(points) AS points
+       FROM responses
+       GROUP BY user_email
+       ORDER BY points DESC`
+    );
+    const items = rows.map(r => `<tr><td>${r.user_email}</td><td>${r.points}</td></tr>`).join('');
+    res.type('html').send(`
+      <html><head><title>Overall Leaderboard</title></head>
+      <body style="font-family: system-ui; padding:24px;">
+        <h1>Overall Leaderboard</h1>
+        <table border="1" cellspacing="0" cellpadding="6">
+          <tr><th>Player</th><th>Points</th></tr>
+          ${items || '<tr><td colspan="2">No submissions yet.</td></tr>'}
+        </table>
+        <p style="margin-top:16px;"><a href="/calendar">Calendar</a></p>
+      </body></html>
+    `);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to load leaderboard');
+  }
+});
 app.post('/quiz/:id/submit', requireAuth, async (req, res) => {
   try {
     const id = Number(req.params.id);
