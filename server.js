@@ -16,6 +16,12 @@ app.set('trust proxy', 1);
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser());
+// Serve static assets (CSS, images)
+import path from 'path';
+import { fileURLToPath } from 'url';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+app.use(express.static(path.join(__dirname, 'public')));
 
 const PORT = process.env.PORT || 8080;
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
@@ -314,19 +320,32 @@ app.get('/', (req, res) => {
 // Public landing (logged-out)
 app.get('/public', (req, res) => {
   res.type('html').send(`
-    <html><head><title>Trivia Advent-ure</title></head>
-    <body style="font-family: system-ui, -apple-system, Segoe UI, Roboto; padding: 24px; max-width: 860px; margin: 0 auto;">
-      <h1>Trivia Advent-ure Calendar</h1>
+    <html><head><title>Trivia Advent-ure</title><link rel="stylesheet" href="/style.css"></head>
+    <body class="ta-body">
+      <header class="ta-header">
+        <div class="ta-header-inner">
+          <div class="ta-brand">
+            <img class="ta-logo" src="/logo.png" onerror="this.src='https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQYrGR-0VPcFSsSMbI2w8LA8_DwMlG63qO_3A&s'" alt="Trivia Advent-ure"/>
+            <span class="ta-title">Trivia Advent‑ure</span>
+          </div>
+          <nav class="ta-nav"><a href="/login">Login</a> <a href="/calendar">Calendar</a></nav>
+        </div>
+      </header>
+      <main class="ta-main ta-container">
+      <h1 class="ta-page-title">Trivia Advent-ure Calendar</h1>
       <p>48 quizzes unlock at midnight and noon ET from Dec 1–24. Play anytime; per-quiz leaderboards finalize after 24 hours. Overall standings keep updating.</p>
-      <div style="margin:16px 0;">
-        <a href="/calendar">View Calendar</a> · <a href="/login">Login</a>
+      <div class="ta-actions">
+        <a class="ta-btn ta-btn-primary" href="/calendar">View Calendar</a>
+        <a class="ta-btn ta-btn-outline" href="/login">Login</a>
       </div>
-      <h3>How it works</h3>
-      <ul>
+      <h3 class="ta-section-title">How it works</h3>
+      <ul class="ta-list">
         <li>10 questions per quiz, immediate recap on submit</li>
-        <li>Per-quiz leaderboard freezes at +24h</li>
+        <li>Per‑quiz leaderboard freezes at +24h</li>
         <li>Overall board keeps updating with late plays</li>
       </ul>
+      </main>
+      <footer class="ta-footer"><div class="ta-container">© Trivia Advent‑ure</div></footer>
     </body></html>
   `);
 });
@@ -337,10 +356,15 @@ app.get('/player', requireAuth, (req, res) => {
   const email = (req.session.user.email || '').toLowerCase();
   if (email === adminEmail) return res.redirect('/admin');
   res.type('html').send(`
-    <html><head><title>Player • Trivia Advent-ure</title></head>
-    <body style="font-family: system-ui, -apple-system, Segoe UI, Roboto; padding: 24px;">
-      <h1>Welcome, ${req.session.user.email}</h1>
-      <p><a href="/calendar">Calendar</a> · <a href="/logout">Logout</a></p>
+    <html><head><title>Player • Trivia Advent-ure</title><link rel="stylesheet" href="/style.css"></head>
+    <body class="ta-body">
+      <header class="ta-header"><div class="ta-header-inner"><div class="ta-brand"><img class="ta-logo" src="/logo.png" onerror="this.src='https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQYrGR-0VPcFSsSMbI2w8LA8_DwMlG63qO_3A&s'"/><span class="ta-title">Trivia Advent‑ure</span></div><nav class="ta-nav"><a href="/calendar">Calendar</a> <a href="/logout">Logout</a></nav></div></header>
+      <main class="ta-main ta-container">
+        <h1 class="ta-page-title">Welcome, ${req.session.user.email}</h1>
+        <p class="ta-lead">Head to the calendar to play unlocked quizzes.</p>
+        <div class="ta-actions"><a class="ta-btn ta-btn-primary" href="/calendar">Open Calendar</a></div>
+      </main>
+      <footer class="ta-footer"><div class="ta-container">© Trivia Advent‑ure</div></footer>
     </body></html>
   `);
 });
@@ -348,18 +372,20 @@ app.get('/player', requireAuth, (req, res) => {
 // Admin dashboard
 app.get('/admin', requireAdmin, (req, res) => {
   res.type('html').send(`
-    <html><head><title>Admin • Trivia Advent-ure</title></head>
-    <body style="font-family: system-ui, -apple-system, Segoe UI, Roboto; padding: 24px;">
-      <h1>Admin Dashboard</h1>
-      <ul>
-        <li><a href="/admin/upload-quiz">Upload Quiz</a></li>
-        <li><a href="/admin/generate-schedule">Generate 48-quiz Schedule</a></li>
-        <li><a href="/leaderboard">Overall Leaderboard</a></li>
-        <li><a href="/admin/quizzes">Manage Quizzes</a></li>
-        <li><a href="/admin/access">Access & Links</a></li>
-        <li><a href="/calendar">Calendar</a></li>
-        <li><a href="/logout">Logout</a></li>
-      </ul>
+    <html><head><title>Admin • Trivia Advent-ure</title><link rel="stylesheet" href="/style.css"></head>
+    <body class="ta-body">
+      <header class="ta-header"><div class="ta-header-inner"><div class="ta-brand"><img class="ta-logo" src="/logo.png" onerror="this.src='https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQYrGR-0VPcFSsSMbI2w8LA8_DwMlG63qO_3A&s'"/><span class="ta-title">Trivia Advent‑ure</span></div><nav class="ta-nav"><a href="/calendar">Calendar</a> <a href="/logout">Logout</a></nav></div></header>
+      <main class="ta-main ta-container">
+        <h1 class="ta-page-title">Admin Dashboard</h1>
+        <div class="ta-card-grid">
+          <a class="ta-card" href="/admin/upload-quiz"><strong>Upload Quiz</strong><span>Create a quiz with 10 questions</span></a>
+          <a class="ta-card" href="/admin/generate-schedule"><strong>Generate Schedule</strong><span>Create Dec 1–24 placeholders</span></a>
+          <a class="ta-card" href="/admin/quizzes"><strong>Manage Quizzes</strong><span>View/Edit/Clone/Delete</span></a>
+          <a class="ta-card" href="/admin/access"><strong>Access & Links</strong><span>Grant or send magic links</span></a>
+          <a class="ta-card" href="/leaderboard"><strong>Overall Leaderboard</strong></a>
+        </div>
+      </main>
+      <footer class="ta-footer"><div class="ta-container">© Trivia Advent‑ure</div></footer>
     </body></html>
   `);
 });
