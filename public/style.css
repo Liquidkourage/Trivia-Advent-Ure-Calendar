@@ -93,7 +93,12 @@ body.ta-body{margin:0;background:linear-gradient(180deg,var(--blue-top) 0%, var(
   box-shadow: inset 0 0 0 2px rgba(0,0,0,.35);
 }
 .ta-door-content{padding:12px;text-align:center}
-.ta-door-panels{display:grid;grid-template-columns:1fr;gap:10px;width:100%;padding:12px}
+.ta-door-panels{display:grid;grid-template-columns:1fr 1fr;gap:10px;width:100%;padding:12px}
+.ta-door-panels .ta-door-panel:nth-child(1){justify-self:start}
+.ta-door-panels .ta-door-panel:nth-child(2){justify-self:end}
+@media (max-width: 520px){
+  .ta-door-panels{grid-template-columns:1fr}
+}
 .ta-door-panel{border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:10px;background:rgba(0,0,0,.25)}
 .ta-door-panel.locked{opacity:.7}
 .ta-door-panel .label{font-size:12px;opacity:.9;margin-bottom:6px}
