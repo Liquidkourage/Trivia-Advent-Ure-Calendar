@@ -483,17 +483,18 @@ app.get('/calendar', async (req, res) => {
       const num = Number(d.day.slice(-2));
       // Demo: force Day 1 unlocked when ?demo=1 (temporary preview)
       const demo = String(req.query.demo || '').toLowerCase();
-      if ((demo === '1' || demo === 'day1') && num === 1) {
-        sAm.unlocked = true; sAm.finalized = false; sAm.label = 'Unlocked';
-        sPm.unlocked = true; sPm.finalized = false; sPm.label = 'Unlocked';
+      const isDemoDay1 = (demo === '1' || demo === 'day1') && num === 1;
+      if (isDemoDay1) {
+        if (am) { sAm.unlocked = true; sAm.finalized = false; sAm.label = 'Unlocked'; }
+        if (pm) { sPm.unlocked = true; sPm.finalized = false; sPm.label = 'Unlocked'; }
       }
       const doorUnlocked = sAm.unlocked || sPm.unlocked;
       const doorFinal = sAm.finalized && sPm.finalized;
       const completedCount = (sAm.completed?1:0) + (sPm.completed?1:0);
-      const cls = `ta-door ${doorFinal ? 'is-finalized' : doorUnlocked ? 'is-unlocked' : 'is-locked'}`;
+      const cls = `ta-door ${doorFinal ? 'is-finalized' : doorUnlocked ? 'is-unlocked' : 'is-locked'} ${isDemoDay1 ? 'is-open' : ''}`;
       const badge = completedCount>0 ? `<span class=\"ta-badge\">${completedCount}/2 complete</span>` : '';
-      const amBtn = sAm.unlocked ? `<a class=\"ta-btn-small\" href=\"/quiz/${sAm.id}\">Open AM</a>` : `<span class=\"ta-door-label\">${sAm.label}</span>`;
-      const pmBtn = sPm.unlocked ? `<a class=\"ta-btn-small\" href=\"/quiz/${sPm.id}\">Open PM</a>` : `<span class=\"ta-door-label\">${sPm.label}</span>`;
+      const amBtn = (sAm.unlocked && sAm.id) ? `<a class=\"ta-btn-small\" href=\"/quiz/${sAm.id}\">Open AM</a>` : `<span class=\"ta-door-label\">${sAm.label}</span>`;
+      const pmBtn = (sPm.unlocked && sPm.id) ? `<a class=\"ta-btn-small\" href=\"/quiz/${sPm.id}\">Open PM</a>` : `<span class=\"ta-door-label\">${sPm.label}</span>`;
       return `
       <div class="${cls}" data-day="${d.day}">
         <div class="ta-door-inner">
