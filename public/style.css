@@ -163,6 +163,7 @@ body.ta-body{margin:0;background:linear-gradient(180deg,var(--blue-top) 0%, var(
 .recap-table{width:100%;border-collapse:collapse}
 .recap-table th,.recap-table td{border:1px solid rgba(255,255,255,.2);padding:8px}
 .recap-table th{background:rgba(0,0,0,.25)}
+.recap-table tr.is-flagged td{border-left:3px solid var(--gold); background-image:linear-gradient(90deg, rgba(255,167,38,.12), rgba(0,0,0,0));}
 @media (max-width: 700px){
   .ta-quiz-hero-body{grid-template-columns:1fr}
   .quiz-answer input[type="text"], .quiz-answer input{width:100%;max-width:none}

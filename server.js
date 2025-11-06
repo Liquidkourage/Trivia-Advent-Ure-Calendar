@@ -831,12 +831,12 @@ app.get('/quiz/:id', async (req, res) => {
           </td>
         </tr>`).join('');
       return res.type('html').send(`
-        <html><head><title>Quiz ${id} Recap</title></head>
-        <body style="font-family: system-ui, -apple-system, Segoe UI, Roboto; padding: 24px;">
+        <html><head><title>Quiz ${id} Recap</title><link rel="stylesheet" href="/style.css"></head>
+        <body class="ta-body" style="padding: 24px;">
           <h1>${quiz.title} (Quiz #${id})</h1>
           <div>Status: ${status}</div>
           <h3>Score: ${total}</h3>
-          <table border="1" cellspacing="0" cellpadding="6">
+          <table class="recap-table" cellspacing="0" cellpadding="6">
             <tr><th>#</th><th>Question</th><th>Your answer</th><th>Correct answer</th><th>Points</th><th>Actions</th></tr>
             ${rowsHtml}
           </table>
@@ -1237,9 +1237,12 @@ app.get('/admin/quiz/:id/seed-responses', requireAdmin, async (req, res) => {
         const arr = variants.get(q.number) || [''];
         const answer = arr[i % arr.length];
         const isLocked = q.number === lockNumber;
+        // Flag some incorrect answers to demo prioritization (every 4th user per question when auto-incorrect)
+        const autoCorrect = isCorrectAnswer(answer, q.answer);
+        const flagThis = (!autoCorrect) && (i % 4 === 0);
         await pool.query(
-          'INSERT INTO responses(quiz_id, question_id, user_email, response_text, locked) VALUES($1,$2,$3,$4,$5) ON CONFLICT (user_email, question_id) DO UPDATE SET response_text=EXCLUDED.response_text, locked=EXCLUDED.locked',
-          [quizId, q.id, email, answer, isLocked]
+          'INSERT INTO responses(quiz_id, question_id, user_email, response_text, locked, flagged) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT (user_email, question_id) DO UPDATE SET response_text=EXCLUDED.response_text, locked=EXCLUDED.locked, flagged=COALESCE(responses.flagged, EXCLUDED.flagged)',
+          [quizId, q.id, email, answer, isLocked, flagThis]
         );
         inserted++;
       }
