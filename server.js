@@ -551,6 +551,24 @@ app.get('/calendar', async (req, res) => {
           <div class="ta-calendar-grid">${grid}</div>
         </main>
         <footer class="ta-footer"><div class="ta-container">© Trivia Advent‑ure</div></footer>
+        <script>
+          (function(){
+            function setupDoors(){
+              var doors = document.querySelectorAll('.ta-door.is-unlocked');
+              doors.forEach(function(d){
+                ['click','touchstart'].forEach(function(evt){
+                  d.addEventListener(evt, function(e){
+                    if (e.target && e.target.closest && e.target.closest('.slot-btn')) return; // let buttons work
+                    var wasOpen = d.classList.contains('is-open');
+                    document.querySelectorAll('.ta-door.is-open').forEach(function(x){ x.classList.remove('is-open'); });
+                    if (!wasOpen) d.classList.add('is-open');
+                  }, { passive: true });
+                });
+              });
+            }
+            if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', setupDoors); else setupDoors();
+          })();
+        </script>
       </body></html>
     `);
   } catch (e) {
