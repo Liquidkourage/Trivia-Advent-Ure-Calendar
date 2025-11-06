@@ -227,8 +227,7 @@ function normalizeAnswer(s) {
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '') // strip diacritics
     .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, ' ') // strip punctuation
-    .replace(/\s+/g, ' ')
+    .replace(/[^a-z0-9]/g, '') // remove punctuation AND whitespace (treat "yel low" == "yellow")
     .trim();
 }
 
