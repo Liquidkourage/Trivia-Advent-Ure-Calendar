@@ -116,6 +116,13 @@ async function initDb() {
       UNIQUE(user_email, question_id)
     );
     CREATE INDEX IF NOT EXISTS idx_responses_quiz_user ON responses(quiz_id, user_email);
+    -- Backfill columns for existing deployments
+    DO $$ BEGIN
+      ALTER TABLE responses ADD COLUMN IF NOT EXISTS locked BOOLEAN NOT NULL DEFAULT FALSE;
+    EXCEPTION WHEN others THEN NULL; END $$;
+    DO $$ BEGIN
+      ALTER TABLE responses ALTER COLUMN points SET DEFAULT 0;
+    EXCEPTION WHEN others THEN NULL; END $$;
   `);
 }
 
