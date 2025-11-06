@@ -85,7 +85,8 @@ body.ta-body{margin:0;background:linear-gradient(180deg,var(--blue-top) 0%, var(
   text-shadow:0 2px 0 rgba(0,0,0,.7), 0 6px 18px rgba(0,0,0,.45), 0 0 8px rgba(212,175,55,.35)}
 .ta-door-label{font-size:12px;opacity:.9}
 .ta-door-back{
-  transform:rotateY(180deg);
+  /* keep interior panel static for layout stability */
+  opacity:0; transition:opacity .35s ease;
   background:
     linear-gradient(180deg, rgba(0,0,0,.35), rgba(0,0,0,.15)),
     repeating-linear-gradient(90deg, rgba(0,0,0,.08) 0 3px, rgba(255,255,255,.06) 3px 6px),
@@ -115,12 +116,12 @@ body.ta-body{margin:0;background:linear-gradient(180deg,var(--blue-top) 0%, var(
 /* Keep number visible even when open */
 .ta-door.is-locked .ta-door-leaf{filter:saturate(.6) brightness(.85)}
 .ta-door:hover .ta-door-front, .ta-door.is-open .ta-door-front{pointer-events:none}
-.ta-door:hover .ta-door-back, .ta-door.is-open .ta-door-back{transform:none}
+.ta-door:hover .ta-door-back, .ta-door.is-open .ta-door-back{opacity:1}
 .ta-badge{display:inline-block;padding:2px 6px;border-radius:999px;background:#2ECC71;color:#111;font-size:11px;font-weight:800;box-shadow:0 2px 0 rgba(0,0,0,.3)}
 .ta-door.is-finalized .ta-badge{background:#d79c6c;color:#111}
 
 /* Actions under door */
-.ta-door-actions{position:absolute;left:0;right:0;top:calc(100% + 4px);display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.ta-door-actions{position:absolute;left:0;right:0;top:calc(100% + 2px);display:grid;grid-template-columns:1fr 1fr;gap:8px}
 
 /* theme variants removed */
 
