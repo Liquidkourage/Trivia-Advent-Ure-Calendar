@@ -263,6 +263,11 @@ function getAdminEmail() {
   return (process.env.ADMIN_EMAIL || fallback || '').toLowerCase();
 }
 
+function requireAuthOrAdmin(req, res, next) {
+  if (req.session && (req.session.user || req.session.isAdmin === true)) return next();
+  return res.status(401).send('Please sign in.');
+}
+
 function requireAuth(req, res, next) {
   if (!req.session.user) return res.status(401).send('Please sign in.');
   next();
@@ -754,8 +759,8 @@ app.get('/quiz/:id', async (req, res) => {
     const { rows: qs } = await pool.query('SELECT * FROM questions WHERE quiz_id = $1 ORDER BY number ASC', [id]);
     const locked = nowUtc < unlockUtc;
     const status = locked ? 'Locked' : (nowUtc >= freezeUtc ? 'Finalized' : 'Unlocked');
-    const loggedIn = !!req.session.user;
-    const email = loggedIn ? (req.session.user.email || '') : '';
+    const loggedIn = !!req.session.user || req.session.isAdmin === true;
+    const email = req.session.user ? (req.session.user.email || '') : (req.session.isAdmin === true ? getAdminEmail() : '');
     let existingMap = new Map();
     let existingLockedId = null;
     if (loggedIn) {
@@ -883,7 +888,7 @@ app.get('/leaderboard', async (_req, res) => {
     res.status(500).send('Failed to load leaderboard');
   }
 });
-app.post('/quiz/:id/submit', requireAuth, async (req, res) => {
+app.post('/quiz/:id/submit', requireAuthOrAdmin, async (req, res) => {
   try {
     const id = Number(req.params.id);
     // Prevent changes after freeze
@@ -894,7 +899,7 @@ app.post('/quiz/:id/submit', requireAuth, async (req, res) => {
         return res.redirect(`/quiz/${id}?recap=1`);
       }
     }
-    const email = (req.session.user.email || '').toLowerCase();
+    const email = (req.session.user && req.session.user.email ? req.session.user.email : getAdminEmail()).toLowerCase();
     const { rows: qs } = await pool.query('SELECT id, number FROM questions WHERE quiz_id = $1 ORDER BY number ASC', [id]);
     const lockedSelected = Number(req.body.locked || 0) || null;
     for (const q of qs) {
