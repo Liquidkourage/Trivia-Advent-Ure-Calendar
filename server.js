@@ -1286,6 +1286,8 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
     // Group by question, then by response_text
     const byQ = new Map();
     for (const r of rows) {
+      // Skip non-responses created by LEFT JOIN (no user_email)
+      if (!r.user_email) continue;
       if (!byQ.has(r.qid)) byQ.set(r.qid, { number: r.number, text: r.text, answer: r.answer, answers: new Map() });
       const key = (r.response_text || '').trim();
       if (!byQ.get(r.qid).answers.has(key)) byQ.get(r.qid).answers.set(key, []);
@@ -1299,7 +1301,10 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
       const all = Array.from(sec.answers.values()).flat();
       let flaggedCount = 0;
       for (const r of all) {
-        const auto = isCorrectAnswer(r.response_text || '', sec.answer);
+        const txt = r.response_text || '';
+        const isBlank = normalizeAnswer(txt) === '';
+        if (isBlank) { if (r.flagged === true) flaggedCount++; continue; }
+        const auto = isCorrectAnswer(txt, sec.answer);
         if (typeof r.override_correct !== 'boolean' && !auto) ungraded++;
         if (r.flagged === true) flaggedCount++;
       }
