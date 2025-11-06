@@ -9,7 +9,7 @@
   --blue-top:#0f1d5a;
   --blue-mid:#15124a;
   --blue-bottom:#0b1338;
-  --door-h:120px; /* unified door height (closed and open) */
+  --door-h:150px; /* unified door height (closed and open) */
   --action-h:36px; /* height reserved for AM/PM row */
 }
 @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800&family=Cinzel+Decorative:wght@700&display=swap');
@@ -50,7 +50,7 @@ body.ta-body{margin:0;background:linear-gradient(180deg,var(--blue-top) 0%, var(
 
 /* Calendar tiles (simple baseline styles applied via inline HTML already) */
 .ta-calendar{margin-top:12px}
-.ta-calendar-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));column-gap:16px;row-gap:16px;grid-auto-rows:calc(var(--door-h) + var(--action-h))}
+.ta-calendar-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));column-gap:16px;row-gap:16px;grid-auto-rows:calc(var(--door-h) + var(--action-h))}
 .ta-door-slot{position:relative;height:calc(var(--door-h) + var(--action-h));display:flex;flex-direction:column}
 .ta-door{position:relative;height:var(--door-h);perspective:1000px;border-radius:16px;overflow:hidden;width:100%}
 .ta-door-inner{position:relative;width:100%;height:100%;transform-style:preserve-3d;transition:transform .9s cubic-bezier(.2,.65,.2,1)}
