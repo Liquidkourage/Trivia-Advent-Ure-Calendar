@@ -852,16 +852,11 @@ app.get('/quiz/:id', async (req, res) => {
         <main class="ta-container-wide">
           <div class="ta-quiz-hero">
             <div class="ta-quiz-hero-top">
-              <h1 class="ta-quiz-title">${quiz.title}</h1>
-              <div class="ta-quiz-meta">
-                <span class="meta-badge">${dateStr} • ${slot}</span>
-                ${quiz.author ? `<span class="meta-badge">By ${quiz.author}</span>` : ''}
-                <span class="meta-badge">${status}</span>
-              </div>
+              <h1 class="ta-quiz-title">${quiz.author ? `${quiz.title} — ${quiz.author}` : quiz.title}</h1>
             </div>
             <div class="ta-quiz-hero-body">
               ${(quiz.author || quiz.author_blurb) ? `<div class=\"meta-panel\"><h4>About the author</h4><span class=\"author-name\">${quiz.author || ''}</span><div style=\"opacity:.9;\">${quiz.author_blurb || ''}</div></div>` : ''}
-              <div class="ta-quiz-desc">${quiz.description || ''}</div>
+              <!-- description intentionally hidden per request -->
             </div>
           </div>
           <section class="rules-panel">

@@ -131,10 +131,11 @@ body.ta-body{margin:0;background:linear-gradient(180deg,var(--blue-top) 0%, var(
 /* Quiz presentation */
 .ta-container-wide{max-width:1280px;margin:0 auto;padding:24px}
 .ta-quiz-header{margin-bottom:16px}
-.ta-quiz-title{font-family:"Bebas Neue", Inter, system-ui, sans-serif;color:var(--gold);font-size:60px;margin:0 0 12px 0}
-.ta-quiz-meta{display:flex;flex-wrap:wrap;gap:12px;font-size:16px;opacity:.95;margin-bottom:12px}
-.meta-badge{display:inline-block;padding:6px 12px;border-radius:999px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.24)}
-.ta-quiz-desc{font-size:22px;line-height:1.7;opacity:.95}
+.ta-quiz-title{font-family:"Bebas Neue", Inter, system-ui, sans-serif;color:var(--gold);font-size:68px;margin:0 0 12px 0;letter-spacing:.5px}
+/* Hide badge bubbles per request */
+.ta-quiz-meta{display:none}
+.meta-badge{display:none}
+.ta-quiz-desc{display:none}
 .ta-quiz-hero{border:2px solid rgba(255,255,255,.15);background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(0,0,0,.22));border-radius:18px;padding:20px 22px;margin-bottom:16px;box-shadow:0 10px 26px rgba(0,0,0,.28)}
 .ta-quiz-hero-top{margin-bottom:12px}
 .ta-quiz-hero-body{display:grid;grid-template-columns:1fr;gap:18px}
@@ -146,11 +147,11 @@ body.ta-body{margin:0;background:linear-gradient(180deg,var(--blue-top) 0%, var(
 .rules-list{margin:0;padding-left:18px;line-height:1.6;font-size:18px}
 .quiz-card{border:1px solid rgba(255,255,255,.14);border-radius:12px;background:rgba(0,0,0,.25);padding:14px;margin:10px 0}
 .quiz-qhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
-.quiz-qnum{font-weight:800;font-size:28px;color:var(--gold)}
-.quiz-lock{font-size:20px}
-.quiz-lock input{transform:scale(1.9);transform-origin:left center;margin-right:10px}
-.quiz-text{font-size:24px;line-height:1.7;margin-bottom:12px}
-.quiz-answer input[type="text"], .quiz-answer input{width:65%;max-width:620px;padding:16px 18px;border-radius:10px;border:1px solid rgba(255,255,255,.25);background:rgba(0,0,0,.15);color:#fff;font-size:22px}
+.quiz-qnum{font-weight:800;font-size:30px;color:var(--gold)}
+.quiz-lock{font-size:22px}
+.quiz-lock input{transform:scale(2.1);transform-origin:left center;margin-right:12px}
+.quiz-text{font-size:26px;line-height:1.72;margin-bottom:14px}
+.quiz-answer input[type="text"], .quiz-answer input{width:65%;max-width:660px;padding:18px 20px;border-radius:12px;border:1px solid rgba(255,255,255,.25);background:rgba(0,0,0,.15);color:#fff;font-size:24px}
 .quiz-actions{margin-top:14px}
 .quiz-submit{padding:10px 16px;border-radius:10px;background:linear-gradient(90deg,var(--gold) 0%,var(--gold-2) 100%);color:#111;border:0;font-weight:800}
 .quiz-submit[disabled]{filter:grayscale(1);opacity:.6}
