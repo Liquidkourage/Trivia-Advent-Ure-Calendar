@@ -195,6 +195,53 @@ function utcToEtParts(d){
   return {y: et.getUTCFullYear(), m: et.getUTCMonth()+1, d: et.getUTCDate(), h: et.getUTCHours(), et};
 }
 
+// --- Grading helpers ---
+function normalizeAnswer(s) {
+  return String(s || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+}
+
+function isCorrectAnswer(given, correct) {
+  const g = normalizeAnswer(given);
+  const variants = String(correct || '')
+    .split(/[|]/)
+    .map(v => normalizeAnswer(v));
+  return variants.some(v => v && v === g);
+}
+
+async function gradeQuiz(pool, quizId, userEmail) {
+  const { rows: qs } = await pool.query('SELECT id, number, answer FROM questions WHERE quiz_id=$1 ORDER BY number ASC', [quizId]);
+  const { rows: rs } = await pool.query('SELECT question_id, response_text, locked FROM responses WHERE quiz_id=$1 AND user_email=$2', [quizId, userEmail]);
+  const qIdToResp = new Map();
+  rs.forEach(r => qIdToResp.set(Number(r.question_id), r));
+  let streak = 0;
+  let total = 0;
+  const graded = [];
+  for (const q of qs) {
+    const r = qIdToResp.get(q.id);
+    const locked = !!(r && r.locked);
+    if (locked) {
+      graded.push({ questionId: q.id, number: q.number, locked: true, correct: null, points: 5, given: r ? r.response_text : '', answer: q.answer });
+      total += 5;
+      await pool.query('UPDATE responses SET points = 5 WHERE quiz_id=$1 AND user_email=$2 AND question_id=$3', [quizId, userEmail, q.id]);
+      continue;
+    }
+    const correct = r ? isCorrectAnswer(r.response_text, q.answer) : false;
+    if (correct) {
+      streak += 1;
+      total += streak;
+      await pool.query('UPDATE responses SET points = $4 WHERE quiz_id=$1 AND user_email=$2 AND question_id=$3', [quizId, userEmail, q.id, streak]);
+    } else {
+      streak = 0;
+      if (r) await pool.query('UPDATE responses SET points = 0 WHERE quiz_id=$1 AND user_email=$2 AND question_id=$3', [quizId, userEmail, q.id]);
+    }
+    graded.push({ questionId: q.id, number: q.number, locked: false, correct, points: correct ? streak : 0, given: r ? r.response_text : '', answer: q.answer });
+  }
+  return { total, graded };
+}
+
 function getAdminEmail() {
   const from = process.env.EMAIL_FROM || '';
   const m = from.match(/<([^>]+)>/);
@@ -704,6 +751,36 @@ app.get('/quiz/:id', async (req, res) => {
         if (r.locked === true) existingLockedId = r.question_id;
       });
     }
+    const recap = String(req.query.recap || '') === '1';
+    if (recap && loggedIn) {
+      const { rows: gr } = await pool.query(
+        'SELECT q.number, q.text, q.answer, r.response_text, r.points, r.locked FROM questions q LEFT JOIN responses r ON r.question_id=q.id AND r.user_email=$1 WHERE q.quiz_id=$2 ORDER BY q.number ASC',
+        [email, id]
+      );
+      const total = gr.reduce((s, r) => s + Number(r.points || 0), 0);
+      const rowsHtml = gr.map(r => `
+        <tr>
+          <td>${r.number}${r.locked ? ' 🔒' : ''}</td>
+          <td>${r.text}</td>
+          <td>${r.response_text || ''}</td>
+          <td>${r.answer}</td>
+          <td>${r.points || 0}</td>
+        </tr>`).join('');
+      return res.type('html').send(`
+        <html><head><title>Quiz ${id} Recap</title></head>
+        <body style="font-family: system-ui, -apple-system, Segoe UI, Roboto; padding: 24px;">
+          <h1>${quiz.title} (Quiz #${id})</h1>
+          <div>Status: ${status}</div>
+          <h3>Score: ${total}</h3>
+          <table border="1" cellspacing="0" cellpadding="6">
+            <tr><th>#</th><th>Question</th><th>Your answer</th><th>Correct answer</th><th>Points</th></tr>
+            ${rowsHtml}
+          </table>
+          <p style="margin-top:16px;"><a href="/calendar">Back to Calendar</a></p>
+        </body></html>
+      `);
+    }
+
     const form = locked ? '<p>This quiz is locked until unlock time (ET).</p>' : (loggedIn ? `
       <form method="post" action="/quiz/${id}/submit">
         <p>You may lock exactly one question for scoring. Pick it below; you can change it until grading.</p>
@@ -820,7 +897,9 @@ app.post('/quiz/:id/submit', requireAuth, async (req, res) => {
     if (lockedSelected) {
       await pool.query('UPDATE responses SET locked = FALSE WHERE quiz_id=$1 AND user_email=$2 AND question_id <> $3', [id, email, lockedSelected]);
     }
-    res.redirect(`/quiz/${id}?submitted=1`);
+    // grade and redirect to recap
+    await gradeQuiz(pool, id, email);
+    res.redirect(`/quiz/${id}?recap=1`);
   } catch (e) {
     console.error(e);
     res.status(500).send('Failed to submit');
