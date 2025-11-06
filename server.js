@@ -1283,13 +1283,13 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
        ORDER BY q.number ASC, r.user_email ASC`,
       [id]
     )).rows;
-    // Group by question, then by response_text
+    // Group by question, then by normalized response_text
     const byQ = new Map();
     for (const r of rows) {
       // Skip non-responses created by LEFT JOIN (no user_email)
       if (!r.user_email) continue;
       if (!byQ.has(r.qid)) byQ.set(r.qid, { number: r.number, text: r.text, answer: r.answer, answers: new Map() });
-      const key = (r.response_text || '').trim();
+      const key = normalizeAnswer(r.response_text || '');
       if (!byQ.get(r.qid).answers.has(key)) byQ.get(r.qid).answers.set(key, []);
       byQ.get(r.qid).answers.get(key).push(r);
     }
@@ -1346,7 +1346,8 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
         else if (overrides.some(v => v !== null)) accepted = 'mixed';
         else accepted = auto ? 'accepted' : 'rejected';
         const badgeClass = accepted === 'accepted' ? 'status-accepted' : (accepted === 'mixed' ? 'status-mixed' : 'status-rejected');
-        const shownAnswer = ans || '<em>blank</em>';
+        const firstText = (arr[0] && (arr[0].response_text || '').trim()) || '';
+        const shownAnswer = firstText ? firstText : '<em>blank</em>';
         const flagged = arr.some(r => r.flagged === true);
         return `<tr${flagged ? ' class="is-flagged"' : ''}>
           <td>${shownAnswer}</td>
@@ -1355,7 +1356,7 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
             <div class="seg">
             <form method="post" action="/admin/quiz/${id}/override" style="display:inline;">
               <input type="hidden" name="question_id" value="${sec.number}"/>
-              <input type="hidden" name="answer" value="${ans.replace(/"/g,'&quot;')}"/>
+              <input type="hidden" name="norm" value="${ans}"/>
               <button name="action" value="accept">Accept</button>
               <button name="action" value="reject">Reject</button>
               <button name="action" value="clear">Clear</button>
@@ -1441,18 +1442,22 @@ app.post('/admin/quiz/:id/override', requireAdmin, async (req, res) => {
     const quizId = Number(req.params.id);
     const qNumber = Number(req.body.question_id);
     const action = String(req.body.action || '').toLowerCase(); // accept|reject|clear
-    const answer = String(req.body.answer || '');
+    const norm = String(req.body.norm || '');
     const q = await pool.query('SELECT id FROM questions WHERE quiz_id=$1 AND number=$2', [quizId, qNumber]);
     if (q.rows.length === 0) return res.status(404).send('Question not found');
     const questionId = q.rows[0].id;
+    // Find all response ids for this question whose normalized text matches the provided norm key
+    const resp = await pool.query('SELECT id, response_text FROM responses WHERE question_id=$1', [questionId]);
+    const ids = resp.rows.filter(r => normalizeAnswer(r.response_text || '') === norm).map(r => r.id);
+    if (ids.length === 0) { return res.redirect(`/admin/quiz/${quizId}/grade`); }
     let val = null;
     if (action === 'accept') val = true;
     else if (action === 'reject') val = false;
-  if (action === 'accept' || action === 'reject') {
-    await pool.query('UPDATE responses SET override_correct = $1, flagged = FALSE WHERE question_id=$2 AND response_text = $3', [val, questionId, answer]);
-  } else {
-    await pool.query('UPDATE responses SET override_correct = $1 WHERE question_id=$2 AND response_text = $3', [val, questionId, answer]);
-  }
+    if (action === 'accept' || action === 'reject') {
+      await pool.query('UPDATE responses SET override_correct = $1, flagged = FALSE WHERE id = ANY($2)', [val, ids]);
+    } else {
+      await pool.query('UPDATE responses SET override_correct = $1 WHERE id = ANY($2)', [val, ids]);
+    }
     res.redirect(`/admin/quiz/${quizId}/grade`);
   } catch (e) {
     console.error(e);
