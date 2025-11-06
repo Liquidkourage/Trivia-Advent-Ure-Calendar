@@ -198,17 +198,31 @@ function utcToEtParts(d){
 // --- Grading helpers ---
 function normalizeAnswer(s) {
   return String(s || '')
-    .trim()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // strip diacritics
     .toLowerCase()
-    .replace(/\s+/g, ' ');
+    .replace(/[^a-z0-9\s]/g, ' ') // strip punctuation
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function isCorrectAnswer(given, correct) {
-  const g = normalizeAnswer(given);
-  const variants = String(correct || '')
-    .split(/[|]/)
-    .map(v => normalizeAnswer(v));
-  return variants.some(v => v && v === g);
+  const raw = String(correct || '');
+  const gNorm = normalizeAnswer(given);
+  const variants = raw.split('|').map(v => v.trim()).filter(Boolean);
+  for (const v of variants) {
+    // regex variant: /pattern/i
+    const m = v.match(/^\/(.*)\/(i)?$/);
+    if (m) {
+      try {
+        const re = new RegExp(m[1], m[2] ? 'i' : undefined);
+        if (re.test(String(given))) return true;
+      } catch (_) {}
+      continue;
+    }
+    if (normalizeAnswer(v) === gNorm) return true;
+  }
+  return false;
 }
 
 async function gradeQuiz(pool, quizId, userEmail) {
@@ -782,19 +796,17 @@ app.get('/quiz/:id', async (req, res) => {
     }
 
     const form = locked ? '<p>This quiz is locked until unlock time (ET).</p>' : (loggedIn ? `
+      ${existingMap.size > 0 ? `<div style="padding:8px 10px;border:1px solid #ddd;border-radius:6px;background:#fafafa;margin-bottom:10px;">You've started this quiz. <a href="/quiz/${id}?recap=1">View recap</a>.</div>` : ''}
       <form method="post" action="/quiz/${id}/submit">
         <p>You may lock exactly one question for scoring. Pick it below; you can change it until grading.</p>
         ${qs.map(q=>{
           const val = existingMap.get(q.id) || '';
           const checked = existingLockedId === q.id ? 'checked' : '';
+          const disable = nowUtc >= freezeUtc ? 'disabled' : '';
           return `
-          <div style=\"border:1px solid #ddd;padding:8px;margin:6px 0;border-radius:6px;\">
-            <div style=\"display:flex;justify-content:space-between;align-items:center;\"><strong>Q${q.number}:</strong> <label style=\"font-size:12px;\"><input type=\"radio\" name=\"locked\" value=\"${q.id}\" ${checked}/> Lock</label></div>
-            <div>${q.text}</div>
-            <div><label>Your answer <input name=\"q${q.number}\" value=\"${val.replace(/"/g,'&quot;')}\" style=\"width:90%\"/></label></div>
-          </div>`;
+          <div style=\"border:1px solid #ddd;padding:8px;margin:6px 0;border-radius:6px;\">\n            <div style=\"display:flex;justify-content:space-between;align-items:center;\"><strong>Q${q.number}:</strong> <label style=\"font-size:12px;\"><input type=\"radio\" name=\"locked\" value=\"${q.id}\" ${checked} ${disable}/> Lock</label></div>\n            <div>${q.text}</div>\n            <div><label>Your answer <input name=\"q${q.number}\" value=\"${val.replace(/\"/g,'&quot;')}\" style=\"width:90%\" ${disable}/></label></div>\n          </div>`;
         }).join('')}
-        <div><button type="submit">Submit</button></div>
+        <div><button type="submit" ${nowUtc >= freezeUtc ? 'disabled' : ''}>Submit</button></div>
       </form>
     ` : '<p>Please sign in to play.</p>');
     res.type('html').send(`
@@ -874,6 +886,14 @@ app.get('/leaderboard', async (_req, res) => {
 app.post('/quiz/:id/submit', requireAuth, async (req, res) => {
   try {
     const id = Number(req.params.id);
+    // Prevent changes after freeze
+    const qinfo = await pool.query('SELECT freeze_at FROM quizzes WHERE id=$1', [id]);
+    if (qinfo.rows.length) {
+      const freezeUtc = new Date(qinfo.rows[0].freeze_at);
+      if (new Date() >= freezeUtc) {
+        return res.redirect(`/quiz/${id}?recap=1`);
+      }
+    }
     const email = (req.session.user.email || '').toLowerCase();
     const { rows: qs } = await pool.query('SELECT id, number FROM questions WHERE quiz_id = $1 ORDER BY number ASC', [id]);
     const lockedSelected = Number(req.body.locked || 0) || null;
