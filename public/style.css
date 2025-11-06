@@ -143,7 +143,8 @@ body.ta-body{margin:0;background:linear-gradient(180deg,var(--blue-top) 0%, var(
 .meta-panel{border:2px solid rgba(255,167,38,.85);border-radius:16px;background:linear-gradient(180deg, rgba(255,167,38,.28), rgba(0,0,0,.22));padding:18px 20px;font-size:18px;box-shadow:0 10px 26px rgba(0,0,0,.35)}
 .meta-panel h4{margin:0 0 10px 0;font-size:22px;color:var(--gold)}
 .author-name{font-size:22px;font-weight:800;color:var(--gold);display:block;margin-bottom:6px}
-.desc-panel{border:1px solid rgba(255,255,255,.22);border-radius:14px;background:rgba(0,0,0,.22);padding:16px 18px;font-size:18px}
+.desc-panel{border:2px solid rgba(255,167,38,.85);border-radius:16px;background:linear-gradient(180deg, rgba(255,167,38,.28), rgba(0,0,0,.22));padding:18px 20px;font-size:18px;box-shadow:0 10px 26px rgba(0,0,0,.35)}
+.desc-panel h4{margin:0 0 10px 0;font-size:22px;color:var(--gold)}
 .rules-panel{border:2px solid rgba(255,255,255,.25);border-radius:14px;background:rgba(0,0,0,.25);padding:16px 18px;margin:12px 0}
 .rules-panel h4{margin:0 0 8px 0;font-size:20px;color:var(--gold)}
 .rules-list{margin:0;padding-left:18px;line-height:1.6;font-size:18px}
