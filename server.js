@@ -87,6 +87,9 @@ async function initDb() {
       title TEXT NOT NULL,
       unlock_at TIMESTAMPTZ NOT NULL,
       freeze_at TIMESTAMPTZ NOT NULL,
+      author TEXT,
+      author_blurb TEXT,
+      description TEXT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
     CREATE INDEX IF NOT EXISTS idx_quizzes_unlock_at ON quizzes(unlock_at);
@@ -122,6 +125,15 @@ async function initDb() {
     EXCEPTION WHEN others THEN NULL; END $$;
     DO $$ BEGIN
       ALTER TABLE responses ALTER COLUMN points SET DEFAULT 0;
+    EXCEPTION WHEN others THEN NULL; END $$;
+    DO $$ BEGIN
+      ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS author TEXT;
+    EXCEPTION WHEN others THEN NULL; END $$;
+    DO $$ BEGIN
+      ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS author_blurb TEXT;
+    EXCEPTION WHEN others THEN NULL; END $$;
+    DO $$ BEGIN
+      ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS description TEXT;
     EXCEPTION WHEN others THEN NULL; END $$;
   `);
 }
@@ -244,9 +256,12 @@ async function gradeQuiz(pool, quizId, userEmail) {
     const r = qIdToResp.get(q.id);
     const locked = !!(r && r.locked);
     if (locked) {
-      graded.push({ questionId: q.id, number: q.number, locked: true, correct: null, points: 5, given: r ? r.response_text : '', answer: q.answer });
-      total += 5;
-      await pool.query('UPDATE responses SET points = 5 WHERE quiz_id=$1 AND user_email=$2 AND question_id=$3', [quizId, userEmail, q.id]);
+      const correctLocked = r ? isCorrectAnswer(r.response_text, q.answer) : false;
+      const pts = correctLocked ? 5 : 0;
+      graded.push({ questionId: q.id, number: q.number, locked: true, correct: correctLocked, points: pts, given: r ? r.response_text : '', answer: q.answer });
+      total += pts;
+      await pool.query('UPDATE responses SET points = $4 WHERE quiz_id=$1 AND user_email=$2 AND question_id=$3', [quizId, userEmail, q.id, pts]);
+      // streak unchanged
       continue;
     }
     const correct = r ? isCorrectAnswer(r.response_text, q.answer) : false;
@@ -659,6 +674,9 @@ app.get('/admin/upload-quiz', requireAdmin, (req, res) => {
       <h1>Upload Quiz</h1>
       <form method="post" action="/admin/upload-quiz">
         <div><label>Title <input name="title" required /></label></div>
+        <div style="margin-top:8px;"><label>Author <input name="author" /></label></div>
+        <div style="margin-top:8px;"><label>Author blurb <input name="author_blurb" /></label></div>
+        <div style="margin-top:8px;"><label>Description<br/><textarea name="description" rows="3" style="width: 100%;"></textarea></label></div>
         <div style="margin-top:8px;"><label>Unlock (ET) <input name="unlock_at" type="datetime-local" required /></label></div>
         <fieldset style="margin-top:12px;">
           <legend>Questions (10)</legend>
@@ -683,11 +701,14 @@ app.get('/admin/upload-quiz', requireAdmin, (req, res) => {
 app.post('/admin/upload-quiz', requireAdmin, async (req, res) => {
   try {
     const title = String(req.body.title || '').trim();
+    const author = String(req.body.author || '').trim() || null;
+    const authorBlurb = String(req.body.author_blurb || '').trim() || null;
+    const description = String(req.body.description || '').trim() || null;
     const unlockInput = String(req.body.unlock_at || '').trim();
     if (!title || !unlockInput) return res.status(400).send('Missing title or unlock time');
     const unlockUtc = etToUtc(unlockInput);
     const freezeUtc = new Date(unlockUtc.getTime() + 24*60*60*1000);
-    const qInsert = await pool.query('INSERT INTO quizzes(title, unlock_at, freeze_at) VALUES($1,$2,$3) RETURNING id', [title, unlockUtc, freezeUtc]);
+    const qInsert = await pool.query('INSERT INTO quizzes(title, unlock_at, freeze_at, author, author_blurb, description) VALUES($1,$2,$3,$4,$5,$6) RETURNING id', [title, unlockUtc, freezeUtc, author, authorBlurb, description]);
     const quizId = qInsert.rows[0].id;
     for (let i=1;i<=10;i++) {
       const qt = String(req.body[`q${i}_text`] || '').trim();
@@ -815,8 +836,9 @@ app.get('/quiz/:id', async (req, res) => {
           const val = existingMap.get(q.id) || '';
           const checked = existingLockedId === q.id ? 'checked' : '';
           const disable = nowUtc >= freezeUtc ? 'disabled' : '';
+          const required = (q.number === 1 && !(nowUtc >= freezeUtc)) ? 'required' : '';
           return `
-          <div style=\"border:1px solid #ddd;padding:8px;margin:6px 0;border-radius:6px;\">\n            <div style=\"display:flex;justify-content:space-between;align-items:center;\"><strong>Q${q.number}:</strong> <label style=\"font-size:12px;\"><input type=\"radio\" name=\"locked\" value=\"${q.id}\" ${checked} ${disable}/> Lock</label></div>\n            <div>${q.text}</div>\n            <div><label>Your answer <input name=\"q${q.number}\" value=\"${val.replace(/\"/g,'&quot;')}\" style=\"width:90%\" ${disable}/></label></div>\n          </div>`;
+          <div style=\"border:1px solid #ddd;padding:8px;margin:6px 0;border-radius:6px;\">\n            <div style=\"display:flex;justify-content:space-between;align-items:center;\"><strong>Q${q.number}:</strong> <label style=\"font-size:12px;\"><input type=\"radio\" name=\"locked\" value=\"${q.id}\" ${checked} ${disable} ${required}/> Lock</label></div>\n            <div>${q.text}</div>\n            <div><label>Your answer <input name=\"q${q.number}\" value=\"${val.replace(/\"/g,'&quot;')}\" style=\"width:90%\" ${disable}/></label></div>\n          </div>`;
         }).join('')}
         <div><button type="submit" ${nowUtc >= freezeUtc ? 'disabled' : ''}>Submit</button></div>
       </form>
@@ -909,6 +931,13 @@ app.post('/quiz/:id/submit', requireAuthOrAdmin, async (req, res) => {
     const email = (req.session.user && req.session.user.email ? req.session.user.email : getAdminEmail()).toLowerCase();
     const { rows: qs } = await pool.query('SELECT id, number FROM questions WHERE quiz_id = $1 ORDER BY number ASC', [id]);
     const lockedSelected = Number(req.body.locked || 0) || null;
+    // Enforce: must have one locked question on submit
+    if (!lockedSelected) {
+      const existingLock = await pool.query('SELECT 1 FROM responses WHERE quiz_id=$1 AND user_email=$2 AND locked=true LIMIT 1', [id, email]);
+      if (existingLock.rows.length === 0) {
+        return res.status(400).send('Please choose one question to lock before submitting.');
+      }
+    }
     for (const q of qs) {
       const key = `q${q.number}`;
       const val = String(req.body[key] || '').trim();
