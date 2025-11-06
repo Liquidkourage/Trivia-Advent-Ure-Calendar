@@ -531,14 +531,14 @@ app.get('/calendar', async (req, res) => {
               <div class="ta-door-label">${doorFinal ? 'Finalized' : doorUnlocked ? 'Unlocked' : 'Locked'}</div>
               ${badge}
             </div>
-            <div class="ta-door-back"></div>
+            <div class="ta-door-back">
+              <div class="slot-grid">
+                ${sAm.unlocked && sAm.id ? `<a class=\"slot-btn unlocked\" href=\"/quiz/${sAm.id}\">AM</a>` : `<span class=\"slot-btn ${sAm.unlocked?'unlocked':'locked'}\">AM</span>`}
+                ${sPm.unlocked && sPm.id ? `<a class=\"slot-btn unlocked\" href=\"/quiz/${sPm.id}\">PM</a>` : `<span class=\"slot-btn ${sPm.unlocked?'unlocked':'locked'}\">PM</span>`}
+              </div>
+            </div>
           </div>
         </div>
-        ${doorUnlocked ? `
-        <div class=\"ta-door-actions\">
-          ${sAm.unlocked && sAm.id ? `<a class=\"slot-btn unlocked\" href=\"/quiz/${sAm.id}\">AM</a>` : `<span class=\"slot-btn ${sAm.unlocked?'unlocked':'locked'}\">AM</span>`}
-          ${sPm.unlocked && sPm.id ? `<a class=\"slot-btn unlocked\" href=\"/quiz/${sPm.id}\">PM</a>` : `<span class=\"slot-btn ${sPm.unlocked?'unlocked':'locked'}\">PM</span>`}
-        </div>` : ''}
       </div>
       `;
     }).join('\n');
