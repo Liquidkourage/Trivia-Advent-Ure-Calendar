@@ -831,7 +831,6 @@ app.get('/quiz/:id', async (req, res) => {
     const form = locked ? '<p>This quiz is locked until unlock time (ET).</p>' : (loggedIn ? `
       ${existingMap.size > 0 ? `<div style="padding:8px 10px;border:1px solid #ddd;border-radius:6px;background:#fafafa;margin-bottom:10px;">You've started this quiz. <a href="/quiz/${id}?recap=1">View recap</a>.</div>` : ''}
       <form method="post" action="/quiz/${id}/submit">
-        <p>You may lock exactly one question for scoring. Pick it below; you can change it until grading.</p>
         ${qs.map(q=>{
           const val = existingMap.get(q.id) || '';
           const checked = existingLockedId === q.id ? 'checked' : '';
@@ -865,6 +864,14 @@ app.get('/quiz/:id', async (req, res) => {
               <div class="ta-quiz-desc">${quiz.description || ''}</div>
             </div>
           </div>
+          <section class="rules-panel">
+            <h4>How scoring works</h4>
+            <ul class="rules-list">
+              <li>Lock exactly one question. If your locked answer is correct, you earn <strong>5 points</strong>; if incorrect, it earns <strong>0</strong>. The locked question <em>does not affect</em> your streak.</li>
+              <li>For all other questions, correct answers build a streak: <strong>+1, then +2, then +3…</strong>. A wrong/blank answer resets the streak to 0.</li>
+              <li>You may change your lock until grading/finalization.</li>
+            </ul>
+          </section>
           ${form}
           <p style="margin-top:16px;"><a href="/calendar">Back to Calendar</a></p>
         </main>
