@@ -859,8 +859,8 @@ app.get('/quiz/:id', async (req, res) => {
               <span class="meta-badge">${status}</span>
             </div>
             <div class="ta-quiz-info">
+              ${(quiz.author || quiz.author_blurb) ? `<div class="meta-panel"><h4>About the author</h4><span class="author-name">${quiz.author || ''}</span><div style="opacity:.9;">${quiz.author_blurb || ''}</div></div>` : ''}
               <div class="ta-quiz-desc">${quiz.description || ''}</div>
-              ${(quiz.author || quiz.author_blurb) ? `<div class="meta-panel"><h4>About the author</h4><div>${quiz.author || ''}</div><div style="opacity:.85;margin-top:6px;">${quiz.author_blurb || ''}</div></div>` : ''}
             </div>
           </div>
           ${form}

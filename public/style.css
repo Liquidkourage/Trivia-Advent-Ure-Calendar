@@ -135,9 +135,10 @@ body.ta-body{margin:0;background:linear-gradient(180deg,var(--blue-top) 0%, var(
 .ta-quiz-meta{display:flex;flex-wrap:wrap;gap:12px;font-size:16px;opacity:.95;margin-bottom:12px}
 .meta-badge{display:inline-block;padding:6px 12px;border-radius:999px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.24)}
 .ta-quiz-desc{font-size:22px;line-height:1.7;opacity:.95}
-.ta-quiz-info{display:grid;grid-template-columns:2fr 1fr;gap:16px;margin-top:8px;margin-bottom:10px}
-.meta-panel{border:1px solid rgba(255,167,38,.6);border-radius:14px;background:linear-gradient(180deg, rgba(255,167,38,.12), rgba(0,0,0,.2));padding:14px 16px;font-size:16px;box-shadow:0 8px 18px rgba(0,0,0,.25)}
-.meta-panel h4{margin:0 0 8px 0;font-size:18px;color:var(--gold)}
+.ta-quiz-info{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:10px;margin-bottom:12px}
+.meta-panel{border:2px solid rgba(255,167,38,.85);border-radius:16px;background:linear-gradient(180deg, rgba(255,167,38,.28), rgba(0,0,0,.22));padding:18px 20px;font-size:18px;box-shadow:0 10px 26px rgba(0,0,0,.35)}
+.meta-panel h4{margin:0 0 10px 0;font-size:22px;color:var(--gold)}
+.author-name{font-size:22px;font-weight:800;color:var(--gold);display:block;margin-bottom:6px}
 .quiz-card{border:1px solid rgba(255,255,255,.14);border-radius:12px;background:rgba(0,0,0,.25);padding:14px;margin:10px 0}
 .quiz-qhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
 .quiz-qnum{font-weight:800;font-size:28px;color:var(--gold)}
