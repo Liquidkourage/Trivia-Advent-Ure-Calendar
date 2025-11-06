@@ -1236,8 +1236,11 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
     const qr = await pool.query('SELECT id, title FROM quizzes WHERE id=$1', [id]);
     if (qr.rows.length === 0) return res.status(404).send('Not found');
     const quiz = qr.rows[0];
-    const showMode = String(req.query.show || '').toLowerCase(); // '' (awaiting only) or 'all'
-    const showAll = showMode === 'all';
+    // Per-question show graded toggle: showq=comma-separated question numbers
+    const showQStr = String(req.query.showq || '');
+    const showSet = new Set(
+      showQStr.split(',').map(s => parseInt(s, 10)).filter(n => !isNaN(n))
+    );
     // Load responses joined with questions
     const rows = (await pool.query(
       `SELECT q.id AS qid, q.number, q.text, q.answer, r.user_email, r.response_text, r.locked, r.override_correct
@@ -1270,7 +1273,8 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
     const sections = qList.map(sec => {
       // Build rows: awaiting only (default) or all (when show=all)
       let list = Array.from(sec.answers.entries());
-      if (!showAll) {
+      const includeAllForThis = showSet.has(sec.number);
+      if (!includeAllForThis) {
         list = list.filter(([ans, arr]) => {
           if (arr.length === 0) return false;
           const firstText = arr[0].response_text || '';
@@ -1320,11 +1324,17 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
         else if (typeof r.override_correct === 'boolean') wrong++;
         else ungraded++;
       }
+      // Build per-question toggle URL
+      const nextSet = new Set(showSet);
+      if (includeAllForThis) nextSet.delete(sec.number); else nextSet.add(sec.number);
+      const param = Array.from(nextSet).sort((a,b)=>a-b).join(',');
+      const toggleUrl = \`/admin/quiz/${id}/grade\${param ? \`?showq=\${param}\` : ''}\`;
+
       return `<div class=\"grader-section\" id=\"q${sec.number}\">
         <div class=\"grader-qtitle\">Q${sec.number}</div>
         <div class=\"grader-qtext\">${sec.text}</div>
         <div class=\"grader-correct\"><strong>Correct Answer:</strong> ${sec.answer}</div>
-        <div class=\"grader-stats\">Right: ${right} | Wrong: ${wrong} | Ungraded: ${ungraded}</div>
+        <div class=\"grader-stats\">Right: ${right} | Wrong: ${wrong} | Ungraded: ${ungraded} • <a href=\"${toggleUrl}\">${includeAllForThis ? 'Hide graded' : 'Show graded'}</a></div>
         <div class="btn-row" style="margin-bottom:8px;">
           <form method="post" action="/admin/quiz/${id}/override-all" style="display:inline;">
             <input type="hidden" name="question_id" value="${sec.number}"/>
