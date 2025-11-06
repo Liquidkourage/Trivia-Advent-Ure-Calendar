@@ -838,18 +838,32 @@ app.get('/quiz/:id', async (req, res) => {
           const disable = nowUtc >= freezeUtc ? 'disabled' : '';
           const required = (q.number === 1 && !(nowUtc >= freezeUtc)) ? 'required' : '';
           return `
-          <div style=\"border:1px solid #ddd;padding:8px;margin:6px 0;border-radius:6px;\">\n            <div style=\"display:flex;justify-content:space-between;align-items:center;\"><strong>Q${q.number}:</strong> <label style=\"font-size:12px;\"><input type=\"radio\" name=\"locked\" value=\"${q.id}\" ${checked} ${disable} ${required}/> Lock</label></div>\n            <div>${q.text}</div>\n            <div><label>Your answer <input name=\"q${q.number}\" value=\"${val.replace(/\"/g,'&quot;')}\" style=\"width:90%\" ${disable}/></label></div>\n          </div>`;
+          <div class=\"quiz-card\">\n            <div class=\"quiz-qhead\"><div class=\"quiz-qnum\">Q${q.number}</div> <label class=\"quiz-lock\"><input type=\"radio\" name=\"locked\" value=\"${q.id}\" ${checked} ${disable} ${required}/> Lock this question</label></div>\n            <div class=\"quiz-text\">${q.text}</div>\n            <div class=\"quiz-answer\"><label>Your answer <input name=\"q${q.number}\" value=\"${val.replace(/\"/g,'&quot;')}\" ${disable}/></label></div>\n          </div>`;
         }).join('')}
-        <div><button type="submit" ${nowUtc >= freezeUtc ? 'disabled' : ''}>Submit</button></div>
+        <div class=\"quiz-actions\"><button class=\"quiz-submit\" type=\"submit\" ${nowUtc >= freezeUtc ? 'disabled' : ''}>Submit</button></div>
       </form>
     ` : '<p>Please sign in to play.</p>');
+    const et = utcToEtParts(unlockUtc);
+    const slot = et.h === 0 ? 'AM' : 'PM';
+    const dateStr = `${et.y}-${String(et.m).padStart(2,'0')}-${String(et.d).padStart(2,'0')}`;
     res.type('html').send(`
       <html><head><title>Quiz ${id}</title><link rel="stylesheet" href="/style.css"></head>
-      <body class="ta-body" style="padding: 24px;">
-        <h1>${quiz.title} (Quiz #${id})</h1>
-        <div>Status: ${status}</div>
-        ${form}
-        <p style="margin-top:16px;"><a href="/calendar">Back to Calendar</a></p>
+      <body class="ta-body">
+        <header class="ta-header"><div class="ta-header-inner"><div class="ta-brand"><img class="ta-logo" src="/logo.svg"/><span class="ta-title">Trivia Advent‑ure</span></div><nav class="ta-nav"><a href="/calendar">Calendar</a></nav></div></header>
+        <main class="ta-container-wide">
+          <div class="ta-quiz-header">
+            <h1 class="ta-quiz-title">${quiz.title}</h1>
+            <div class="ta-quiz-meta">
+              <span class="meta-badge">${dateStr} • ${slot}</span>
+              ${quiz.author ? `<span class="meta-badge">By ${quiz.author}</span>` : ''}
+              <span class="meta-badge">${status}</span>
+            </div>
+            ${quiz.author_blurb ? `<div class="ta-quiz-desc" style="opacity:.85;">${quiz.author_blurb}</div>` : ''}
+            ${quiz.description ? `<div class="ta-quiz-desc">${quiz.description}</div>` : ''}
+          </div>
+          ${form}
+          <p style="margin-top:16px;"><a href="/calendar">Back to Calendar</a></p>
+        </main>
       </body></html>
     `);
   } catch (e) {

@@ -128,3 +128,22 @@ body.ta-body{margin:0;background:linear-gradient(180deg,var(--blue-top) 0%, var(
 
 /* theme variants removed */
 
+/* Quiz presentation */
+.ta-container-wide{max-width:1280px;margin:0 auto;padding:24px}
+.ta-quiz-header{margin-bottom:16px}
+.ta-quiz-title{font-family:"Bebas Neue", Inter, system-ui, sans-serif;color:var(--gold);font-size:40px;margin:0 0 6px 0}
+.ta-quiz-meta{display:flex;flex-wrap:wrap;gap:10px;font-size:14px;opacity:.95;margin-bottom:10px}
+.meta-badge{display:inline-block;padding:4px 10px;border-radius:999px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.18)}
+.ta-quiz-desc{font-size:16px;line-height:1.5;opacity:.95}
+.quiz-card{border:1px solid rgba(255,255,255,.14);border-radius:12px;background:rgba(0,0,0,.25);padding:14px;margin:10px 0}
+.quiz-qhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+.quiz-qnum{font-weight:800;font-size:18px;color:var(--gold)}
+.quiz-lock{font-size:13px}
+.quiz-text{font-size:18px;line-height:1.5;margin-bottom:8px}
+.quiz-answer input[type="text"], .quiz-answer input{width:100%;padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.25);background:rgba(0,0,0,.15);color:#fff;font-size:16px}
+.quiz-actions{margin-top:14px}
+.quiz-submit{padding:10px 16px;border-radius:10px;background:linear-gradient(90deg,var(--gold) 0%,var(--gold-2) 100%);color:#111;border:0;font-weight:800}
+.quiz-submit[disabled]{filter:grayscale(1);opacity:.6}
+.recap-table{width:100%;border-collapse:collapse}
+.recap-table th,.recap-table td{border:1px solid rgba(255,255,255,.2);padding:8px}
+.recap-table th{background:rgba(0,0,0,.25)}
