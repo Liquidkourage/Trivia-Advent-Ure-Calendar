@@ -1364,18 +1364,24 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
           </td>
         </tr>`;
       }).join('');
-      // stats
-      let right=0, wrong=0, ungraded=0;
+      // stats (align with quick-nav: 'ungraded' == awaiting review)
+      let right = 0, wrong = 0, ungraded = 0;
       const flat = Array.from(sec.answers.values()).flat();
       for (const r of flat) {
         const txt = r.response_text || '';
         const isBlank = normalizeAnswer(txt) === '';
+        if (isBlank) { wrong++; continue; } // blanks are auto-rejected
         const auto = isCorrectAnswer(txt, sec.answer);
-        const state = (typeof r.override_correct === 'boolean') ? r.override_correct : auto;
-        if (state) right++;
-        else if (isBlank) wrong++;
-        else if (typeof r.override_correct === 'boolean') wrong++;
-        else ungraded++;
+        const hasOverride = (typeof r.override_correct === 'boolean');
+        const state = hasOverride ? r.override_correct : auto;
+        if (!hasOverride && !auto) {
+          // truly awaiting review
+          ungraded++;
+        } else if (state) {
+          right++;
+        } else {
+          wrong++;
+        }
       }
       // Build per-question toggle URL
       const nextSet = new Set(showSet);
