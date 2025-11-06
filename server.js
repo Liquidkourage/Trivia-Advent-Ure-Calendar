@@ -1266,7 +1266,14 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
       return `<a class=\"grader-tab\" href=\"#q${sec.number}\">Q${sec.number}${ungraded>0?`<span class=\\\"bubble\\\">${ungraded}</span>`:''}</a>`;
     }).join('');
     const sections = qList.map(sec => {
-      const items = Array.from(sec.answers.entries()).map(([ans, arr]) => {
+      // Only show UNADDRESSED (awaiting review): override is NULL and auto-check is false
+      const awaiting = Array.from(sec.answers.entries()).filter(([ans, arr]) => {
+        if (arr.length === 0) return false;
+        const auto = isCorrectAnswer(arr[0].response_text || '', sec.answer);
+        const hasOverride = arr.some(r => typeof r.override_correct === 'boolean');
+        return !auto && !hasOverride;
+      });
+      const items = awaiting.map(([ans, arr]) => {
         const auto = arr.length && isCorrectAnswer(arr[0].response_text || '', sec.answer);
         // Determine accepted state using override when set; if mixed, show '-'
         let accepted;
