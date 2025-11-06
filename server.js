@@ -115,6 +115,7 @@ async function initDb() {
       response_text TEXT NOT NULL,
       points NUMERIC NOT NULL DEFAULT 0,
       locked BOOLEAN NOT NULL DEFAULT FALSE,
+      override_correct BOOLEAN,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       UNIQUE(user_email, question_id)
     );
@@ -125,6 +126,9 @@ async function initDb() {
     EXCEPTION WHEN others THEN NULL; END $$;
     DO $$ BEGIN
       ALTER TABLE responses ALTER COLUMN points SET DEFAULT 0;
+    EXCEPTION WHEN others THEN NULL; END $$;
+    DO $$ BEGIN
+      ALTER TABLE responses ADD COLUMN IF NOT EXISTS override_correct BOOLEAN;
     EXCEPTION WHEN others THEN NULL; END $$;
     DO $$ BEGIN
       ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS author TEXT;
@@ -246,7 +250,7 @@ function isCorrectAnswer(given, correct) {
 
 async function gradeQuiz(pool, quizId, userEmail) {
   const { rows: qs } = await pool.query('SELECT id, number, answer FROM questions WHERE quiz_id=$1 ORDER BY number ASC', [quizId]);
-  const { rows: rs } = await pool.query('SELECT question_id, response_text, locked FROM responses WHERE quiz_id=$1 AND user_email=$2', [quizId, userEmail]);
+  const { rows: rs } = await pool.query('SELECT question_id, response_text, locked, override_correct FROM responses WHERE quiz_id=$1 AND user_email=$2', [quizId, userEmail]);
   const qIdToResp = new Map();
   rs.forEach(r => qIdToResp.set(Number(r.question_id), r));
   let streak = 0;
@@ -256,7 +260,8 @@ async function gradeQuiz(pool, quizId, userEmail) {
     const r = qIdToResp.get(q.id);
     const locked = !!(r && r.locked);
     if (locked) {
-      const correctLocked = r ? isCorrectAnswer(r.response_text, q.answer) : false;
+      const auto = r ? isCorrectAnswer(r.response_text, q.answer) : false;
+      const correctLocked = (r && typeof r.override_correct === 'boolean') ? r.override_correct : auto;
       const pts = correctLocked ? 5 : 0;
       graded.push({ questionId: q.id, number: q.number, locked: true, correct: correctLocked, points: pts, given: r ? r.response_text : '', answer: q.answer });
       total += pts;
@@ -264,7 +269,8 @@ async function gradeQuiz(pool, quizId, userEmail) {
       // streak unchanged
       continue;
     }
-    const correct = r ? isCorrectAnswer(r.response_text, q.answer) : false;
+    const auto = r ? isCorrectAnswer(r.response_text, q.answer) : false;
+    const correct = (r && typeof r.override_correct === 'boolean') ? r.override_correct : auto;
     if (correct) {
       streak += 1;
       total += streak;
@@ -1164,6 +1170,118 @@ app.get('/admin/seed-demo', requireAdmin, async (_req, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).send('Failed to seed demo');
+  }
+});
+
+// --- Admin: grading UI (per quiz) ---
+app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const qr = await pool.query('SELECT id, title FROM quizzes WHERE id=$1', [id]);
+    if (qr.rows.length === 0) return res.status(404).send('Not found');
+    const quiz = qr.rows[0];
+    // Load responses joined with questions
+    const rows = (await pool.query(
+      `SELECT q.id AS qid, q.number, q.text, q.answer, r.user_email, r.response_text, r.locked, r.override_correct
+       FROM questions q
+       LEFT JOIN responses r ON r.question_id = q.id
+       WHERE q.quiz_id=$1
+       ORDER BY q.number ASC, r.user_email ASC`,
+      [id]
+    )).rows;
+    // Group by question, then by response_text
+    const byQ = new Map();
+    for (const r of rows) {
+      if (!byQ.has(r.qid)) byQ.set(r.qid, { number: r.number, text: r.text, answer: r.answer, answers: new Map() });
+      const key = (r.response_text || '').trim();
+      if (!byQ.get(r.qid).answers.has(key)) byQ.get(r.qid).answers.set(key, []);
+      byQ.get(r.qid).answers.get(key).push(r);
+    }
+    // Render
+    const sections = Array.from(byQ.values()).map(sec => {
+      const items = Array.from(sec.answers.entries()).map(([ans, arr]) => {
+        const auto = arr.length && isCorrectAnswer(arr[0].response_text || '', sec.answer);
+        // Determine accepted state using override when set; if mixed, show '-'
+        let accepted;
+        const overrides = arr.map(r => typeof r.override_correct === 'boolean' ? r.override_correct : null);
+        if (overrides.every(v => v === true)) accepted = 'accepted';
+        else if (overrides.every(v => v === false)) accepted = 'rejected';
+        else if (overrides.some(v => v !== null)) accepted = 'mixed';
+        else accepted = auto ? 'accepted' : 'rejected';
+        const badge = accepted === 'accepted' ? 'style=\"color:#2ECC71\"' : (accepted === 'mixed' ? 'style=\"color:#FFC46B\"' : 'style=\"color:#FF6B6B\"');
+        return `<tr>
+          <td>${sec.number}</td>
+          <td>${ans || '<em>(blank)</em>'}</td>
+          <td ${badge}>${accepted}</td>
+          <td>${arr.length}</td>
+          <td>
+            <form method="post" action="/admin/quiz/${id}/override" style="display:inline;">
+              <input type="hidden" name="question_id" value="${sec.number}"/>
+              <input type="hidden" name="answer" value="${ans.replace(/"/g,'&quot;')}"/>
+              <button name="action" value="accept">Accept</button>
+              <button name="action" value="reject">Reject</button>
+              <button name="action" value="clear">Clear</button>
+            </form>
+          </td>
+        </tr>`;
+      }).join('');
+      return `<h3>Q${sec.number}</h3>
+      <div style="margin-bottom:8px;opacity:.85;"><em>Correct answer:</em> ${sec.answer}</div>
+      <table border="1" cellspacing="0" cellpadding="6" style="margin-bottom:18px;">
+        <tr><th>Q#</th><th>Submitted answer</th><th>Status</th><th>Count</th><th>Override</th></tr>
+        ${items || '<tr><td colspan="5">(no submissions)</td></tr>'}
+      </table>`;
+    }).join('');
+    res.type('html').send(`
+      <html><head><title>Grade • ${quiz.title}</title></head>
+      <body style="font-family: system-ui; padding:24px;">
+        <h1>Grade • ${quiz.title}</h1>
+        <form method="post" action="/admin/quiz/${id}/regrade" style="margin-bottom:12px;">
+          <button type="submit">Auto-check & Regrade Totals</button>
+          <a href="/admin/quiz/${id}">Back</a>
+        </form>
+        ${sections}
+      </body></html>
+    `);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to load grader');
+  }
+});
+
+// Override all responses matching a specific answer for a question
+app.post('/admin/quiz/:id/override', requireAdmin, async (req, res) => {
+  try {
+    const quizId = Number(req.params.id);
+    const qNumber = Number(req.body.question_id);
+    const action = String(req.body.action || '').toLowerCase(); // accept|reject|clear
+    const answer = String(req.body.answer || '');
+    const q = await pool.query('SELECT id FROM questions WHERE quiz_id=$1 AND number=$2', [quizId, qNumber]);
+    if (q.rows.length === 0) return res.status(404).send('Question not found');
+    const questionId = q.rows[0].id;
+    let val = null;
+    if (action === 'accept') val = true;
+    else if (action === 'reject') val = false;
+    await pool.query('UPDATE responses SET override_correct = $1 WHERE question_id=$2 AND response_text = $3', [val, questionId, answer]);
+    res.redirect(`/admin/quiz/${quizId}/grade`);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to override');
+  }
+});
+
+// Regrade all users for the quiz
+app.post('/admin/quiz/:id/regrade', requireAdmin, async (req, res) => {
+  try {
+    const quizId = Number(req.params.id);
+    const users = await pool.query('SELECT DISTINCT user_email FROM responses WHERE quiz_id=$1', [quizId]);
+    for (const u of users.rows) {
+      await gradeQuiz(pool, quizId, u.user_email);
+    }
+    res.redirect(`/admin/quiz/${quizId}/grade`);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to regrade');
   }
 });
 
