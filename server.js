@@ -111,6 +111,7 @@ async function initDb() {
       user_email CITEXT NOT NULL,
       response_text TEXT NOT NULL,
       points NUMERIC NOT NULL DEFAULT 0,
+      locked BOOLEAN NOT NULL DEFAULT FALSE,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       UNIQUE(user_email, question_id)
     );
@@ -694,14 +695,28 @@ app.get('/quiz/:id', async (req, res) => {
     const status = locked ? 'Locked' : (nowUtc >= freezeUtc ? 'Finalized' : 'Unlocked');
     const loggedIn = !!req.session.user;
     const email = loggedIn ? (req.session.user.email || '') : '';
+    let existingMap = new Map();
+    let existingLockedId = null;
+    if (loggedIn) {
+      const erows = await pool.query('SELECT question_id, response_text, locked FROM responses WHERE quiz_id=$1 AND user_email=$2', [id, email]);
+      erows.rows.forEach(r => {
+        existingMap.set(r.question_id, r.response_text);
+        if (r.locked === true) existingLockedId = r.question_id;
+      });
+    }
     const form = locked ? '<p>This quiz is locked until unlock time (ET).</p>' : (loggedIn ? `
       <form method="post" action="/quiz/${id}/submit">
-        ${qs.map(q=>`
+        <p>You may lock exactly one question for scoring. Pick it below; you can change it until grading.</p>
+        ${qs.map(q=>{
+          const val = existingMap.get(q.id) || '';
+          const checked = existingLockedId === q.id ? 'checked' : '';
+          return `
           <div style=\"border:1px solid #ddd;padding:8px;margin:6px 0;border-radius:6px;\">
-            <div><strong>Q${q.number}:</strong> ${q.text}</div>
-            <div><label>Your answer <input name=\"q${q.number}\" style=\"width:90%\"/></label></div>
-          </div>
-        `).join('')}
+            <div style=\"display:flex;justify-content:space-between;align-items:center;\"><strong>Q${q.number}:</strong> <label style=\"font-size:12px;\"><input type=\"radio\" name=\"locked\" value=\"${q.id}\" ${checked}/> Lock</label></div>
+            <div>${q.text}</div>
+            <div><label>Your answer <input name=\"q${q.number}\" value=\"${val.replace(/"/g,'&quot;')}\" style=\"width:90%\"/></label></div>
+          </div>`;
+        }).join('')}
         <div><button type="submit">Submit</button></div>
       </form>
     ` : '<p>Please sign in to play.</p>');
@@ -784,14 +799,26 @@ app.post('/quiz/:id/submit', requireAuth, async (req, res) => {
     const id = Number(req.params.id);
     const email = (req.session.user.email || '').toLowerCase();
     const { rows: qs } = await pool.query('SELECT id, number FROM questions WHERE quiz_id = $1 ORDER BY number ASC', [id]);
+    const lockedSelected = Number(req.body.locked || 0) || null;
     for (const q of qs) {
       const key = `q${q.number}`;
       const val = String(req.body[key] || '').trim();
-      if (!val) continue;
+      const isLocked = lockedSelected === q.id;
+      if (!val) {
+        // still persist lock choice even without new text if row exists
+        await pool.query(
+          'INSERT INTO responses(quiz_id, question_id, user_email, response_text, locked) VALUES($1,$2,$3,$4,$5) ON CONFLICT (user_email, question_id) DO UPDATE SET locked = EXCLUDED.locked',
+          [id, q.id, email, '', isLocked]
+        );
+        continue;
+      }
       await pool.query(
-        'INSERT INTO responses(quiz_id, question_id, user_email, response_text) VALUES($1,$2,$3,$4) ON CONFLICT (user_email, question_id) DO UPDATE SET response_text = EXCLUDED.response_text',
-        [id, q.id, email, val]
+        'INSERT INTO responses(quiz_id, question_id, user_email, response_text, locked) VALUES($1,$2,$3,$4,$5) ON CONFLICT (user_email, question_id) DO UPDATE SET response_text = EXCLUDED.response_text, locked = EXCLUDED.locked',
+        [id, q.id, email, val, isLocked]
       );
+    }
+    if (lockedSelected) {
+      await pool.query('UPDATE responses SET locked = FALSE WHERE quiz_id=$1 AND user_email=$2 AND question_id <> $3', [id, email, lockedSelected]);
     }
     res.redirect(`/quiz/${id}?submitted=1`);
   } catch (e) {
