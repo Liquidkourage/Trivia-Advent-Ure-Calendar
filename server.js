@@ -1303,7 +1303,11 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
         if (typeof r.override_correct !== 'boolean' && !auto) ungraded++;
         if (r.flagged === true) flaggedCount++;
       }
-      return `<a class=\"grader-tab\" href=\"#q${sec.number}\">Q${sec.number}${ungraded>0?`<span class=\\\"bubble\\\">${ungraded}</span>`:''}${flaggedCount>0?`<span class=\\\"bubble\\\" title=\\\"Flagged\\\">🚩${flaggedCount}</span>`:''}</a>`;
+      const meta = [];
+      if (ungraded > 0) meta.push(`${ungraded} awaiting`);
+      if (flaggedCount > 0) meta.push(`${flaggedCount} flagged`);
+      const label = meta.length ? `Q${sec.number} (${meta.join(', ')})` : `Q${sec.number}`;
+      return `<a class=\"grader-tab\" href=\"#q${sec.number}\">${label}</a>`;
     }).join('');
     const sections = qList.map(sec => {
       // Build rows: awaiting only (default) or all (when show=all)
@@ -1404,7 +1408,7 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
       <body class=\"ta-body\">
         <main class=\"grader-container\">
           <h1 class=\"grader-title\">Grading: ${quiz.title}</h1>
-          <div class=\"grader-date\">Use Accept/Reject/Clear to override, then Auto-check & Regrade Totals. Tip: use “Show graded / Hide graded” in each question section to toggle visibility per question.</div>
+          <div class=\"grader-date\">Viewing: <strong>Awaiting review</strong> by default (🚩 flagged always shown and prioritized). Use “Show graded / Hide graded” in each question section to include graded rows for that question.</div>
           <form method=\"post\" action=\"/admin/quiz/${id}/regrade\" class=\"btn-row\">
             <button class=\"btn-save\" type=\"submit\">Save All Grading Decisions</button>
             <a class=\"ta-btn ta-btn-outline\" href=\"/admin/quiz/${id}\" style=\"margin-left:8px;\">Back</a>
