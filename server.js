@@ -1328,7 +1328,7 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
       const nextSet = new Set(showSet);
       if (includeAllForThis) nextSet.delete(sec.number); else nextSet.add(sec.number);
       const param = Array.from(nextSet).sort((a,b)=>a-b).join(',');
-      const toggleUrl = \`/admin/quiz/${id}/grade\${param ? \`?showq=\${param}\` : ''}\`;
+      const toggleUrl = `/admin/quiz/${id}/grade${param ? `?showq=${param}` : ''}`;
 
       return `<div class=\"grader-section\" id=\"q${sec.number}\">
         <div class=\"grader-qtitle\">Q${sec.number}</div>
@@ -1360,7 +1360,7 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
       <body class=\"ta-body\">
         <main class=\"grader-container\">
           <h1 class=\"grader-title\">Grading: ${quiz.title}</h1>
-          <div class=\"grader-date\">Use Accept/Reject/Clear to override, then Auto-check & Regrade Totals. Showing: ${showAll ? 'All answers' : 'Awaiting review only'} • <a href=\"/admin/quiz/${id}/grade?show=${showAll ? '' : 'all'}\">${showAll ? 'Show awaiting only' : 'Show all'}</a></div>
+          <div class=\"grader-date\">Use Accept/Reject/Clear to override, then Auto-check & Regrade Totals. Tip: use “Show graded / Hide graded” in each question section to toggle visibility per question.</div>
           <form method=\"post\" action=\"/admin/quiz/${id}/regrade\" class=\"btn-row\">
             <button class=\"btn-save\" type=\"submit\">Save All Grading Decisions</button>
             <a href=\"/admin/quiz/${id}\" style=\"margin-left:8px;\">Back</a>
