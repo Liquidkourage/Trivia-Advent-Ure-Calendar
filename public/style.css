@@ -185,10 +185,18 @@ body.ta-body{margin:0;background:linear-gradient(180deg,var(--blue-top) 0%, var(
 .grader-table th{background:rgba(0,0,0,.25)}
 .btn-row form button{margin-right:6px}
 .btn-save{display:inline-block;margin:12px 0;padding:10px 14px;border-radius:10px;background:linear-gradient(90deg,var(--gold),var(--gold-2));border:0;color:#111;font-weight:800}
-.status-badge{display:inline-block;padding:4px 8px;border-radius:999px;border:1px solid rgba(255,255,255,.25);background:rgba(0,0,0,.25);font-size:14px}
-.status-accepted{color:#2ECC71}
-.status-rejected{color:#FF6B6B}
-.status-mixed{color:#FFC46B}
+.status-badge{display:inline-block;padding:4px 10px;border-radius:999px;border:2px solid rgba(255,255,255,.25);background:rgba(0,0,0,.25);font-size:14px;font-weight:800;letter-spacing:.2px}
+/* Accepted: solid border + checkmark */
+.status-accepted{color:#eaffea;border-color:#2ECC71;background:linear-gradient(180deg, rgba(46,204,113,.22), rgba(0,0,0,.15))}
+.status-accepted::before{content:"✓ "; font-weight:900; color:#2ECC71}
+/* Rejected: dashed border + cross + diagonal stripe pattern for colorblind safety */
+.status-rejected{color:#ffecec;border-color:#FF6B6B;border-style:dashed;background:
+  repeating-linear-gradient(45deg, rgba(255,107,107,.28) 0 6px, rgba(255,255,255,.06) 6px 12px),
+  rgba(0,0,0,.15)}
+.status-rejected::before{content:"✕ "; font-weight:900; color:#FF6B6B}
+/* Mixed: solid border + tilde */
+.status-mixed{color:#fff8e6;border-color:#FFC46B;background:linear-gradient(180deg, rgba(255,196,107,.22), rgba(0,0,0,.15))}
+.status-mixed::before{content:"≈ "; font-weight:900; color:#FFC46B}
 .seg{display:inline-flex;border:1px solid rgba(255,255,255,.25);border-radius:8px;overflow:hidden}
 .seg button{background:rgba(0,0,0,.25);color:#fff;border:0;padding:6px 10px;border-right:1px solid rgba(255,255,255,.2);cursor:pointer}
 .seg button:last-child{border-right:0}
