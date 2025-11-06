@@ -1067,6 +1067,44 @@ app.post('/admin/quiz/:id/delete', requireAdmin, async (req, res) => {
   }
 });
 
+// --- Admin: seed demo quiz (unlocks now) ---
+app.get('/admin/seed-demo', requireAdmin, async (_req, res) => {
+  try {
+    const now = new Date();
+    const unlockUtc = new Date(now.getTime() - 60 * 1000);
+    const freezeUtc = new Date(unlockUtc.getTime() + 24 * 60 * 60 * 1000);
+    const title = `Demo Quiz ${now.toISOString().slice(0,10)}`;
+    const ins = await pool.query('INSERT INTO quizzes(title, unlock_at, freeze_at) VALUES($1,$2,$3) RETURNING id', [title, unlockUtc, freezeUtc]);
+    const quizId = ins.rows[0].id;
+    const demoQs = [
+      ['Capital of France?', 'paris'],
+      ['2 + 2 = ?', '4'],
+      ['Primary color that mixes with blue to make green?', 'yellow'],
+      ['First name of President Lincoln?', 'abraham|abe'],
+      ['The ocean between Africa and South America?', 'atlantic'],
+      ['Mammal that can truly fly?', 'bat|bats'],
+      ['Opposite of cold?', 'hot'],
+      ['Square root of 9?', '3|three'],
+      ['Chemical symbol for water?', 'h2o|/\bH\s?2\s?O\b/i'],
+      ['Largest planet in our solar system?', 'jupiter']
+    ];
+    for (let i = 0; i < demoQs.length; i++) {
+      const [text, answer] = demoQs[i];
+      await pool.query('INSERT INTO questions(quiz_id, number, text, answer, category, ask) VALUES($1,$2,$3,$4,$5,$6)', [quizId, i + 1, text, answer, 'General', null]);
+    }
+    res.type('html').send(`
+      <html><body style="font-family: system-ui; padding:24px;">
+        <h1>Seeded Demo Quiz</h1>
+        <p>Created <strong>${title}</strong> with 10 questions and unlocked it immediately.</p>
+        <p><a href="/quiz/${quizId}">Open Demo Quiz</a> · <a href="/calendar">Back to Calendar</a></p>
+      </body></html>
+    `);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to seed demo');
+  }
+});
+
 // --- Admin: access & links ---
 app.get('/admin/access', requireAdmin, (req, res) => {
   res.type('html').send(`
