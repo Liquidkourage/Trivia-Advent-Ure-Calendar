@@ -1334,7 +1334,7 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
         <div class=\"grader-qtitle\">Q${sec.number}</div>
         <div class=\"grader-qtext\">${sec.text}</div>
         <div class=\"grader-correct\"><strong>Correct Answer:</strong> ${sec.answer}</div>
-        <div class=\"grader-stats\">Right: ${right} | Wrong: ${wrong} | Ungraded: ${ungraded} • <a href=\"${toggleUrl}\">${includeAllForThis ? 'Hide graded' : 'Show graded'}</a></div>
+        <div class=\"grader-stats\">Right: ${right} | Wrong: ${wrong} | Ungraded: ${ungraded} • <a class=\"btn-chip\" href=\"${toggleUrl}\">${includeAllForThis ? 'Hide graded' : 'Show graded'}</a></div>
         <div class="btn-row" style="margin-bottom:8px;">
           <form method="post" action="/admin/quiz/${id}/override-all" style="display:inline;">
             <input type="hidden" name="question_id" value="${sec.number}"/>
@@ -1363,7 +1363,7 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
           <div class=\"grader-date\">Use Accept/Reject/Clear to override, then Auto-check & Regrade Totals. Tip: use “Show graded / Hide graded” in each question section to toggle visibility per question.</div>
           <form method=\"post\" action=\"/admin/quiz/${id}/regrade\" class=\"btn-row\">
             <button class=\"btn-save\" type=\"submit\">Save All Grading Decisions</button>
-            <a href=\"/admin/quiz/${id}\" style=\"margin-left:8px;\">Back</a>
+            <a class=\"ta-btn ta-btn-outline\" href=\"/admin/quiz/${id}\" style=\"margin-left:8px;\">Back</a>
           </form>
           <div class=\"grader-bar\">${nav}</div>
           ${sections}

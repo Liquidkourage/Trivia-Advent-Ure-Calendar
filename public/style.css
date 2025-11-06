@@ -185,6 +185,8 @@ body.ta-body{margin:0;background:linear-gradient(180deg,var(--blue-top) 0%, var(
 .grader-table th{background:rgba(0,0,0,.25)}
 .btn-row form button{margin-right:6px}
 .btn-save{display:inline-block;margin:12px 0;padding:10px 14px;border-radius:10px;background:linear-gradient(90deg,var(--gold),var(--gold-2));border:0;color:#111;font-weight:800}
+.btn-chip{display:inline-block;padding:4px 10px;border-radius:999px;border:1px solid rgba(255,255,255,.25);background:rgba(0,0,0,.25);color:#fff;text-decoration:none;font-weight:800;font-size:12px}
+.btn-chip:hover{filter:brightness(1.05);border-color:var(--gold);color:var(--gold)}
 .status-badge{display:inline-block;padding:4px 10px;border-radius:999px;border:2px solid rgba(255,255,255,.25);background:rgba(0,0,0,.25);font-size:14px;font-weight:800;letter-spacing:.2px}
 /* Accepted: solid border + checkmark */
 .status-accepted{color:#eaffea;border-color:#2ECC71;background:linear-gradient(180deg, rgba(46,204,113,.22), rgba(0,0,0,.15))}
