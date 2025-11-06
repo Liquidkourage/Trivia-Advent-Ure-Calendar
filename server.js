@@ -131,6 +131,9 @@ async function initDb() {
       ALTER TABLE responses ADD COLUMN IF NOT EXISTS override_correct BOOLEAN;
     EXCEPTION WHEN others THEN NULL; END $$;
     DO $$ BEGIN
+      ALTER TABLE responses ADD COLUMN IF NOT EXISTS flagged BOOLEAN NOT NULL DEFAULT FALSE;
+    EXCEPTION WHEN others THEN NULL; END $$;
+    DO $$ BEGIN
       ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS author TEXT;
     EXCEPTION WHEN others THEN NULL; END $$;
     DO $$ BEGIN
@@ -807,17 +810,25 @@ app.get('/quiz/:id', async (req, res) => {
     const recap = String(req.query.recap || '') === '1';
     if (recap && loggedIn) {
       const { rows: gr } = await pool.query(
-        'SELECT q.number, q.text, q.answer, r.response_text, r.points, r.locked FROM questions q LEFT JOIN responses r ON r.question_id=q.id AND r.user_email=$1 WHERE q.quiz_id=$2 ORDER BY q.number ASC',
+        'SELECT q.id AS qid, q.number, q.text, q.answer, r.response_text, r.points, r.locked, COALESCE(r.flagged,false) AS flagged FROM questions q LEFT JOIN responses r ON r.question_id=q.id AND r.user_email=$1 WHERE q.quiz_id=$2 ORDER BY q.number ASC',
         [email, id]
       );
       const total = gr.reduce((s, r) => s + Number(r.points || 0), 0);
       const rowsHtml = gr.map(r => `
-        <tr>
+        <tr${r.flagged ? ' class="is-flagged"' : ''}>
           <td>${r.number}${r.locked ? ' 🔒' : ''}</td>
           <td>${r.text}</td>
           <td>${r.response_text || ''}</td>
           <td>${r.answer}</td>
           <td>${r.points || 0}</td>
+          <td>
+            ${r.flagged ? '<span class="status-badge status-mixed">🚩 flagged</span>' : `
+              <form method="post" action="/quiz/${id}/flag" style="display:inline;">
+                <input type="hidden" name="qid" value="${r.qid}"/>
+                <button class="btn-chip" type="submit" title="Flag this answer for manual review">🚩 Flag for review</button>
+              </form>
+            `}
+          </td>
         </tr>`).join('');
       return res.type('html').send(`
         <html><head><title>Quiz ${id} Recap</title></head>
@@ -826,7 +837,7 @@ app.get('/quiz/:id', async (req, res) => {
           <div>Status: ${status}</div>
           <h3>Score: ${total}</h3>
           <table border="1" cellspacing="0" cellpadding="6">
-            <tr><th>#</th><th>Question</th><th>Your answer</th><th>Correct answer</th><th>Points</th></tr>
+            <tr><th>#</th><th>Question</th><th>Your answer</th><th>Correct answer</th><th>Points</th><th>Actions</th></tr>
             ${rowsHtml}
           </table>
           <p style="margin-top:16px;"><a href="/calendar">Back to Calendar</a></p>
@@ -882,6 +893,25 @@ app.get('/quiz/:id', async (req, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).send('Failed to load quiz');
+  }
+});
+
+// Player flags a response for manual review
+app.post('/quiz/:id/flag', requireAuth, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const qid = Number(req.body.qid || 0);
+    const email = (req.session.user.email || '').toLowerCase();
+    if (!qid) return res.status(400).send('Missing question id');
+    const upd = await pool.query(
+      'UPDATE responses SET flagged = TRUE WHERE quiz_id=$1 AND question_id=$2 AND user_email=$3',
+      [id, qid, email]
+    );
+    // Even if no row updated (e.g., no response), just redirect back
+    return res.redirect(`/quiz/${id}?recap=1`);
+  } catch (e) {
+    console.error(e);
+    return res.status(500).send('Failed to flag');
   }
 });
 
@@ -1243,7 +1273,7 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
     );
     // Load responses joined with questions
     const rows = (await pool.query(
-      `SELECT q.id AS qid, q.number, q.text, q.answer, r.user_email, r.response_text, r.locked, r.override_correct
+      `SELECT q.id AS qid, q.number, q.text, q.answer, r.user_email, r.response_text, r.locked, r.override_correct, COALESCE(r.flagged,false) AS flagged
        FROM questions q
        LEFT JOIN responses r ON r.question_id = q.id
        WHERE q.quiz_id=$1
@@ -1263,12 +1293,14 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
     const nav = qList.map(sec => {
       // count ungraded (override null and auto incorrect)
       let ungraded = 0;
-      const all = Array.from(byQ.get([...byQ.keys()][sec.number-1]).answers.values()).flat();
+      const all = Array.from(sec.answers.values()).flat();
+      let flaggedCount = 0;
       for (const r of all) {
         const auto = isCorrectAnswer(r.response_text || '', sec.answer);
         if (typeof r.override_correct !== 'boolean' && !auto) ungraded++;
+        if (r.flagged === true) flaggedCount++;
       }
-      return `<a class=\"grader-tab\" href=\"#q${sec.number}\">Q${sec.number}${ungraded>0?`<span class=\\\"bubble\\\">${ungraded}</span>`:''}</a>`;
+      return `<a class=\"grader-tab\" href=\"#q${sec.number}\">Q${sec.number}${ungraded>0?`<span class=\\\"bubble\\\">${ungraded}</span>`:''}${flaggedCount>0?`<span class=\\\"bubble\\\" title=\\\"Flagged\\\">🚩${flaggedCount}</span>`:''}</a>`;
     }).join('');
     const sections = qList.map(sec => {
       // Build rows: awaiting only (default) or all (when show=all)
@@ -1281,9 +1313,17 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
           if (normalizeAnswer(firstText) === '') return false; // blanks auto-rejected, do not show
           const auto = isCorrectAnswer(firstText, sec.answer);
           const hasOverride = arr.some(r => typeof r.override_correct === 'boolean');
-          return !auto && !hasOverride;
+          const anyFlagged = arr.some(r => r.flagged === true);
+          // Show if flagged OR truly awaiting review
+          return anyFlagged || (!auto && !hasOverride);
         });
       }
+      // Sort so flagged groups appear first
+      list.sort((a, b) => {
+        const aFlag = a[1].some(r => r.flagged === true) ? 1 : 0;
+        const bFlag = b[1].some(r => r.flagged === true) ? 1 : 0;
+        return bFlag - aFlag;
+      });
       const items = list.map(([ans, arr]) => {
         const auto = arr.length && isCorrectAnswer(arr[0].response_text || '', sec.answer);
         // Determine accepted state using override when set; if mixed, show '-'
@@ -1295,9 +1335,10 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
         else accepted = auto ? 'accepted' : 'rejected';
         const badgeClass = accepted === 'accepted' ? 'status-accepted' : (accepted === 'mixed' ? 'status-mixed' : 'status-rejected');
         const shownAnswer = ans || '<em>blank</em>';
-        return `<tr>
+        const flagged = arr.some(r => r.flagged === true);
+        return `<tr${flagged ? ' class="is-flagged"' : ''}>
           <td>${shownAnswer}</td>
-          <td><span class="status-badge ${badgeClass}">${accepted} • ${arr.length}</span></td>
+          <td><span class="status-badge ${badgeClass}">${accepted}${flagged ? ' • 🚩' : ''} • ${arr.length}</span></td>
           <td>
             <div class="seg">
             <form method="post" action="/admin/quiz/${id}/override" style="display:inline;">
