@@ -1173,6 +1173,62 @@ app.get('/admin/seed-demo', requireAdmin, async (_req, res) => {
   }
 });
 
+// --- Admin: seed demo responses for a quiz (10–15 per question) ---
+app.get('/admin/quiz/:id/seed-responses', requireAdmin, async (req, res) => {
+  try {
+    const quizId = Number(req.params.id);
+    const qz = await pool.query('SELECT id, title FROM quizzes WHERE id=$1', [quizId]);
+    if (qz.rows.length === 0) return res.status(404).send('Quiz not found');
+    const qs = (await pool.query('SELECT id, number, answer FROM questions WHERE quiz_id=$1 ORDER BY number ASC', [quizId])).rows;
+    // Prepare demo users
+    const emails = Array.from({ length: 12 }, (_, i) => `demo_user_${i + 1}@example.com`);
+    for (const e of emails) {
+      await pool.query('INSERT INTO players(email, access_granted_at) VALUES($1, NOW()) ON CONFLICT (email) DO NOTHING', [e]);
+    }
+    // Answer variants per question number
+    const variants = new Map([
+      [1, ['Paris', 'paris', 'PARIS', 'Pariis', 'Marseille', 'Lyon', 'paris france', '', 'Pa ris', 'pari', 'Bordeaux', 'Naples']],
+      [2, ['4', ' 4 ', 'four', 'IV', '3', 'five', '', '2+2', 'four.', '4.0', 'four  ', 'quatre']],
+      [3, ['yellow', 'Yellow', 'yello', 'red', 'blue', 'green', 'yel low', '', 'amber', 'yellows', 'gold', 'lemon']],
+      [4, ['Abraham', 'Abe', 'abe lincoln', 'lincoln', 'abram', '', 'abraham lincoln', 'Abe.', 'A.', 'Mr Lincoln', 'abrham', 'abe  ']],
+      [5, ['Atlantic', 'atlantic', 'atlantic ocean', 'pacific', 'Atlanic', '', 'indian', 'atlntic', 'atl.', 'gulf of mexico', 'atlantic  ', 'north atlantic']],
+      [6, ['bat', 'bats', 'bird', 'flying squirrel', '', 'Bat', 'BAT', 'bta', 'owl', 'fox', 'fruit bat', 'mouse']],
+      [7, ['hot', 'Hot', 'warm', 'cold', '', 'heat', 'toasty', 'boiling', 'cool', 'HOT', 'lukewarm', 'scalding']],
+      [8, ['3', 'three', 'III', '3.0', '4', '', 'Three', 'iii', '2', '5', 'tres', 'tri']],
+      [9, ['H2O', 'h 2 o', 'water', 'H20', 'H 2O', 'h2o', '', 'H-2-O', 'H₂O', 'H2 o', 'hydrogen oxide', 'aqua']],
+      [10, ['Jupiter', 'jupiter', 'Saturn', 'Jupitar', 'Mars', '', 'JUPITER', 'Jupi ter', 'Neptune', 'Pluto', 'the gas giant', 'jptr']]
+    ]);
+    // Insert responses with rotation through variants; lock a different Q per user
+    let inserted = 0;
+    for (let i = 0; i < emails.length; i++) {
+      const email = emails[i];
+      const lockNumber = (i % Math.max(1, qs.length)) + 1;
+      for (const q of qs) {
+        const arr = variants.get(q.number) || [''];
+        const answer = arr[i % arr.length];
+        const isLocked = q.number === lockNumber;
+        await pool.query(
+          'INSERT INTO responses(quiz_id, question_id, user_email, response_text, locked) VALUES($1,$2,$3,$4,$5) ON CONFLICT (user_email, question_id) DO UPDATE SET response_text=EXCLUDED.response_text, locked=EXCLUDED.locked',
+          [quizId, q.id, email, answer, isLocked]
+        );
+        inserted++;
+      }
+      // Grade this user to compute points
+      await gradeQuiz(pool, quizId, email);
+    }
+    res.type('html').send(`
+      <html><body style="font-family: system-ui; padding:24px;">
+        <h1>Seeded demo responses</h1>
+        <p>Inserted/updated ${inserted} responses for ${emails.length} demo users.</p>
+        <p><a href="/admin/quiz/${quizId}/grade">Open Grader</a> · <a href="/calendar">Calendar</a></p>
+      </body></html>
+    `);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to seed demo responses');
+  }
+});
+
 // --- Admin: grading UI (per quiz) ---
 app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
   try {
