@@ -1131,7 +1131,7 @@ app.get('/admin/seed-demo', requireAdmin, async (_req, res) => {
     const unlockUtc = new Date(now.getTime() - 60 * 1000);
     const freezeUtc = new Date(unlockUtc.getTime() + 24 * 60 * 60 * 1000);
     const title = `Demo Quiz ${now.toISOString().slice(0,10)}`;
-    const ins = await pool.query('INSERT INTO quizzes(title, unlock_at, freeze_at) VALUES($1,$2,$3) RETURNING id', [title, unlockUtc, freezeUtc]);
+    const ins = await pool.query('INSERT INTO quizzes(title, unlock_at, freeze_at, author, author_blurb, description) VALUES($1,$2,$3,$4,$5,$6) RETURNING id', [title, unlockUtc, freezeUtc, 'Trivia Advent‑ure Team', 'A quick set to demo locking and streak scoring.', 'Ten short questions. Lock one for a fixed 5 if correct; other answers build a streak of 1,2,3…']);
     const quizId = ins.rows[0].id;
     const demoQs = [
       ['Capital of France?', 'paris'],
