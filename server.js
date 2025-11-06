@@ -1437,7 +1437,11 @@ app.post('/admin/quiz/:id/override', requireAdmin, async (req, res) => {
     let val = null;
     if (action === 'accept') val = true;
     else if (action === 'reject') val = false;
+  if (action === 'accept' || action === 'reject') {
+    await pool.query('UPDATE responses SET override_correct = $1, flagged = FALSE WHERE question_id=$2 AND response_text = $3', [val, questionId, answer]);
+  } else {
     await pool.query('UPDATE responses SET override_correct = $1 WHERE question_id=$2 AND response_text = $3', [val, questionId, answer]);
+  }
     res.redirect(`/admin/quiz/${quizId}/grade`);
   } catch (e) {
     console.error(e);
@@ -1456,7 +1460,11 @@ app.post('/admin/quiz/:id/override-all', requireAdmin, async (req, res) => {
     let val = null;
     if (action === 'accept') val = true;
     else if (action === 'reject') val = false;
+  if (action === 'accept' || action === 'reject') {
+    await pool.query('UPDATE responses SET override_correct = $1, flagged = FALSE WHERE question_id=$2', [val, questionId]);
+  } else {
     await pool.query('UPDATE responses SET override_correct = $1 WHERE question_id=$2', [val, questionId]);
+  }
     res.redirect(`/admin/quiz/${quizId}/grade`);
   } catch (e) {
     console.error(e);
