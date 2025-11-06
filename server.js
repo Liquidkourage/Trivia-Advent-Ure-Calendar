@@ -972,8 +972,8 @@ app.post('/quiz/:id/submit', requireAuthOrAdmin, async (req, res) => {
       if (!val) {
         // still persist lock choice even without new text if row exists
         await pool.query(
-          'INSERT INTO responses(quiz_id, question_id, user_email, response_text, locked) VALUES($1,$2,$3,$4,$5) ON CONFLICT (user_email, question_id) DO UPDATE SET locked = EXCLUDED.locked',
-          [id, q.id, email, '', isLocked]
+          'INSERT INTO responses(quiz_id, question_id, user_email, response_text, locked, override_correct) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT (user_email, question_id) DO UPDATE SET locked = EXCLUDED.locked, response_text = EXCLUDED.response_text, override_correct = COALESCE(responses.override_correct, FALSE)',
+          [id, q.id, email, '', isLocked, false]
         );
         continue;
       }
@@ -1269,7 +1269,9 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
       // Only show UNADDRESSED (awaiting review): override is NULL and auto-check is false
       const awaiting = Array.from(sec.answers.entries()).filter(([ans, arr]) => {
         if (arr.length === 0) return false;
-        const auto = isCorrectAnswer(arr[0].response_text || '', sec.answer);
+        const firstText = arr[0].response_text || '';
+        if (normalizeAnswer(firstText) === '') return false; // blanks are auto-rejected, do not show
+        const auto = isCorrectAnswer(firstText, sec.answer);
         const hasOverride = arr.some(r => typeof r.override_correct === 'boolean');
         return !auto && !hasOverride;
       });
@@ -1304,9 +1306,14 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
       let right=0, wrong=0, ungraded=0;
       const flat = Array.from(sec.answers.values()).flat();
       for (const r of flat) {
-        const auto = isCorrectAnswer(r.response_text || '', sec.answer);
+        const txt = r.response_text || '';
+        const isBlank = normalizeAnswer(txt) === '';
+        const auto = isCorrectAnswer(txt, sec.answer);
         const state = (typeof r.override_correct === 'boolean') ? r.override_correct : auto;
-        if (state) right++; else if (typeof r.override_correct === 'boolean' || !auto) (typeof r.override_correct==='boolean' ? wrong++ : ungraded++);
+        if (state) right++;
+        else if (isBlank) wrong++;
+        else if (typeof r.override_correct === 'boolean') wrong++;
+        else ungraded++;
       }
       return `<div class=\"grader-section\" id=\"q${sec.number}\">
         <div class=\"grader-qtitle\">Q${sec.number}</div>
