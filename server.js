@@ -858,8 +858,10 @@ app.get('/quiz/:id', async (req, res) => {
               ${quiz.author ? `<span class="meta-badge">By ${quiz.author}</span>` : ''}
               <span class="meta-badge">${status}</span>
             </div>
-            ${quiz.author_blurb ? `<div class="ta-quiz-desc" style="opacity:.85;">${quiz.author_blurb}</div>` : ''}
-            ${quiz.description ? `<div class="ta-quiz-desc">${quiz.description}</div>` : ''}
+            <div class="ta-quiz-info">
+              <div class="ta-quiz-desc">${quiz.description || ''}</div>
+              ${(quiz.author || quiz.author_blurb) ? `<div class="meta-panel"><h4>About the author</h4><div>${quiz.author || ''}</div><div style="opacity:.85;margin-top:6px;">${quiz.author_blurb || ''}</div></div>` : ''}
+            </div>
           </div>
           ${form}
           <p style="margin-top:16px;"><a href="/calendar">Back to Calendar</a></p>
