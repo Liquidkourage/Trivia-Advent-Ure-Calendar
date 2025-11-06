@@ -185,3 +185,11 @@ body.ta-body{margin:0;background:linear-gradient(180deg,var(--blue-top) 0%, var(
 .grader-table th{background:rgba(0,0,0,.25)}
 .btn-row form button{margin-right:6px}
 .btn-save{display:inline-block;margin:12px 0;padding:10px 14px;border-radius:10px;background:linear-gradient(90deg,var(--gold),var(--gold-2));border:0;color:#111;font-weight:800}
+.status-badge{display:inline-block;padding:4px 8px;border-radius:999px;border:1px solid rgba(255,255,255,.25);background:rgba(0,0,0,.25);font-size:14px}
+.status-accepted{color:#2ECC71}
+.status-rejected{color:#FF6B6B}
+.status-mixed{color:#FFC46B}
+.seg{display:inline-flex;border:1px solid rgba(255,255,255,.25);border-radius:8px;overflow:hidden}
+.seg button{background:rgba(0,0,0,.25);color:#fff;border:0;padding:6px 10px;border-right:1px solid rgba(255,255,255,.2);cursor:pointer}
+.seg button:last-child{border-right:0}
+.seg button:hover{filter:brightness(1.1)}

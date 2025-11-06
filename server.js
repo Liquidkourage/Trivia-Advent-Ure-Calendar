@@ -1275,13 +1275,13 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
         else if (overrides.every(v => v === false)) accepted = 'rejected';
         else if (overrides.some(v => v !== null)) accepted = 'mixed';
         else accepted = auto ? 'accepted' : 'rejected';
-        const badge = accepted === 'accepted' ? 'style=\"color:#2ECC71\"' : (accepted === 'mixed' ? 'style=\"color:#FFC46B\"' : 'style=\"color:#FF6B6B\"');
+        const badgeClass = accepted === 'accepted' ? 'status-accepted' : (accepted === 'mixed' ? 'status-mixed' : 'status-rejected');
+        const shownAnswer = ans || '<em>blank</em>';
         return `<tr>
-          <td>${sec.number}</td>
-          <td>${ans || '<em>(blank)</em>'}</td>
-          <td ${badge}>${accepted}</td>
-          <td>${arr.length}</td>
+          <td>${shownAnswer}</td>
+          <td><span class="status-badge ${badgeClass}">${accepted} • ${arr.length}</span></td>
           <td>
+            <div class="seg">
             <form method="post" action="/admin/quiz/${id}/override" style="display:inline;">
               <input type="hidden" name="question_id" value="${sec.number}"/>
               <input type="hidden" name="answer" value="${ans.replace(/"/g,'&quot;')}"/>
@@ -1289,6 +1289,7 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
               <button name="action" value="reject">Reject</button>
               <button name="action" value="clear">Clear</button>
             </form>
+            </div>
           </td>
         </tr>`;
       }).join('');
@@ -1305,9 +1306,23 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
         <div class=\"grader-qtext\">${sec.text}</div>
         <div class=\"grader-correct\"><strong>Correct Answer:</strong> ${sec.answer}</div>
         <div class=\"grader-stats\">Right: ${right} | Wrong: ${wrong} | Ungraded: ${ungraded}</div>
+        <div class="btn-row" style="margin-bottom:8px;">
+          <form method="post" action="/admin/quiz/${id}/override-all" style="display:inline;">
+            <input type="hidden" name="question_id" value="${sec.number}"/>
+            <button name="action" value="accept" class="btn-save" type="submit">Accept all shown</button>
+          </form>
+          <form method="post" action="/admin/quiz/${id}/override-all" style="display:inline;margin-left:6px;">
+            <input type="hidden" name="question_id" value="${sec.number}"/>
+            <button name="action" value="reject" class="btn-save" type="submit">Reject all shown</button>
+          </form>
+          <form method="post" action="/admin/quiz/${id}/override-all" style="display:inline;margin-left:6px;">
+            <input type="hidden" name="question_id" value="${sec.number}"/>
+            <button name="action" value="clear" class="btn-save" type="submit">Clear all</button>
+          </form>
+        </div>
         <table class=\"grader-table\">
-          <tr><th>Q#</th><th>Submitted answer</th><th>Status</th><th>Count</th><th>Override</th></tr>
-          ${items || '<tr><td colspan=\"5\">(no submissions)</td></tr>'}
+          <tr><th>Submitted answer</th><th>Result</th><th>Override</th></tr>
+          ${items || '<tr><td colspan=\"3\">(no submissions)</td></tr>'}
         </table>
       </div>`;
     }).join('');
@@ -1350,6 +1365,25 @@ app.post('/admin/quiz/:id/override', requireAdmin, async (req, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).send('Failed to override');
+  }
+});
+
+app.post('/admin/quiz/:id/override-all', requireAdmin, async (req, res) => {
+  try {
+    const quizId = Number(req.params.id);
+    const qNumber = Number(req.body.question_id);
+    const action = String(req.body.action || '').toLowerCase();
+    const q = await pool.query('SELECT id FROM questions WHERE quiz_id=$1 AND number=$2', [quizId, qNumber]);
+    if (q.rows.length === 0) return res.status(404).send('Question not found');
+    const questionId = q.rows[0].id;
+    let val = null;
+    if (action === 'accept') val = true;
+    else if (action === 'reject') val = false;
+    await pool.query('UPDATE responses SET override_correct = $1 WHERE question_id=$2', [val, questionId]);
+    res.redirect(`/admin/quiz/${quizId}/grade`);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to override all');
   }
 });
 
