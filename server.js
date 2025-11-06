@@ -1236,6 +1236,8 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
     const qr = await pool.query('SELECT id, title FROM quizzes WHERE id=$1', [id]);
     if (qr.rows.length === 0) return res.status(404).send('Not found');
     const quiz = qr.rows[0];
+    const showMode = String(req.query.show || '').toLowerCase(); // '' (awaiting only) or 'all'
+    const showAll = showMode === 'all';
     // Load responses joined with questions
     const rows = (await pool.query(
       `SELECT q.id AS qid, q.number, q.text, q.answer, r.user_email, r.response_text, r.locked, r.override_correct
@@ -1266,16 +1268,19 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
       return `<a class=\"grader-tab\" href=\"#q${sec.number}\">Q${sec.number}${ungraded>0?`<span class=\\\"bubble\\\">${ungraded}</span>`:''}</a>`;
     }).join('');
     const sections = qList.map(sec => {
-      // Only show UNADDRESSED (awaiting review): override is NULL and auto-check is false
-      const awaiting = Array.from(sec.answers.entries()).filter(([ans, arr]) => {
-        if (arr.length === 0) return false;
-        const firstText = arr[0].response_text || '';
-        if (normalizeAnswer(firstText) === '') return false; // blanks are auto-rejected, do not show
-        const auto = isCorrectAnswer(firstText, sec.answer);
-        const hasOverride = arr.some(r => typeof r.override_correct === 'boolean');
-        return !auto && !hasOverride;
-      });
-      const items = awaiting.map(([ans, arr]) => {
+      // Build rows: awaiting only (default) or all (when show=all)
+      let list = Array.from(sec.answers.entries());
+      if (!showAll) {
+        list = list.filter(([ans, arr]) => {
+          if (arr.length === 0) return false;
+          const firstText = arr[0].response_text || '';
+          if (normalizeAnswer(firstText) === '') return false; // blanks auto-rejected, do not show
+          const auto = isCorrectAnswer(firstText, sec.answer);
+          const hasOverride = arr.some(r => typeof r.override_correct === 'boolean');
+          return !auto && !hasOverride;
+        });
+      }
+      const items = list.map(([ans, arr]) => {
         const auto = arr.length && isCorrectAnswer(arr[0].response_text || '', sec.answer);
         // Determine accepted state using override when set; if mixed, show '-'
         let accepted;
@@ -1345,7 +1350,7 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
       <body class=\"ta-body\">
         <main class=\"grader-container\">
           <h1 class=\"grader-title\">Grading: ${quiz.title}</h1>
-          <div class=\"grader-date\">Use Accept/Reject/Clear to override, then Auto-check & Regrade Totals.</div>
+          <div class=\"grader-date\">Use Accept/Reject/Clear to override, then Auto-check & Regrade Totals. Showing: ${showAll ? 'All answers' : 'Awaiting review only'} • <a href=\"/admin/quiz/${id}/grade?show=${showAll ? '' : 'all'}\">${showAll ? 'Show awaiting only' : 'Show all'}</a></div>
           <form method=\"post\" action=\"/admin/quiz/${id}/regrade\" class=\"btn-row\">
             <button class=\"btn-save\" type=\"submit\">Save All Grading Decisions</button>
             <a href=\"/admin/quiz/${id}\" style=\"margin-left:8px;\">Back</a>
