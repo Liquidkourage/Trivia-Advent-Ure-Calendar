@@ -9,7 +9,7 @@
   --blue-top:#0f1d5a;
   --blue-mid:#15124a;
   --blue-bottom:#0b1338;
-  --door-h:150px; /* unified door height (closed and open) */
+  --door-h:160px; /* unified door height (closed and open) */
   /* action row now renders inside the door; no extra row height needed */
 }
 @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800&family=Cinzel+Decorative:wght@700&display=swap');
@@ -83,7 +83,7 @@ body.ta-body{margin:0;background:linear-gradient(180deg,var(--blue-top) 0%, var(
 /* Gold knobs */
 .ta-door-leaf.right::before{content:"";position:absolute;left:12px;top:50%;transform:translateY(-50%);width:12px;height:12px;border-radius:50%;background:radial-gradient(circle at 30% 30%, #f7dfa6, #c49b22);box-shadow:0 1px 0 #fff inset, 0 0 0 2px rgba(0,0,0,.2)}
 .ta-door-leaf.left::before{content:"";position:absolute;right:12px;top:50%;transform:translateY(-50%);width:12px;height:12px;border-radius:50%;background:radial-gradient(circle at 30% 30%, #f7dfa6, #c49b22);box-shadow:0 1px 0 #fff inset, 0 0 0 2px rgba(0,0,0,.2)}
-.ta-door-number{position:relative;z-index:2;font-family:"Cinzel Decorative","Cinzel", Georgia, serif;font-size:68px;letter-spacing:.5px;color:#fff;-webkit-text-stroke:1px #D4AF37;transform:translateY(4px);
+.ta-door-number{position:relative;z-index:2;font-family:"Cinzel Decorative","Cinzel", Georgia, serif;font-size:68px;letter-spacing:.5px;color:#fff;-webkit-text-stroke:1px #D4AF37;transform:translateY(8px);
   text-shadow:0 2px 0 rgba(0,0,0,.7), 0 6px 18px rgba(0,0,0,.45), 0 0 8px rgba(212,175,55,.35)}
 .ta-door-label{font-size:12px;opacity:.9}
 .ta-door-back{
