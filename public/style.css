@@ -135,7 +135,9 @@ body.ta-body{margin:0;background:linear-gradient(180deg,var(--blue-top) 0%, var(
 .ta-quiz-meta{display:flex;flex-wrap:wrap;gap:12px;font-size:16px;opacity:.95;margin-bottom:12px}
 .meta-badge{display:inline-block;padding:6px 12px;border-radius:999px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.24)}
 .ta-quiz-desc{font-size:22px;line-height:1.7;opacity:.95}
-.ta-quiz-info{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:10px;margin-bottom:12px}
+.ta-quiz-hero{border:2px solid rgba(255,255,255,.15);background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(0,0,0,.22));border-radius:18px;padding:20px 22px;margin-bottom:16px;box-shadow:0 10px 26px rgba(0,0,0,.28)}
+.ta-quiz-hero-top{margin-bottom:12px}
+.ta-quiz-hero-body{display:grid;grid-template-columns:1fr 1fr;gap:18px}
 .meta-panel{border:2px solid rgba(255,167,38,.85);border-radius:16px;background:linear-gradient(180deg, rgba(255,167,38,.28), rgba(0,0,0,.22));padding:18px 20px;font-size:18px;box-shadow:0 10px 26px rgba(0,0,0,.35)}
 .meta-panel h4{margin:0 0 10px 0;font-size:22px;color:var(--gold)}
 .author-name{font-size:22px;font-weight:800;color:var(--gold);display:block;margin-bottom:6px}
@@ -153,6 +155,6 @@ body.ta-body{margin:0;background:linear-gradient(180deg,var(--blue-top) 0%, var(
 .recap-table th,.recap-table td{border:1px solid rgba(255,255,255,.2);padding:8px}
 .recap-table th{background:rgba(0,0,0,.25)}
 @media (max-width: 700px){
-  .ta-quiz-info{grid-template-columns:1fr}
+  .ta-quiz-hero-body{grid-template-columns:1fr}
   .quiz-answer input[type="text"], .quiz-answer input{width:100%;max-width:none}
 }
