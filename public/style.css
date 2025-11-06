@@ -150,7 +150,9 @@ body.ta-body{margin:0;background:linear-gradient(180deg,var(--blue-top) 0%, var(
 .rules-list{margin:0;padding-left:18px;line-height:1.6;font-size:18px}
 .quiz-card{border:1px solid rgba(255,255,255,.14);border-radius:12px;background:rgba(0,0,0,.25);padding:14px;margin:10px 0}
 .quiz-qhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+.quiz-left{display:flex;align-items:center;gap:12px}
 .quiz-qnum{font-weight:800;font-size:30px;color:var(--gold)}
+.quiz-cat{font-size:16px;padding:4px 10px;border-radius:999px;border:1px solid rgba(255,255,255,.28);background:rgba(0,0,0,.25);opacity:.95}
 .quiz-lock{font-size:22px}
 .quiz-lock input{transform:scale(2.1);transform-origin:left center;margin-right:12px}
 .quiz-text{font-size:26px;line-height:1.72;margin-bottom:14px}

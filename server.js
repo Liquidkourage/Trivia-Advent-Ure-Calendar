@@ -837,7 +837,7 @@ app.get('/quiz/:id', async (req, res) => {
           const disable = nowUtc >= freezeUtc ? 'disabled' : '';
           const required = (q.number === 1 && !(nowUtc >= freezeUtc)) ? 'required' : '';
           return `
-          <div class=\"quiz-card\">\n            <div class=\"quiz-qhead\"><div class=\"quiz-qnum\">Q${q.number}</div> <label class=\"quiz-lock\"><input type=\"radio\" name=\"locked\" value=\"${q.id}\" ${checked} ${disable} ${required}/> Lock this question</label></div>\n            <div class=\"quiz-text\">${q.text}</div>\n            <div class=\"quiz-answer\"><label>Your answer <input name=\"q${q.number}\" value=\"${val.replace(/\"/g,'&quot;')}\" ${disable}/></label></div>\n          </div>`;
+          <div class=\"quiz-card\">\n            <div class=\"quiz-qhead\"><div class=\"quiz-left\"><div class=\"quiz-qnum\">Q${q.number}</div><span class=\"quiz-cat\">${q.category || 'General'}</span></div> <label class=\"quiz-lock\"><input type=\"radio\" name=\"locked\" value=\"${q.id}\" ${checked} ${disable} ${required}/> Lock this question</label></div>\n            <div class=\"quiz-text\">${q.text}</div>\n            <div class=\"quiz-answer\"><label>Your answer <input name=\"q${q.number}\" value=\"${val.replace(/\"/g,'&quot;')}\" ${disable}/></label></div>\n          </div>`;
         }).join('')}
         <div class=\"quiz-actions\"><button class=\"quiz-submit\" type=\"submit\" ${nowUtc >= freezeUtc ? 'disabled' : ''}>Submit</button></div>
       </form>
