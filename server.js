@@ -1197,8 +1197,19 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
       if (!byQ.get(r.qid).answers.has(key)) byQ.get(r.qid).answers.set(key, []);
       byQ.get(r.qid).answers.get(key).push(r);
     }
-    // Render
-    const sections = Array.from(byQ.values()).map(sec => {
+    // Build nav and sections
+    const qList = Array.from(byQ.values()).sort((a,b)=>a.number-b.number);
+    const nav = qList.map(sec => {
+      // count ungraded (override null and auto incorrect)
+      let ungraded = 0;
+      const all = Array.from(byQ.get([...byQ.keys()][sec.number-1]).answers.values()).flat();
+      for (const r of all) {
+        const auto = isCorrectAnswer(r.response_text || '', sec.answer);
+        if (typeof r.override_correct !== 'boolean' && !auto) ungraded++;
+      }
+      return `<a class=\"grader-tab\" href=\"#q${sec.number}\">Q${sec.number}${ungraded>0?`<span class=\\\"bubble\\\">${ungraded}</span>`:''}</a>`;
+    }).join('');
+    const sections = qList.map(sec => {
       const items = Array.from(sec.answers.entries()).map(([ans, arr]) => {
         const auto = arr.length && isCorrectAnswer(arr[0].response_text || '', sec.answer);
         // Determine accepted state using override when set; if mixed, show '-'
@@ -1225,22 +1236,38 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
           </td>
         </tr>`;
       }).join('');
-      return `<h3>Q${sec.number}</h3>
-      <div style="margin-bottom:8px;opacity:.85;"><em>Correct answer:</em> ${sec.answer}</div>
-      <table border="1" cellspacing="0" cellpadding="6" style="margin-bottom:18px;">
-        <tr><th>Q#</th><th>Submitted answer</th><th>Status</th><th>Count</th><th>Override</th></tr>
-        ${items || '<tr><td colspan="5">(no submissions)</td></tr>'}
-      </table>`;
+      // stats
+      let right=0, wrong=0, ungraded=0;
+      const flat = Array.from(sec.answers.values()).flat();
+      for (const r of flat) {
+        const auto = isCorrectAnswer(r.response_text || '', sec.answer);
+        const state = (typeof r.override_correct === 'boolean') ? r.override_correct : auto;
+        if (state) right++; else if (typeof r.override_correct === 'boolean' || !auto) (typeof r.override_correct==='boolean' ? wrong++ : ungraded++);
+      }
+      return `<div class=\"grader-section\" id=\"q${sec.number}\">
+        <div class=\"grader-qtitle\">Q${sec.number}</div>
+        <div class=\"grader-qtext\">${sec.text}</div>
+        <div class=\"grader-correct\"><strong>Correct Answer:</strong> ${sec.answer}</div>
+        <div class=\"grader-stats\">Right: ${right} | Wrong: ${wrong} | Ungraded: ${ungraded}</div>
+        <table class=\"grader-table\">
+          <tr><th>Q#</th><th>Submitted answer</th><th>Status</th><th>Count</th><th>Override</th></tr>
+          ${items || '<tr><td colspan=\"5\">(no submissions)</td></tr>'}
+        </table>
+      </div>`;
     }).join('');
     res.type('html').send(`
-      <html><head><title>Grade • ${quiz.title}</title></head>
-      <body style="font-family: system-ui; padding:24px;">
-        <h1>Grade • ${quiz.title}</h1>
-        <form method="post" action="/admin/quiz/${id}/regrade" style="margin-bottom:12px;">
-          <button type="submit">Auto-check & Regrade Totals</button>
-          <a href="/admin/quiz/${id}">Back</a>
-        </form>
-        ${sections}
+      <html><head><title>Grade • ${quiz.title}</title><link rel=\"stylesheet\" href=\"/style.css\"></head>
+      <body class=\"ta-body\">
+        <main class=\"grader-container\">
+          <h1 class=\"grader-title\">Grading: ${quiz.title}</h1>
+          <div class=\"grader-date\">Use Accept/Reject/Clear to override, then Auto-check & Regrade Totals.</div>
+          <form method=\"post\" action=\"/admin/quiz/${id}/regrade\" class=\"btn-row\">
+            <button class=\"btn-save\" type=\"submit\">Save All Grading Decisions</button>
+            <a href=\"/admin/quiz/${id}\" style=\"margin-left:8px;\">Back</a>
+          </form>
+          <div class=\"grader-bar\">${nav}</div>
+          ${sections}
+        </main>
       </body></html>
     `);
   } catch (e) {
