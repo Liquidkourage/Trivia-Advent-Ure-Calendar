@@ -1012,8 +1012,16 @@ app.get('/admin/writer-invites', requireAdmin, (req, res) => {
           }
           out.innerHTML = results.map(x=>'<div>'+x+'</div>').join('');
         });
-        // seed 48 rows for a full Advent run
-        for (let i = 0; i < 48; i++) addRow();
+        // seed 48 rows for December: 1 AM through 24 PM of the current year
+        (function seedDefaultDecember(){
+          const year = new Date().getFullYear();
+          for (let d = 1; d <= 24; d++) {
+            const dd = String(d).padStart(2,'0');
+            const dateStr = year + '-12-' + dd;
+            addRow({ slotDate: dateStr, slotHalf: 'AM' });
+            addRow({ slotDate: dateStr, slotHalf: 'PM' });
+          }
+        })();
       </script>
     </body></html>
   `);
