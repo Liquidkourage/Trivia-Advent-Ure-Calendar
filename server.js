@@ -539,21 +539,25 @@ function requireAuth(req, res, next) {
   next();
 }
 
-async function requireAdmin(req, res, next) {
+async function isAdminUser(req) {
   try {
-    if (req.session && req.session.isAdmin === true) return next(); // PIN bypass
-    if (!req.session.user) return res.status(401).send('Please sign in.');
+    if (req.session && req.session.isAdmin === true) return true; // PIN bypass
+    if (!req.session.user) return false;
     const email = (req.session.user.email || '').toLowerCase();
-    // Allow env ADMIN_EMAIL as implicit admin, and any in admins table
     const envAdmin = (process.env.ADMIN_EMAIL || '').toLowerCase();
-    if (envAdmin && email === envAdmin) return next();
+    if (envAdmin && email === envAdmin) return true;
     const r = await pool.query('SELECT 1 FROM admins WHERE email=$1', [email]);
-    if (r.rows.length === 0) return res.status(403).send('Admins only');
-    return next();
-  } catch (e) {
-    console.error('requireAdmin failed:', e);
-    return res.status(500).send('Admin check failed');
+    return r.rows.length > 0;
+  } catch {
+    return false;
   }
+}
+
+async function requireAdmin(req, res, next) {
+  const admin = await isAdminUser(req);
+  if (admin) return next();
+  if (!req.session.user) return res.status(401).send('Please sign in.');
+  return res.status(403).send('Admins only');
 }
 
 function parseEtToUtc(dateTimeStr) {
@@ -893,6 +897,7 @@ app.get('/player', requireAuth, async (req, res) => {
   if (email === adminEmail) return res.redirect('/admin');
   let needsPassword = false;
   let displayName = '';
+  const isAdmin = await isAdminUser(req);
   try {
     const pr = await pool.query('SELECT username, password_set_at FROM players WHERE email=$1', [email]);
     needsPassword = pr.rows.length && !pr.rows[0].password_set_at;
@@ -901,7 +906,7 @@ app.get('/player', requireAuth, async (req, res) => {
   res.type('html').send(`
     <html><head><title>Player • Trivia Advent-ure</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
     <body class="ta-body">
-      <header class="ta-header"><div class="ta-header-inner"><div class="ta-brand"><img class="ta-logo" src="/logo.svg"/><span class="ta-title">Trivia Advent‑ure</span></div><nav class="ta-nav"><span class="ta-user" style="margin-right:12px;opacity:.9;">${displayName}</span> <a href="/calendar">Calendar</a> <a href="/account/credentials">Account</a> <a href="/admin">Admin</a> <a href="/logout">Logout</a></nav></div></header>
+      <header class="ta-header"><div class="ta-header-inner"><div class="ta-brand"><img class="ta-logo" src="/logo.svg"/><span class="ta-title">Trivia Advent‑ure</span></div><nav class="ta-nav"><span class="ta-user" style="margin-right:12px;opacity:.9;">${displayName}</span> <a href="/calendar">Calendar</a> <a href="/account/credentials">Account</a>${isAdmin ? ' <a href="/admin">Admin</a>' : ''} <a href="/logout">Logout</a></nav></div></header>
       <main class="ta-main ta-container">
         ${needsPassword ? `<div style="margin:12px 0;padding:10px;border:1px solid #ffecb5;border-radius:6px;background:#fff8e1;color:#6b4f00;">Welcome! For cross-device login, please <a href="/account/security">set your password</a>.</div>` : ''}
         <h1 class="ta-page-title">Welcome, ${displayName}</h1>
@@ -1011,6 +1016,7 @@ app.get('/calendar', async (req, res) => {
     let completedSet = new Set();
     let needsPassword = false;
     let displayName = '';
+    const isAdmin = await isAdminUser(req);
     if (email) {
       const { rows: c } = await pool.query('SELECT DISTINCT quiz_id FROM responses WHERE user_email = $1', [email]);
       c.forEach(r => completedSet.add(Number(r.quiz_id)));
@@ -1094,7 +1100,7 @@ app.get('/calendar', async (req, res) => {
     res.type('html').send(`
       <html><head><title>Calendar</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
       <body class="ta-body">
-      <header class="ta-header"><div class="ta-header-inner"><div class="ta-brand"><img class="ta-logo" src="/logo.svg"/><span class="ta-title">Trivia Advent‑ure</span></div><nav class="ta-nav">${email ? `<span class="ta-user" style="margin-right:12px;opacity:.9;">${displayName}</span> <a href="/calendar">Calendar</a> <a href="/account/credentials">Account</a> <a href="/admin">Admin</a> <a href="/logout">Logout</a>` : `<a href="/login">Login</a>`}</nav></div></header>
+      <header class="ta-header"><div class="ta-header-inner"><div class="ta-brand"><img class="ta-logo" src="/logo.svg"/><span class="ta-title">Trivia Advent‑ure</span></div><nav class="ta-nav">${email ? `<span class="ta-user" style="margin-right:12px;opacity:.9;">${displayName}</span> <a href="/calendar">Calendar</a> <a href="/account/credentials">Account</a>${isAdmin ? ' <a href="/admin">Admin</a>' : ''} <a href="/logout">Logout</a>` : `<a href="/login">Login</a>`}</nav></div></header>
         <main class="ta-main ta-container ta-calendar">
           ${email && needsPassword ? `<div style="margin:12px 0;padding:10px;border:1px solid #ffecb5;border-radius:6px;background:#fff8e1;color:#6b4f00;">Welcome! For cross-device login, please <a href="/account/security">set your password</a>.</div>` : ''}
           <h1 class="ta-page-title">Advent Calendar</h1>
