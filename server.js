@@ -991,6 +991,10 @@ app.get('/admin/writer-invites', requireAdmin, (req, res) => {
         <tbody>${preRows}</tbody>
       </table>
       <div id="out" style="margin-top:16px;font-family:monospace;"></div>
+      <div id="resultsPanel" style="display:none;margin-top:16px;border:1px solid rgba(212,175,55,0.3);border-radius:8px;padding:12px;background:rgba(0,0,0,0.2);">
+        <h3 style="margin:0 0 8px 0;color:#ffd700;">Generated Links</h3>
+        <div id="resultsList" style="display:flex;flex-direction:column;gap:6px;"></div>
+      </div>
       <script>
         const tbody = document.querySelector('#tbl tbody');
         const out = document.getElementById('out');
@@ -1047,6 +1051,8 @@ app.get('/admin/writer-invites', requireAdmin, (req, res) => {
           URL.revokeObjectURL(a.href);
           out.textContent = 'CSV downloaded.';
         });
+        const resultsPanel = document.getElementById('resultsPanel');
+        const resultsList = document.getElementById('resultsList');
         document.getElementById('generateLinks').addEventListener('click', async ()=>{
           const data = rows();
           if (!data.length) { out.textContent = 'Add at least one row.'; return; }
@@ -1062,10 +1068,37 @@ app.get('/admin/writer-invites', requireAdmin, (req, res) => {
               const res = await fetch('/admin/writer-invite', { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body });
               const text = await res.text();
               if (!res.ok) throw new Error(text||'Failed');
-              results.push(r.author + ': ' + text);
+              results.push({ author: r.author || '(no name)', link: text });
             }catch(e){ results.push(r.author + ': ERROR ' + (e && e.message ? e.message : 'Failed')); }
           }
-          out.innerHTML = results.map(x=>'<div>'+x+'</div>').join('');
+          // Render results list
+          let html = '';
+          for (const item of results) {
+            if (typeof item === 'string') {
+              html += '<div style="color:#ff6b6b;">' + item + '</div>';
+            } else {
+              const a = item;
+              html += '<div class="result-row" style="display:flex;gap:8px;align-items:center;">'
+                   + '<strong style="min-width:160px;">' + a.author + ':</strong>'
+                   + '<a href="' + a.link + '" target="_blank" style="color:#ffd700;word-break:break-all;">' + a.link + '</a>'
+                   + '<button class="copy" data-link="' + a.link + '" style="margin-left:auto;background:#d4af37;color:#000;border:none;border-radius:6px;padding:4px 8px;cursor:pointer;">Copy</button>'
+                   + '</div>';
+            }
+          }
+          resultsList.innerHTML = html;
+          resultsPanel.style.display = 'block';
+          out.textContent = 'Done - ' + results.length + ' link(s) generated.';
+          // Copy handler
+          resultsList.addEventListener('click', (e)=>{
+            const btn = e.target.closest('.copy');
+            if (!btn) return;
+            const link = btn.getAttribute('data-link');
+            navigator.clipboard.writeText(link).then(()=>{
+              const old = btn.textContent; btn.textContent = 'Copied'; setTimeout(()=>btn.textContent=old, 1000);
+            }).catch(()=>{});
+          }, { once: true });
+          // Scroll into view
+          resultsPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
         });
         // seed 48 rows for December: 1 AM through 24 PM of the current year
         (function seedDefaultDecember(){
