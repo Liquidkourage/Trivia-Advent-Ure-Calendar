@@ -183,6 +183,31 @@ async function initDb() {
       submitted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       data JSONB NOT NULL
     );
+    -- Backfill new columns for existing deployments
+    DO $$ BEGIN
+      ALTER TABLE writer_invites ADD COLUMN IF NOT EXISTS slot_date DATE;
+    EXCEPTION WHEN others THEN NULL; END $$;
+    DO $$ BEGIN
+      ALTER TABLE writer_invites ADD COLUMN IF NOT EXISTS slot_half TEXT;
+    EXCEPTION WHEN others THEN NULL; END $$;
+    DO $$ BEGIN
+      ALTER TABLE writer_invites ADD COLUMN IF NOT EXISTS send_at TIMESTAMPTZ;
+    EXCEPTION WHEN others THEN NULL; END $$;
+    DO $$ BEGIN
+      ALTER TABLE writer_invites ADD COLUMN IF NOT EXISTS sent_at TIMESTAMPTZ;
+    EXCEPTION WHEN others THEN NULL; END $$;
+    DO $$ BEGIN
+      ALTER TABLE writer_invites ADD COLUMN IF NOT EXISTS clicked_at TIMESTAMPTZ;
+    EXCEPTION WHEN others THEN NULL; END $$;
+    DO $$ BEGIN
+      ALTER TABLE writer_invites ADD COLUMN IF NOT EXISTS submitted_at TIMESTAMPTZ;
+    EXCEPTION WHEN others THEN NULL; END $$;
+    DO $$ BEGIN
+      ALTER TABLE writer_invites ADD COLUMN IF NOT EXISTS published_at TIMESTAMPTZ;
+    EXCEPTION WHEN others THEN NULL; END $$;
+    DO $$ BEGIN
+      ALTER TABLE writer_invites ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT TRUE;
+    EXCEPTION WHEN others THEN NULL; END $$;
   `);
   // Seed ADMIN_EMAIL into admins table if provided
   const seedAdmin = (process.env.ADMIN_EMAIL || '').toLowerCase();
