@@ -1214,6 +1214,103 @@ app.post('/admin/writer-submissions/:id/publish', requireAdmin, express.urlencod
   }
 });
 
+// --- Admin: writer invites list with actions ---
+app.get('/admin/writer-invites/list', requireAdmin, async (req, res) => {
+  try {
+    const baseUrl = process.env.PUBLIC_BASE_URL || '';
+    const { rows } = await pool.query(
+      `SELECT token, author, email, slot_date, slot_half, send_at, sent_at, clicked_at, submitted_at, published_at, active, created_at
+       FROM writer_invites
+       ORDER BY slot_date NULLS LAST, slot_half NULLS LAST, created_at DESC
+       LIMIT 500`
+    );
+    const fmt = (d) => d ? new Date(d).toLocaleString() : '';
+    const list = rows.map(r => {
+      const link = `${baseUrl}/writer/${r.token}`;
+      const status = [
+        r.active ? 'active' : 'inactive',
+        r.sent_at ? 'sent' : 'not sent',
+        r.clicked_at ? 'clicked' : '',
+        r.submitted_at ? 'submitted' : '',
+        r.published_at ? 'published' : ''
+      ].filter(Boolean).join(' · ');
+      return `
+        <tr>
+          <td style="padding:6px 4px;white-space:nowrap;">${r.slot_date || ''} ${r.slot_half || ''}</td>
+          <td style="padding:6px 4px;">${(r.author || '').replace(/</g,'&lt;')}</td>
+          <td style="padding:6px 4px;">${(r.email || '').replace(/</g,'&lt;')}</td>
+          <td style="padding:6px 4px;">${status}</td>
+          <td style="padding:6px 4px;"><a href="${link}" target="_blank">${r.token.slice(0,8)}...</a></td>
+          <td style="padding:6px 4px;white-space:nowrap;">${fmt(r.sent_at)}</td>
+          <td style="padding:6px 4px;white-space:nowrap;">${fmt(r.clicked_at)}</td>
+          <td style="padding:6px 4px;white-space:nowrap;">${fmt(r.submitted_at)}</td>
+          <td style="padding:6px 4px;white-space:nowrap;">${fmt(r.published_at)}</td>
+          <td style="padding:6px 4px;display:flex;gap:6px;">
+            <form method="post" action="/admin/writer-invites/${r.token}/resend" onsubmit="return confirm('Send email now?');">
+              <button type="submit">Resend</button>
+            </form>
+            ${r.active ? `<form method="post" action="/admin/writer-invites/${r.token}/deactivate" onsubmit="return confirm('Deactivate this invite?');"><button type="submit">Deactivate</button></form>` : ''}
+            <button class="copy" data-link="${link}" type="button">Copy</button>
+          </td>
+        </tr>
+      `;
+    }).join('');
+    res.type('html').send(`
+      <html><head><title>Writer Invites</title><link rel="stylesheet" href="/style.css"></head>
+      <body class="ta-body" style="padding:24px;">
+        <h1>Writer Invites</h1>
+        <p><a href="/admin">Back</a></p>
+        <table style="width:100%;border-collapse:collapse;">
+          <thead>
+            <tr style="text-align:left;border-bottom:1px solid #444;">
+              <th style="padding:6px 4px;">Slot</th>
+              <th style="padding:6px 4px;">Author</th>
+              <th style="padding:6px 4px;">Email</th>
+              <th style="padding:6px 4px;">Status</th>
+              <th style="padding:6px 4px;">Token/Link</th>
+              <th style="padding:6px 4px;">Sent</th>
+              <th style="padding:6px 4px;">Clicked</th>
+              <th style="padding:6px 4px;">Submitted</th>
+              <th style="padding:6px 4px;">Published</th>
+              <th style="padding:6px 4px;">Actions</th>
+            </tr>
+          </thead>
+          <tbody>${list || ''}</tbody>
+        </table>
+        <script src="/js/writer-invites-list.js"></script>
+      </body></html>
+    `);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to load invites');
+  }
+});
+
+app.post('/admin/writer-invites/:token/resend', requireAdmin, async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT token, author, email, slot_date, slot_half FROM writer_invites WHERE token=$1', [req.params.token]);
+    if (!rows.length || !rows[0].email) return res.status(400).send('Invite not found or missing email');
+    const baseUrl = process.env.PUBLIC_BASE_URL || '';
+    const link = `${baseUrl}/writer/${rows[0].token}`;
+    await sendWriterInviteEmail(rows[0].email, rows[0].author, link, rows[0].slot_date, rows[0].slot_half);
+    await pool.query('UPDATE writer_invites SET sent_at = NOW() WHERE token=$1', [rows[0].token]);
+    res.redirect('/admin/writer-invites/list');
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to resend');
+  }
+});
+
+app.post('/admin/writer-invites/:token/deactivate', requireAdmin, async (req, res) => {
+  try {
+    await pool.query('UPDATE writer_invites SET active = FALSE WHERE token=$1', [req.params.token]);
+    res.redirect('/admin/writer-invites/list');
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to deactivate');
+  }
+});
+
 // --- Writer: public submit quiz (same fields/flow as admin upload) ---
 /* app.get('/writer/quiz/new', (req, res) => {
   res.type('html').send(`

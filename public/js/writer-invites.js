@@ -24,6 +24,36 @@
       .filter(function (r) { return r.author || r.email; });
   }
 
+  function markDuplicateSlots() {
+    var trs = Array.from(tbody.querySelectorAll('tr'));
+    var keyToRows = {};
+    trs.forEach(function(tr){
+      var date = tr.querySelector('input[name="slotDate"]').value;
+      var half = (tr.querySelector('input[name="slotHalf"]').value || '').toUpperCase();
+      var key = date + '|' + half;
+      if (!keyToRows[key]) keyToRows[key] = [];
+      keyToRows[key].push(tr);
+    });
+    var hasDup = false;
+    Object.keys(keyToRows).forEach(function(k){
+      var arr = keyToRows[k];
+      var dup = arr.length > 1;
+      for (var i=0;i<arr.length;i++) {
+        arr[i].style.outline = dup ? '2px solid #ef6c00' : '';
+      }
+      if (dup) hasDup = true;
+    });
+    var warn = document.getElementById('dupWarn');
+    if (!warn) {
+      warn = document.createElement('div');
+      warn.id = 'dupWarn';
+      warn.style.marginTop = '8px';
+      warn.style.color = '#ef6c00';
+      tbody.parentElement.insertAdjacentElement('beforebegin', warn);
+    }
+    warn.textContent = hasDup ? 'Warning: duplicate slot (date/half) detected. Duplicates are outlined in orange.' : '';
+  }
+
   function toCsv(data) {
     var esc = function (v) { return '"' + String(v || '').replace(/"/g, '""') + '"'; };
     var lines = ['Author,Email,SlotDate,Half'];
@@ -60,10 +90,12 @@
 
   tbody.addEventListener('input', function (e) {
     if (e.target && (e.target.name === 'author' || e.target.name === 'email')) save();
+    if (e.target && (e.target.name === 'author' || e.target.name === 'email')) markDuplicateSlots();
   });
 
   renumber();
   load();
+  markDuplicateSlots();
 
   var downloadBtn = document.getElementById('downloadCsv');
   if (downloadBtn) {
@@ -123,6 +155,7 @@
               + '<strong style="min-width:160px;">' + a.author + ':</strong>'
               + '<a href="' + a.link + '" target="_blank" style="color:#ffd700;word-break:break-all;">' + a.link + '</a>'
               + '<button class="copy" data-link="' + a.link + '" style="margin-left:auto;background:#d4af37;color:#000;border:none;border-radius:6px;padding:4px 8px;cursor:pointer;">Copy</button>'
+              + '<button class="sendnow" data-link="' + a.link + '" style="background:#ffd700;color:#000;border:none;border-radius:6px;padding:4px 8px;cursor:pointer;">Send now</button>'
               + '</div>';
       }
     }
@@ -131,12 +164,26 @@
     out.textContent = 'Done - ' + results.length + ' link(s) generated.';
 
     resultsList.addEventListener('click', function (e) {
-      var btn = e.target.closest('.copy');
-      if (!btn) return;
-      var link = btn.getAttribute('data-link');
-      navigator.clipboard.writeText(link).then(function () {
-        var old = btn.textContent; btn.textContent = 'Copied'; setTimeout(function () { btn.textContent = old; }, 1000);
-      }).catch(function () {});
+      var copyBtn = e.target.closest('.copy');
+      if (copyBtn) {
+        var link = copyBtn.getAttribute('data-link');
+        navigator.clipboard.writeText(link).then(function () {
+          var old = copyBtn.textContent; copyBtn.textContent = 'Copied'; setTimeout(function () { copyBtn.textContent = old; }, 1000);
+        }).catch(function () {});
+        return;
+      }
+      var sendBtn = e.target.closest('.sendnow');
+      if (sendBtn) {
+        var link2 = sendBtn.getAttribute('data-link') || '';
+        var m = link2.match(/\/writer\/([a-f0-9]{16,})/i);
+        if (!m) { out.textContent = 'Invalid link'; return; }
+        var token = m[1];
+        sendBtn.disabled = true;
+        fetch('/admin/writer-invites/' + token + '/resend', { method: 'POST' })
+          .then(function (r) { return r.ok ? 'Sent' : 'Failed'; })
+          .then(function (status) { sendBtn.textContent = status; setTimeout(function(){ sendBtn.textContent='Send now'; sendBtn.disabled=false; }, 1200); })
+          .catch(function(){ sendBtn.textContent = 'Failed'; setTimeout(function(){ sendBtn.textContent='Send now'; sendBtn.disabled=false; }, 1200); });
+      }
     }, { once: true });
     resultsPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
