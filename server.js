@@ -2163,7 +2163,7 @@ app.get('/admin/quizzes', requireAdmin, async (req, res) => {
       <td>${q.title}</td>
       <td>${fmtEt(q.unlock_at)}</td>
       <td>${fmtEt(q.freeze_at)}</td>
-      <td><a href="/admin/quiz/${q.id}">View/Edit</a> · <a href="/quiz/${q.id}">Open</a></td>
+      <td><a href="/admin/quiz/${q.id}">View/Edit</a> · <a href="/admin/quiz/${q.id}/analytics">Analytics</a> · <a href="/admin/quiz/${q.id}/grade">Grade</a> · <a href="/quiz/${q.id}">Open</a></td>
     </tr>`).join('');
     res.type('html').send(`
       <html><head><title>Quizzes</title><link rel="stylesheet" href="/style.css"></head>
@@ -2210,8 +2210,12 @@ app.get('/admin/quiz/:id', requireAdmin, async (req, res) => {
 ]'></textarea>
           <div style="margin-top:8px;"><button type="submit">Replace Questions</button></div>
         </form>
-        <form method="post" action="/admin/quiz/${id}/clone" style="margin-top:16px; display:inline-block;"><button type="submit">Clone Quiz</button></form>
-        <form method="post" action="/admin/quiz/${id}/delete" style="margin-top:16px; display:inline-block; margin-left:8px;" onsubmit="return confirm('Delete this quiz? This cannot be undone.');"><button type="submit">Delete Quiz</button></form>
+        <div style="margin-top:16px;">
+          <a href="/admin/quiz/${id}/analytics" style="display:inline-block;padding:8px 16px;background:#4caf50;color:#fff;text-decoration:none;border-radius:4px;margin-right:8px;">Analytics</a>
+          <a href="/admin/quiz/${id}/grade" style="display:inline-block;padding:8px 16px;background:#2196f3;color:#fff;text-decoration:none;border-radius:4px;margin-right:8px;">Grade Responses</a>
+          <form method="post" action="/admin/quiz/${id}/clone" style="display:inline-block;"><button type="submit">Clone Quiz</button></form>
+          <form method="post" action="/admin/quiz/${id}/delete" style="display:inline-block; margin-left:8px;" onsubmit="return confirm('Delete this quiz? This cannot be undone.');"><button type="submit">Delete Quiz</button></form>
+        </div>
         <p style="margin-top:16px;"><a href="/admin/quizzes">Back</a></p>
       </body></html>
     `);
@@ -2642,6 +2646,163 @@ app.post('/admin/quiz/:id/regrade', requireAdmin, async (req, res) => {
   }
 });
 
+// --- Quiz Analytics Dashboard ---
+app.get('/admin/quiz/:id/analytics', requireAdmin, async (req, res) => {
+  try {
+    const quizId = Number(req.params.id);
+    const quiz = (await pool.query('SELECT * FROM quizzes WHERE id=$1', [quizId])).rows[0];
+    if (!quiz) return res.status(404).send('Quiz not found');
+    
+    // Get all questions for this quiz
+    const questions = (await pool.query('SELECT * FROM questions WHERE quiz_id=$1 ORDER BY number ASC', [quizId])).rows;
+    
+    // Get total number of players who have access
+    const totalPlayers = (await pool.query('SELECT COUNT(*) as count FROM players')).rows[0].count;
+    
+    // Get participation stats
+    const participants = (await pool.query(`
+      SELECT COUNT(DISTINCT user_email) as count
+      FROM responses
+      WHERE quiz_id=$1
+    `, [quizId])).rows[0].count;
+    const participationRate = totalPlayers > 0 ? ((participants / totalPlayers) * 100).toFixed(1) : 0;
+    
+    // Get question-level statistics
+    const questionStats = await Promise.all(questions.map(async (q) => {
+      const responses = (await pool.query(`
+        SELECT 
+          r.response_text,
+          r.override_correct,
+          r.created_at,
+          COUNT(*) as response_count
+        FROM responses r
+        WHERE r.question_id=$1
+        GROUP BY r.response_text, r.override_correct, r.created_at
+        ORDER BY response_count DESC
+      `, [q.id])).rows;
+      
+      const totalResponses = responses.reduce((sum, r) => sum + parseInt(r.response_count), 0);
+      const correctResponses = responses.filter(r => {
+        const isCorrect = r.override_correct === true || 
+          (r.override_correct === null && r.response_text && 
+           r.response_text.trim().toLowerCase() === q.answer.trim().toLowerCase());
+        return isCorrect;
+      }).reduce((sum, r) => sum + parseInt(r.response_count), 0);
+      
+      const correctRate = totalResponses > 0 ? ((correctResponses / totalResponses) * 100).toFixed(1) : 0;
+      
+      // Get common wrong answers
+      const wrongAnswers = responses
+        .filter(r => {
+          const isCorrect = r.override_correct === true || 
+            (r.override_correct === null && r.response_text && 
+             r.response_text.trim().toLowerCase() === q.answer.trim().toLowerCase());
+          return !isCorrect && r.response_text && r.response_text.trim();
+        })
+        .slice(0, 5)
+        .map(r => ({ text: r.response_text, count: r.response_count }));
+      
+      return {
+        question: q,
+        totalResponses,
+        correctResponses,
+        correctRate,
+        wrongAnswers
+      };
+    }));
+    
+    // Calculate average score
+    const playerScores = (await pool.query(`
+      SELECT 
+        r.user_email,
+        COUNT(DISTINCT r.question_id) as questions_answered,
+        SUM(CASE WHEN r.override_correct = true OR (r.override_correct IS NULL AND LOWER(TRIM(r.response_text)) = LOWER(TRIM(q.answer))) THEN 1 ELSE 0 END) as correct_count
+      FROM responses r
+      JOIN questions q ON q.id = r.question_id
+      WHERE r.quiz_id=$1
+      GROUP BY r.user_email
+    `, [quizId])).rows;
+    
+    const totalQuestions = questions.length;
+    const scores = playerScores.map(p => totalQuestions > 0 ? (p.correct_count / totalQuestions) * 100 : 0);
+    const avgScore = scores.length > 0 ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1) : 0;
+    const medianScore = scores.length > 0 ? scores.sort((a, b) => a - b)[Math.floor(scores.length / 2)].toFixed(1) : 0;
+    
+    // Build question stats HTML
+    const questionStatsHtml = questionStats.map((stat, idx) => {
+      const difficulty = parseFloat(stat.correctRate) >= 70 ? 'Easy' : 
+                        parseFloat(stat.correctRate) >= 50 ? 'Medium' : 'Hard';
+      const difficultyColor = parseFloat(stat.correctRate) >= 70 ? '#4caf50' : 
+                             parseFloat(stat.correctRate) >= 50 ? '#ff9800' : '#f44336';
+      return `
+        <div style="border:1px solid #ddd;padding:16px;margin-bottom:16px;border-radius:6px;">
+          <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:12px;">
+            <div style="flex:1;">
+              <h3 style="margin:0 0 8px 0;">Question ${stat.question.number}: ${stat.question.category || 'General'}</h3>
+              <div style="opacity:0.8;margin-bottom:8px;">${stat.question.text.substring(0, 150)}${stat.question.text.length > 150 ? '...' : ''}</div>
+              <div style="font-size:12px;opacity:0.7;"><strong>Answer:</strong> ${stat.question.answer}</div>
+            </div>
+            <div style="text-align:right;margin-left:16px;">
+              <div style="font-size:24px;font-weight:bold;color:${difficultyColor};">
+                ${stat.correctRate}%
+              </div>
+              <div style="font-size:12px;opacity:0.7;">${difficulty}</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:24px;font-size:13px;margin-top:12px;padding-top:12px;border-top:1px solid #333;">
+            <div><strong>Total Responses:</strong> ${stat.totalResponses}</div>
+            <div><strong>Correct:</strong> ${stat.correctResponses}/${stat.totalResponses}</div>
+            <div><strong>Response Rate:</strong> ${participants > 0 ? ((stat.totalResponses / participants) * 100).toFixed(1) : 0}%</div>
+          </div>
+          ${stat.wrongAnswers.length > 0 ? `
+            <div style="margin-top:12px;padding-top:12px;border-top:1px solid #333;">
+              <div style="font-size:12px;opacity:0.7;margin-bottom:6px;"><strong>Common Wrong Answers:</strong></div>
+              <div style="font-size:12px;">
+                ${stat.wrongAnswers.map(w => `<span style="display:inline-block;background:#333;padding:4px 8px;margin:2px;border-radius:4px;">${w.text} (${w.count})</span>`).join('')}
+              </div>
+            </div>
+          ` : ''}
+        </div>
+      `;
+    }).join('');
+    
+    res.type('html').send(`
+      <html><head><title>Analytics: ${quiz.title} • Admin</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
+      <body class="ta-body">
+        <header class="ta-header"><div class="ta-header-inner"><div class="ta-brand"><img class="ta-logo" src="/logo.svg"/><span class="ta-title">Trivia Advent‑ure</span></div><nav class="ta-nav"><a href="/admin">Admin</a> <a href="/calendar">Calendar</a> <a href="/logout">Logout</a></nav></div></header>
+        <main class="ta-main ta-container">
+          <h1 class="ta-page-title">Quiz Analytics</h1>
+          <div style="background:#1a1a1a;padding:16px;border-radius:8px;margin-bottom:24px;">
+            <div style="font-size:20px;font-weight:bold;margin-bottom:8px;">${quiz.title || `Quiz #${quizId}`}</div>
+            ${quiz.author ? `<div style="opacity:0.8;margin-bottom:4px;">Author: ${quiz.author}</div>` : ''}
+            <div style="opacity:0.8;margin-bottom:4px;">Unlocked: ${fmtEt(quiz.unlock_at)}</div>
+            <div style="display:flex;gap:24px;margin-top:12px;">
+              <div><strong>Total Players:</strong> ${totalPlayers}</div>
+              <div><strong>Participants:</strong> ${participants}</div>
+              <div><strong>Participation Rate:</strong> ${participationRate}%</div>
+              <div><strong>Average Score:</strong> ${avgScore}%</div>
+              <div><strong>Median Score:</strong> ${medianScore}%</div>
+              <div><strong>Total Questions:</strong> ${totalQuestions}</div>
+            </div>
+          </div>
+          
+          <h2 style="margin-top:32px;margin-bottom:16px;">Question Performance</h2>
+          ${questionStatsHtml || '<p>No questions found.</p>'}
+          
+          <p style="margin-top:24px;">
+            <a href="/admin/quiz/${quizId}/grade">← Grade Responses</a> | 
+            <a href="/admin/quizzes">← Back to Quizzes</a>
+          </p>
+        </main>
+        <footer class="ta-footer"><div class="ta-container">© Trivia Advent‑ure</div></footer>
+      </body></html>
+    `);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to load analytics');
+  }
+});
+
 // --- Admin: access & links ---
 app.get('/admin/access', requireAdmin, (req, res) => {
   res.type('html').send(`
@@ -2718,8 +2879,9 @@ app.get('/admin/players', requireAdmin, async (req, res) => {
       if (r.password_set_at) status.push('Password set');
       const statusStr = status.length ? status.join(' • ') : 'Pending setup';
       return `<tr>
-        <td>${r.email || ''}</td>
-        <td>${r.username || '<em>Not set</em>'}</td>
+        <td><input type="checkbox" class="player-checkbox" value="${r.email}" /></td>
+        <td><a href="/admin/players/${encodeURIComponent(r.email)}" style="color:#ffd700;">${r.email || ''}</a></td>
+        <td><a href="/admin/players/${encodeURIComponent(r.email)}" style="color:#ffd700;">${r.username || '<em>Not set</em>'}</a></td>
         <td>${fmtEt(r.access_granted_at)}</td>
         <td>${statusStr}</td>
         <td>${r.quizzes_played || 0}</td>
@@ -2759,10 +2921,23 @@ app.get('/admin/players', requireAdmin, async (req, res) => {
           <h1 class="ta-page-title">Players</h1>
           ${req.query.msg ? `<p style="padding:8px 12px;background:#2e7d32;color:#fff;border-radius:4px;margin-bottom:16px;">${req.query.msg}</p>` : ''}
           <p style="margin-bottom:16px;opacity:0.8;">Total: ${rows.length} player${rows.length !== 1 ? 's' : ''}</p>
+          
+          <div id="bulk-actions" style="display:none;margin-bottom:16px;padding:12px;background:#1a1a1a;border-radius:6px;">
+            <div style="margin-bottom:8px;"><strong>Bulk Actions (<span id="selected-count">0</span> selected):</strong></div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button onclick="bulkAction('send-link')" style="padding:6px 12px;background:#2196f3;color:#fff;border:none;border-radius:4px;cursor:pointer;">Send Magic Links</button>
+              <button onclick="bulkAction('export-csv')" style="padding:6px 12px;background:#4caf50;color:#fff;border:none;border-radius:4px;cursor:pointer;">Export CSV</button>
+              <button onclick="bulkAction('grant-admin')" style="padding:6px 12px;background:#2e7d32;color:#fff;border:none;border-radius:4px;cursor:pointer;">Grant Admin</button>
+              <button onclick="bulkAction('revoke-admin')" style="padding:6px 12px;background:#ff9800;color:#fff;border:none;border-radius:4px;cursor:pointer;">Revoke Admin</button>
+              <button onclick="bulkAction('reset-password')" style="padding:6px 12px;background:#9c27b0;color:#fff;border:none;border-radius:4px;cursor:pointer;">Reset Passwords</button>
+            </div>
+          </div>
+          
           <div style="overflow-x:auto;">
             <table border="1" cellspacing="0" cellpadding="8" style="width:100%;border-collapse:collapse;">
               <thead>
                 <tr style="background:#333;">
+                  <th style="text-align:left;padding:8px;"><input type="checkbox" id="select-all" onchange="toggleAll(this)" /></th>
                   <th style="text-align:left;padding:8px;">Email</th>
                   <th style="text-align:left;padding:8px;">Username</th>
                   <th style="text-align:left;padding:8px;">Access Granted</th>
@@ -2773,10 +2948,62 @@ app.get('/admin/players', requireAdmin, async (req, res) => {
                 </tr>
               </thead>
               <tbody>
-                ${items || '<tr><td colspan="7">No players yet</td></tr>'}
+                ${items || '<tr><td colspan="8">No players yet</td></tr>'}
               </tbody>
             </table>
           </div>
+          <script>
+            function toggleAll(checkbox) {
+              document.querySelectorAll('.player-checkbox').forEach(cb => cb.checked = checkbox.checked);
+              updateBulkActions();
+            }
+            function updateBulkActions() {
+              const selected = document.querySelectorAll('.player-checkbox:checked').length;
+              const bulkDiv = document.getElementById('bulk-actions');
+              const countSpan = document.getElementById('selected-count');
+              if (selected > 0) {
+                bulkDiv.style.display = 'block';
+                countSpan.textContent = selected;
+              } else {
+                bulkDiv.style.display = 'none';
+              }
+            }
+            function getSelectedEmails() {
+              return Array.from(document.querySelectorAll('.player-checkbox:checked')).map(cb => cb.value);
+            }
+            function bulkAction(action) {
+              const emails = getSelectedEmails();
+              if (emails.length === 0) {
+                alert('No players selected');
+                return;
+              }
+              const actions = {
+                'send-link': { msg: 'Send magic links to ' + emails.length + ' player(s)?', endpoint: '/admin/players/bulk/send-link' },
+                'export-csv': { msg: null, endpoint: '/admin/players/bulk/export-csv' },
+                'grant-admin': { msg: 'Grant admin status to ' + emails.length + ' player(s)?', endpoint: '/admin/players/bulk/grant-admin' },
+                'revoke-admin': { msg: 'Revoke admin status from ' + emails.length + ' player(s)?', endpoint: '/admin/players/bulk/revoke-admin' },
+                'reset-password': { msg: 'Reset passwords for ' + emails.length + ' player(s)?', endpoint: '/admin/players/bulk/reset-password' }
+              };
+              const config = actions[action];
+              if (!config) return;
+              if (config.msg && !confirm(config.msg)) return;
+              const form = document.createElement('form');
+              form.method = 'POST';
+              form.action = config.endpoint;
+              emails.forEach(email => {
+                const input = document.createElement('input');
+                input.type = 'hidden';
+                input.name = 'emails[]';
+                input.value = email;
+                form.appendChild(input);
+              });
+              document.body.appendChild(form);
+              form.submit();
+            }
+            document.querySelectorAll('.player-checkbox').forEach(cb => {
+              cb.addEventListener('change', updateBulkActions);
+            });
+          </script>
           <p style="margin-top:16px;"><a href="/admin">Back to Admin</a></p>
         </main>
         <footer class="ta-footer"><div class="ta-container">© Trivia Advent‑ure</div></footer>
@@ -2855,6 +3082,303 @@ app.post('/admin/players/revoke-access', requireAdmin, async (req, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).send('Failed to revoke access');
+  }
+});
+
+// Bulk player operations
+app.post('/admin/players/bulk/send-link', requireAdmin, async (req, res) => {
+  try {
+    const emails = Array.isArray(req.body['emails[]']) ? req.body['emails[]'] : [req.body['emails[]']].filter(Boolean);
+    if (emails.length === 0) return res.status(400).send('No emails provided');
+    let sent = 0;
+    let failed = 0;
+    for (const email of emails) {
+      try {
+        const e = String(email || '').trim().toLowerCase();
+        if (!e) continue;
+        const token = crypto.randomBytes(32).toString('hex');
+        const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+        await pool.query('INSERT INTO magic_tokens(token, email, expires_at) VALUES($1, $2, $3)', [token, e, expiresAt]);
+        const link = `${req.protocol}://${req.get('host')}/auth/verify?token=${token}`;
+        await sendMagicLink(e, token, link);
+        sent++;
+      } catch (err) {
+        console.error('Failed to send link to', email, err);
+        failed++;
+      }
+    }
+    res.redirect(`/admin/players?msg=${sent} link(s) sent${failed > 0 ? `, ${failed} failed` : ''}`);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to send links');
+  }
+});
+
+app.post('/admin/players/bulk/reset-password', requireAdmin, async (req, res) => {
+  try {
+    const emails = Array.isArray(req.body['emails[]']) ? req.body['emails[]'] : [req.body['emails[]']].filter(Boolean);
+    if (emails.length === 0) return res.status(400).send('No emails provided');
+    for (const email of emails) {
+      const e = String(email || '').trim().toLowerCase();
+      if (!e) continue;
+      await pool.query('UPDATE players SET password_hash=NULL, password_set_at=NULL WHERE email=$1', [e]);
+    }
+    res.redirect(`/admin/players?msg=${emails.length} password(s) reset`);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to reset passwords');
+  }
+});
+
+app.post('/admin/players/bulk/grant-admin', requireAdmin, async (req, res) => {
+  try {
+    const emails = Array.isArray(req.body['emails[]']) ? req.body['emails[]'] : [req.body['emails[]']].filter(Boolean);
+    if (emails.length === 0) return res.status(400).send('No emails provided');
+    for (const email of emails) {
+      const e = String(email || '').trim().toLowerCase();
+      if (!e) continue;
+      await pool.query('INSERT INTO admins(email) VALUES($1) ON CONFLICT (email) DO NOTHING', [e]);
+    }
+    res.redirect(`/admin/players?msg=${emails.length} admin(s) granted`);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to grant admin');
+  }
+});
+
+app.post('/admin/players/bulk/revoke-admin', requireAdmin, async (req, res) => {
+  try {
+    const emails = Array.isArray(req.body['emails[]']) ? req.body['emails[]'] : [req.body['emails[]']].filter(Boolean);
+    if (emails.length === 0) return res.status(400).send('No emails provided');
+    for (const email of emails) {
+      const e = String(email || '').trim().toLowerCase();
+      if (!e) continue;
+      await pool.query('DELETE FROM admins WHERE email=$1', [e]);
+    }
+    res.redirect(`/admin/players?msg=${emails.length} admin(s) revoked`);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to revoke admin');
+  }
+});
+
+app.post('/admin/players/bulk/export-csv', requireAdmin, async (req, res) => {
+  try {
+    const emails = Array.isArray(req.body['emails[]']) ? req.body['emails[]'] : [req.body['emails[]']].filter(Boolean);
+    if (emails.length === 0) return res.status(400).send('No emails provided');
+    const players = (await pool.query(`
+      SELECT 
+        p.email,
+        p.username,
+        p.access_granted_at,
+        p.onboarding_complete,
+        p.password_set_at,
+        COUNT(DISTINCT r.quiz_id) as quizzes_played,
+        MAX(r.created_at) as last_activity,
+        CASE WHEN a.email IS NOT NULL THEN true ELSE false END as is_admin
+      FROM players p
+      LEFT JOIN responses r ON r.user_email = p.email
+      LEFT JOIN admins a ON a.email = p.email
+      WHERE p.email = ANY($1)
+      GROUP BY p.email, p.username, p.access_granted_at, p.onboarding_complete, p.password_set_at, a.email
+    `, [emails])).rows;
+    
+    const csv = [
+      ['Email', 'Username', 'Access Granted', 'Onboarded', 'Password Set', 'Admin', 'Quizzes Played', 'Last Activity'].join(','),
+      ...players.map(p => [
+        p.email || '',
+        p.username || '',
+        p.access_granted_at ? fmtEt(p.access_granted_at) : '',
+        p.onboarding_complete ? 'Yes' : 'No',
+        p.password_set_at ? 'Yes' : 'No',
+        p.is_admin ? 'Yes' : 'No',
+        p.quizzes_played || 0,
+        p.last_activity ? fmtEt(p.last_activity) : ''
+      ].map(f => `"${String(f).replace(/"/g, '""')}"`).join(','))
+    ].join('\n');
+    
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="players-export-${new Date().toISOString().split('T')[0]}.csv"`);
+    res.send(csv);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to export');
+  }
+});
+
+// --- Individual Player Profile ---
+app.get('/admin/players/:email', requireAdmin, async (req, res) => {
+  try {
+    const email = decodeURIComponent(req.params.email).toLowerCase();
+    const player = (await pool.query('SELECT * FROM players WHERE email=$1', [email])).rows[0];
+    if (!player) return res.status(404).send('Player not found');
+    
+    // Get all quiz attempts with scores
+    const quizAttempts = (await pool.query(`
+      SELECT 
+        q.id,
+        q.title,
+        q.unlock_at,
+        q.freeze_at,
+        q.author,
+        COUNT(DISTINCT r.question_id) as questions_answered,
+        COUNT(DISTINCT qq.id) as total_questions,
+        SUM(CASE WHEN r.override_correct = true OR (r.override_correct IS NULL AND LOWER(TRIM(r.response_text)) = LOWER(TRIM(qq.answer))) THEN 1 ELSE 0 END) as correct_count,
+        SUM(r.points) as total_points,
+        MIN(r.created_at) as first_response,
+        MAX(r.created_at) as last_response
+      FROM quizzes q
+      LEFT JOIN questions qq ON qq.quiz_id = q.id
+      LEFT JOIN responses r ON r.quiz_id = q.id AND r.user_email = $1 AND r.question_id = qq.id
+      WHERE EXISTS (SELECT 1 FROM responses r2 WHERE r2.quiz_id = q.id AND r2.user_email = $1)
+      GROUP BY q.id, q.title, q.unlock_at, q.freeze_at, q.author
+      ORDER BY q.unlock_at DESC
+    `, [email])).rows;
+    
+    // Get detailed responses for all quizzes
+    const allResponses = (await pool.query(`
+      SELECT 
+        r.id,
+        r.quiz_id,
+        r.question_id,
+        r.response_text,
+        r.points,
+        r.locked,
+        r.override_correct,
+        r.created_at,
+        q.title as quiz_title,
+        qq.number as question_number,
+        qq.text as question_text,
+        qq.answer as correct_answer,
+        qq.category
+      FROM responses r
+      JOIN quizzes q ON q.id = r.quiz_id
+      JOIN questions qq ON qq.id = r.question_id
+      WHERE r.user_email = $1
+      ORDER BY q.unlock_at DESC, qq.number ASC
+    `, [email])).rows;
+    
+    // Calculate overall stats
+    const totalQuizzes = quizAttempts.length;
+    const totalQuestions = allResponses.length;
+    const totalCorrect = allResponses.filter(r => r.override_correct === true || (r.override_correct === null && r.response_text && r.response_text.trim().toLowerCase() === r.correct_answer.trim().toLowerCase())).length;
+    const totalPoints = allResponses.reduce((sum, r) => sum + (r.points || 0), 0);
+    const avgScore = totalQuizzes > 0 ? (totalCorrect / totalQuestions * 100).toFixed(1) : 0;
+    
+    // Build quiz attempts HTML
+    const attemptsHtml = quizAttempts.map(q => {
+      const score = q.total_questions > 0 ? ((q.correct_count / q.total_questions) * 100).toFixed(1) : 0;
+      const isComplete = q.questions_answered === q.total_questions;
+      return `
+        <div style="border:1px solid #ddd;padding:12px;margin-bottom:12px;border-radius:6px;">
+          <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:8px;">
+            <div>
+              <strong><a href="/admin/quiz/${q.id}/grade" style="color:#ffd700;">${q.title || `Quiz #${q.id}`}</a></strong>
+              ${q.author ? `<span style="opacity:0.7;margin-left:8px;">by ${q.author}</span>` : ''}
+            </div>
+            <div style="text-align:right;">
+              <div style="font-size:18px;font-weight:bold;color:${score >= 70 ? '#4caf50' : score >= 50 ? '#ff9800' : '#f44336'};">
+                ${score}%
+              </div>
+              <div style="font-size:12px;opacity:0.7;">${q.correct_count}/${q.total_questions} correct</div>
+            </div>
+          </div>
+          <div style="font-size:12px;opacity:0.7;margin-bottom:8px;">
+            Unlocked: ${fmtEt(q.unlock_at)} • ${isComplete ? 'Complete' : `Incomplete (${q.questions_answered}/${q.total_questions})`}
+          </div>
+          <div style="font-size:12px;opacity:0.7;">
+            Points: ${q.total_points || 0} • First response: ${q.first_response ? fmtEt(q.first_response) : 'N/A'}
+          </div>
+        </div>
+      `;
+    }).join('');
+    
+    // Build responses HTML grouped by quiz
+    const responsesByQuiz = {};
+    allResponses.forEach(r => {
+      if (!responsesByQuiz[r.quiz_id]) {
+        responsesByQuiz[r.quiz_id] = {
+          title: r.quiz_title,
+          responses: []
+        };
+      }
+      responsesByQuiz[r.quiz_id].responses.push(r);
+    });
+    
+    const responsesHtml = Object.entries(responsesByQuiz).map(([quizId, data]) => {
+      const quizResponses = data.responses.map(r => {
+        const isCorrect = r.override_correct === true || (r.override_correct === null && r.response_text && r.response_text.trim().toLowerCase() === r.correct_answer.trim().toLowerCase());
+        const status = r.override_correct === true ? 'Correct (override)' : 
+                      r.override_correct === false ? 'Incorrect (override)' :
+                      isCorrect ? 'Correct' : 'Incorrect';
+        return `
+          <tr>
+            <td>Q${r.question_number}</td>
+            <td>${r.category || 'General'}</td>
+            <td>${r.question_text.substring(0, 80)}${r.question_text.length > 80 ? '...' : ''}</td>
+            <td>${r.response_text || '<em>No answer</em>'}</td>
+            <td>${r.correct_answer}</td>
+            <td style="color:${isCorrect ? '#4caf50' : '#f44336'};">${status}</td>
+            <td>${r.points || 0}</td>
+            <td><a href="/admin/quiz/${r.quiz_id}/grade?highlight=${r.id}">Review</a></td>
+          </tr>
+        `;
+      }).join('');
+      return `
+        <div style="margin-bottom:24px;">
+          <h3 style="margin-bottom:8px;">${data.title || `Quiz #${quizId}`}</h3>
+          <table border="1" cellspacing="0" cellpadding="6" style="width:100%;border-collapse:collapse;font-size:13px;">
+            <thead>
+              <tr style="background:#333;">
+                <th>Q#</th>
+                <th>Category</th>
+                <th>Question</th>
+                <th>Response</th>
+                <th>Correct Answer</th>
+                <th>Status</th>
+                <th>Points</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>${quizResponses}</tbody>
+          </table>
+        </div>
+      `;
+    }).join('');
+    
+    res.type('html').send(`
+      <html><head><title>Player: ${player.username || player.email} • Admin</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
+      <body class="ta-body">
+        <header class="ta-header"><div class="ta-header-inner"><div class="ta-brand"><img class="ta-logo" src="/logo.svg"/><span class="ta-title">Trivia Advent‑ure</span></div><nav class="ta-nav"><a href="/admin">Admin</a> <a href="/calendar">Calendar</a> <a href="/logout">Logout</a></nav></div></header>
+        <main class="ta-main ta-container">
+          <h1 class="ta-page-title">Player Profile</h1>
+          <div style="background:#1a1a1a;padding:16px;border-radius:8px;margin-bottom:24px;">
+            <div style="font-size:20px;font-weight:bold;margin-bottom:8px;">${player.username || '<em>No username</em>'}</div>
+            <div style="opacity:0.8;margin-bottom:4px;">Email: ${player.email}</div>
+            <div style="opacity:0.8;margin-bottom:4px;">Access granted: ${fmtEt(player.access_granted_at)}</div>
+            <div style="display:flex;gap:24px;margin-top:12px;">
+              <div><strong>Total Quizzes:</strong> ${totalQuizzes}</div>
+              <div><strong>Total Questions:</strong> ${totalQuestions}</div>
+              <div><strong>Correct:</strong> ${totalCorrect}/${totalQuestions}</div>
+              <div><strong>Average Score:</strong> ${avgScore}%</div>
+              <div><strong>Total Points:</strong> ${totalPoints}</div>
+            </div>
+          </div>
+          
+          <h2 style="margin-top:32px;margin-bottom:16px;">Quiz Attempts</h2>
+          ${attemptsHtml || '<p>No quiz attempts yet.</p>'}
+          
+          <h2 style="margin-top:32px;margin-bottom:16px;">Detailed Responses</h2>
+          ${responsesHtml || '<p>No responses yet.</p>'}
+          
+          <p style="margin-top:24px;"><a href="/admin/players">← Back to Players</a></p>
+        </main>
+        <footer class="ta-footer"><div class="ta-container">© Trivia Advent‑ure</div></footer>
+      </body></html>
+    `);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to load player profile');
   }
 });
 
