@@ -544,6 +544,7 @@ app.get('/admin', requireAdmin, (req, res) => {
           <a class="ta-card" href="/admin/upload-quiz"><strong>Upload Quiz</strong><span>Create a quiz with 10 questions</span></a>
           <a class="ta-card" href="/admin/generate-schedule"><strong>Generate Schedule</strong><span>Create Dec 1–24 placeholders</span></a>
           <a class="ta-card" href="/admin/quizzes"><strong>Manage Quizzes</strong><span>View/Edit/Clone/Delete</span></a>
+          <a class="ta-card" href="/admin/writer-invite"><strong>Writer Invite</strong><span>Create token link for guest authors</span></a>
           <a class="ta-card" href="/admin/access"><strong>Access & Links</strong><span>Grant or send magic links</span></a>
           <a class="ta-card" href="/admin/admins"><strong>Admins</strong><span>Manage admin emails</span></a>
           <a class="ta-card" href="/leaderboard"><strong>Overall Leaderboard</strong></a>
