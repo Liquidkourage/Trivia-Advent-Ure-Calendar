@@ -31,9 +31,11 @@ app.get('/admin/writer-submissions/:id', requireAdmin, async (req, res) => {
       </div>`;
     }).join('');
     const warnHtml = warn.length ? `<div style="background:#fff3cd;color:#664d03;border:1px solid #ffecb5;padding:8px;border-radius:6px;margin:8px 0;">${warn.map(esc).join('<br/>')}</div>` : '';
+    const header = await renderHeader(req);
     res.type('html').send(`
       <html><head><title>Preview Submission #${id}</title><link rel="stylesheet" href="/style.css"></head>
       <body class="ta-body" style="padding:24px;">
+      ${header}
         <h1>Submission #${id} Preview</h1>
         <div>Author: <strong>${esc(row.author||'')}</strong></div>
         <div>Slot: ${row.slot_date || ''} ${row.slot_half || ''}</div>
@@ -448,6 +450,29 @@ function utcToEtParts(d){
   return {y: et.getUTCFullYear(), m: et.getUTCMonth()+1, d: et.getUTCDate(), h: et.getUTCHours(), et};
 }
 
+// Helper function to generate consistent header HTML across all pages
+async function renderHeader(req) {
+  const email = req.session?.email || null;
+  let displayName = '';
+  let isAdmin = false;
+  
+  if (email) {
+    try {
+      const pr = await pool.query('SELECT username FROM players WHERE email=$1', [email]);
+      displayName = (pr.rows.length && pr.rows[0].username) ? pr.rows[0].username : email;
+      isAdmin = await isAdminUser(req);
+    } catch (e) {
+      displayName = email;
+    }
+  }
+  
+  const navLinks = email 
+    ? `<span class="ta-user" style="margin-right:12px;opacity:.9;">${displayName}</span> <a href="/calendar">Calendar</a> <a href="/account/credentials">Account</a>${isAdmin ? ' <a href="/admin">Admin</a>' : ''} <a href="/logout">Logout</a>`
+    : `<a href="/login">Login</a>`;
+  
+  return `<header class="ta-header"><div class="ta-header-inner"><div class="ta-brand"><img class="ta-logo" src="/logo.svg"/><span class="ta-title">Trivia Advent‑ure</span></div><nav class="ta-nav">${navLinks}</nav></div></header>`;
+}
+
 function fmtEt(dateLike){
   if (!dateLike) return '';
   try {
@@ -612,10 +637,12 @@ app.post('/auth/login-password', express.urlencoded({ extended: true }), async (
 });
 
 // Account security: set/change password (requires login)
-app.get('/account/security', requireAuth, (req, res) => {
+app.get('/account/security', requireAuth, async (req, res) => {
+  const header = await renderHeader(req);
   res.type('html').send(`
     <html><head><title>Security</title><link rel="stylesheet" href="/style.css"></head>
     <body class="ta-body" style="padding:24px;">
+    ${header}
       <h1>Account Security</h1>
       <form method="post" action="/account/security">
         <label>New password <input type="password" name="password" required minlength="8" /></label>
@@ -647,9 +674,11 @@ app.get('/account/credentials', requireAuth, async (req, res) => {
     const r = await pool.query('SELECT username, password_set_at FROM players WHERE email=$1', [email]);
     const havePw = r.rows.length && !!r.rows[0].password_set_at;
     const uname = r.rows.length ? (r.rows[0].username || '') : '';
+    const header = await renderHeader(req);
     res.type('html').send(`
       <html><head><title>Set your account</title><link rel="stylesheet" href="/style.css"></head>
       <body class="ta-body" style="padding:24px; max-width:720px; margin:0 auto;">
+      ${header}
         <h1>Set your username and password</h1>
         <form method="post" action="/account/credentials">
           <div style="margin-bottom:10px;">
@@ -794,19 +823,12 @@ app.get('/', (req, res) => {
 });
 
 // Public landing (logged-out)
-app.get('/public', (req, res) => {
+app.get('/public', async (req, res) => {
+  const header = await renderHeader(req);
   res.type('html').send(`
     <html><head><title>Trivia Advent-ure</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
     <body class="ta-body">
-      <header class="ta-header">
-        <div class="ta-header-inner">
-          <div class="ta-brand">
-            <img class="ta-logo" src="/logo.svg" alt="Trivia Advent-ure"/>
-            <span class="ta-title">Trivia Advent‑ure</span>
-          </div>
-          <nav class="ta-nav"><a href="/login">Login</a> <a href="/calendar">Calendar</a></nav>
-        </div>
-      </header>
+      ${header}
       <main class="ta-main ta-container">
       <h1 class="ta-page-title">Trivia Advent-ure Calendar</h1>
       <p>48 quizzes unlock at midnight and noon ET from Dec 1–24. Play anytime; per-quiz leaderboards finalize after 24 hours. Overall standings keep updating.</p>
@@ -873,9 +895,11 @@ app.get('/admin/calendar', requireAdmin, async (req, res) => {
         <td style=\"padding:6px 4px;\">${cellHtml(r.am, r.day, 'AM')}</td>
         <td style=\"padding:6px 4px;\">${cellHtml(r.pm, r.day, 'PM')}</td>
       </tr>`).join('');
+    const header = await renderHeader(req);
     res.type('html').send(`
       <html><head><title>Admin Calendar</title><link rel=\"stylesheet\" href=\"/style.css\"></head>
       <body class=\"ta-body\" style=\"padding:24px;\">
+      ${header}
         <h1>Calendar (Admin)</h1>
         <p><a href=\"/admin\">Back</a></p>
         <table style=\"width:100%;border-collapse:collapse;\">
@@ -903,10 +927,11 @@ app.get('/player', requireAuth, async (req, res) => {
     needsPassword = pr.rows.length && !pr.rows[0].password_set_at;
     displayName = (pr.rows.length && pr.rows[0].username) ? pr.rows[0].username : email;
   } catch {}
+  const header = await renderHeader(req);
   res.type('html').send(`
     <html><head><title>Player • Trivia Advent-ure</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
     <body class="ta-body">
-      <header class="ta-header"><div class="ta-header-inner"><div class="ta-brand"><img class="ta-logo" src="/logo.svg"/><span class="ta-title">Trivia Advent‑ure</span></div><nav class="ta-nav"><span class="ta-user" style="margin-right:12px;opacity:.9;">${displayName}</span> <a href="/calendar">Calendar</a> <a href="/account/credentials">Account</a>${isAdmin ? ' <a href="/admin">Admin</a>' : ''} <a href="/logout">Logout</a></nav></div></header>
+      ${header}
       <main class="ta-main ta-container">
         ${needsPassword ? `<div style="margin:12px 0;padding:10px;border:1px solid #ffecb5;border-radius:6px;background:#fff8e1;color:#6b4f00;">Welcome! For cross-device login, please <a href="/account/security">set your password</a>.</div>` : ''}
         <h1 class="ta-page-title">Welcome, ${displayName}</h1>
@@ -919,11 +944,12 @@ app.get('/player', requireAuth, async (req, res) => {
 });
 
 // Admin dashboard
-app.get('/admin', requireAdmin, (req, res) => {
+app.get('/admin', requireAdmin, async (req, res) => {
+  const header = await renderHeader(req);
   res.type('html').send(`
     <html><head><title>Admin • Trivia Advent-ure</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
     <body class="ta-body">
-      <header class="ta-header"><div class="ta-header-inner"><div class="ta-brand"><img class="ta-logo" src="/logo.svg"/><span class="ta-title">Trivia Advent‑ure</span></div><nav class="ta-nav"><a href="/calendar">Calendar</a> <a href="/logout">Logout</a></nav></div></header>
+      ${header}
       <main class="ta-main ta-container">
         <h1 class="ta-page-title">Admin Dashboard</h1>
         <section style="margin-bottom:32px;">
@@ -964,12 +990,14 @@ app.get('/admin', requireAdmin, (req, res) => {
 });
 
 // Dedicated login page (magic-link)
-app.get('/login', (req, res) => {
+app.get('/login', async (req, res) => {
   const loggedIn = !!req.session.user;
   const showMagic = String(process.env.SHOW_MAGIC_LINK_FORM || '').toLowerCase() === 'true' || String(req.query.magic||'') === '1';
+  const header = await renderHeader(req);
   res.type('html').send(`
     <html><head><title>Login • Trivia Advent-ure</title><link rel=\"stylesheet\" href=\"/style.css\"></head>
     <body class=\"ta-body\" style=\"padding: 24px;\">
+    ${header}
       <h1>Login</h1>
       ${loggedIn ? `<p>You are signed in as ${req.session.user.email}. <a href=\"/logout\">Logout</a></p>` : `
         <div style=\"display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap;\">
@@ -1001,11 +1029,13 @@ app.get('/logout', (req, res) => {
 });
 
 // Admin PIN login (sets admin session without email check)
-app.get('/admin/pin', (req, res) => {
+app.get('/admin/pin', async (req, res) => {
   if (!ADMIN_PIN_ENABLED) return res.status(404).send('Not found');
+  const header = await renderHeader(req);
   res.type('html').send(`
     <html><head><title>Admin PIN • Trivia Advent-ure</title><link rel="stylesheet" href="/style.css"></head>
     <body class="ta-body" style="padding: 24px;">
+    ${header}
       <h1>Admin PIN</h1>
       <form method="post" action="/admin/pin">
         <label>PIN <input type="password" name="pin" required /></label>
@@ -1116,10 +1146,11 @@ app.get('/calendar', async (req, res) => {
       </div>
       `;
     }).join('\n');
+    const header = await renderHeader(req);
     res.type('html').send(`
       <html><head><title>Calendar</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
       <body class="ta-body">
-      <header class="ta-header"><div class="ta-header-inner"><div class="ta-brand"><img class="ta-logo" src="/logo.svg"/><span class="ta-title">Trivia Advent‑ure</span></div><nav class="ta-nav">${email ? `<span class="ta-user" style="margin-right:12px;opacity:.9;">${displayName}</span> <a href="/calendar">Calendar</a> <a href="/account/credentials">Account</a>${isAdmin ? ' <a href="/admin">Admin</a>' : ''} <a href="/logout">Logout</a>` : `<a href="/login">Login</a>`}</nav></div></header>
+      ${header}
         <main class="ta-main ta-container ta-calendar">
           ${email && needsPassword ? `<div style="margin:12px 0;padding:10px;border:1px solid #ffecb5;border-radius:6px;background:#fff8e1;color:#6b4f00;">Welcome! For cross-device login, please <a href="/account/security">set your password</a>.</div>` : ''}
           <h1 class="ta-page-title">Advent Calendar</h1>
@@ -1153,10 +1184,12 @@ app.get('/calendar', async (req, res) => {
 });
 
 // --- Admin: upload quiz ---
-app.get('/admin/upload-quiz', requireAdmin, (req, res) => {
+app.get('/admin/upload-quiz', requireAdmin, async (req, res) => {
+  const header = await renderHeader(req);
   res.type('html').send(`
     <html><head><title>Upload Quiz</title><link rel="stylesheet" href="/style.css"></head>
     <body class="ta-body" style="padding: 24px;">
+    ${header}
       <h1>Upload Quiz</h1>
       <form method="post" action="/admin/upload-quiz">
         <div><label>Title <input name="title" required /></label></div>
@@ -1249,10 +1282,12 @@ app.post('/admin/writer-invite', requireAdmin, express.urlencoded({ extended: tr
 });
 
 // --- Admin: writer invite form (GET) ---
-app.get('/admin/writer-invite', requireAdmin, (req, res) => {
+app.get('/admin/writer-invite', requireAdmin, async (req, res) => {
+  const header = await renderHeader(req);
   res.type('html').send(`
     <html><head><title>Create Writer Invite</title><link rel="stylesheet" href="/style.css"></head>
     <body class="ta-body" style="padding:24px;">
+    ${header}
       <h1>Create Writer Invite</h1>
       <form id="inviteForm" style="margin-top:12px;max-width:520px;">
         <div style="margin:8px 0;"><label>Author <input name="author" required style="width:100%"/></label></div>
@@ -1314,9 +1349,11 @@ app.get('/admin/writer-invites', requireAdmin, (req, res) => {
     );
   }
   const preRows = preRowsArr.join('');
+  const header = await renderHeader(req);
   res.type('html').send(`
     <html><head><title>Writer Invites (CSV)</title><link rel="stylesheet" href="/style.css"></head>
     <body class="ta-body" style="padding:24px;">
+    ${header}
       <style>
         /* Soften the visual load of many inputs */
         #tbl { border: 1px solid rgba(212,175,55,0.2); border-radius: 8px; overflow: hidden; }
@@ -1385,9 +1422,11 @@ app.get('/writer/:token', async (req, res) => {
       if (s.rows.length) existing = typeof s.rows[0].data === 'string' ? JSON.parse(s.rows[0].data) : s.rows[0].data;
     } catch {}
     const esc = (v)=>String(v||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+    const header = await renderHeader(req);
     res.type('html').send(`
       <html><head><title>Submit Quiz</title><link rel="stylesheet" href="/style.css"></head>
       <body class="ta-body" style="padding:24px;font-size:18px;line-height:1.5;">
+      ${header}
         <div style="max-width: 820px; margin: 0 auto;">
         <h1>Submit Your Quiz</h1>
         <p>Author: <strong>${invite.author}</strong></p>
@@ -1472,9 +1511,11 @@ app.post('/writer/:token', express.urlencoded({ extended: true }), async (req, r
       await pool.query('INSERT INTO writer_submissions(token, author, data) VALUES($1,$2,$3)', [invite.token, invite.author, JSON.stringify(payload)]);
     }
     try { await pool.query('UPDATE writer_invites SET submitted_at = COALESCE(submitted_at, NOW()) WHERE token=$1', [invite.token]); } catch {}
+    const header = await renderHeader(req);
     res.type('html').send(`
       <html><head><title>Submitted</title><link rel="stylesheet" href="/style.css"></head>
       <body class="ta-body" style="padding:24px;">
+      ${header}
         <h1>Thanks, ${invite.author}!</h1>
         <p>Your quiz was submitted successfully. The team will schedule it.</p>
         <p><a href="/">Return home</a></p>
@@ -1511,9 +1552,11 @@ app.get('/admin/writer-submissions', requireAdmin, async (req, res) => {
         </li>
       `;
     }).join('');
+    const header = await renderHeader(req);
     res.type('html').send(`
       <html><head><title>Writer Submissions</title><link rel="stylesheet" href="/style.css"></head>
       <body class="ta-body" style="padding:24px;">
+      ${header}
         <h1>Writer Submissions</h1>
         <ul style="list-style:none;padding:0;margin:0;">
           ${list || '<li>No submissions yet.</li>'}
@@ -1559,9 +1602,11 @@ app.get('/admin/writer-submissions/:id', requireAdmin, async (req, res) => {
       </div>`;
     }).join('');
     const warnHtml = warn.length ? `<div style="background:#fff3cd;color:#664d03;border:1px solid #ffecb5;padding:8px;border-radius:6px;margin:8px 0;">${warn.map(esc).join('<br/>')}</div>` : '';
+    const header = await renderHeader(req);
     res.type('html').send(`
       <html><head><title>Preview Submission #${id}</title><link rel="stylesheet" href="/style.css"></head>
       <body class="ta-body" style="padding:24px;">
+      ${header}
         <h1>Submission #${id} Preview</h1>
         <div>Author: <strong>${esc(row.author||'')}</strong></div>
         <div>Slot: ${row.slot_date || ''} ${row.slot_half || ''}</div>
@@ -1673,9 +1718,11 @@ app.get('/admin/writer-invites/list', requireAdmin, async (req, res) => {
         </tr>
       `;
     }).join('');
+    const header = await renderHeader(req);
     res.type('html').send(`
       <html><head><title>Writer Invites</title><link rel="stylesheet" href="/style.css"></head>
       <body class="ta-body" style="padding:24px;">
+      ${header}
         <h1>Writer Invites</h1>
         <p><a href="/admin">Back</a></p>
         <table style="width:100%;border-collapse:collapse;">
@@ -1792,10 +1839,12 @@ app.post('/admin/writer-invites/:token/deactivate', requireAdmin, async (req, re
 }); */
 
 // --- Admin: generate schedule ---
-app.get('/admin/generate-schedule', requireAdmin, (req, res) => {
+app.get('/admin/generate-schedule', requireAdmin, async (req, res) => {
+  const header = await renderHeader(req);
   res.type('html').send(`
     <html><head><title>Generate Schedule</title><link rel="stylesheet" href="/style.css"></head>
     <body class="ta-body" style="padding: 24px;">
+    ${header}
       <h1>Generate 48-quiz Schedule</h1>
       <p>This will create placeholders for Dec 1–24 at 12:00am and 12:00pm ET. Existing entries are skipped.</p>
       <form method="post" action="/admin/generate-schedule">
@@ -1884,9 +1933,11 @@ app.get('/quiz/:id', async (req, res) => {
             `}
           </td>
         </tr>`).join('');
+      const header = await renderHeader(req);
       return res.type('html').send(`
         <html><head><title>Quiz ${id} Recap</title><link rel="stylesheet" href="/style.css"></head>
         <body class="ta-body" style="padding: 24px;">
+          ${header}
           <h1>${quiz.title} (Quiz #${id})</h1>
           <div>Status: ${status}</div>
           <h3>Score: ${total}</h3>
@@ -1916,10 +1967,11 @@ app.get('/quiz/:id', async (req, res) => {
     const et = utcToEtParts(unlockUtc);
     const slot = et.h === 0 ? 'AM' : 'PM';
     const dateStr = `${et.y}-${String(et.m).padStart(2,'0')}-${String(et.d).padStart(2,'0')}`;
+    const header = await renderHeader(req);
     res.type('html').send(`
       <html><head><title>Quiz ${id}</title><link rel="stylesheet" href="/style.css"></head>
       <body class="ta-body">
-        <header class="ta-header"><div class="ta-header-inner"><div class="ta-brand"><img class="ta-logo" src="/logo.svg"/><span class="ta-title">Trivia Advent‑ure</span></div><nav class="ta-nav"><a href="/calendar">Calendar</a></nav></div></header>
+        ${header}
         <main class="ta-container-wide">
           <div class="ta-quiz-hero">
             <div class="ta-quiz-hero-top">
@@ -1986,9 +2038,11 @@ app.get('/quiz/:id/leaderboard', async (req, res) => {
       [id, freezeUtc]
     );
     const items = rows.map(r => `<tr><td>${r.handle}</td><td>${r.points}</td><td>${fmtEt(r.first_time)}</td></tr>`).join('');
+    const header = await renderHeader(req);
     res.type('html').send(`
       <html><head><title>Leaderboard • Quiz ${id}</title><link rel="stylesheet" href="/style.css"></head>
       <body class="ta-body" style="padding:24px;">
+      ${header}
         <h1>Leaderboard • ${qr[0].title}</h1>
         <table border="1" cellspacing="0" cellpadding="6">
           <tr><th>Player</th><th>Points</th><th>First Submitted</th></tr>
@@ -2013,9 +2067,11 @@ app.get('/archive', async (_req, res) => {
       const half = (p.h === 0 ? 'AM' : 'PM');
       return `<li style=\"margin:8px 0;\"><a href=\"/archive/${q.id}\">${day} ${half} — ${q.title.replace(/</g,'&lt;')}</a> <span style=\"opacity:.7\">(#${q.id})</span></li>`;
     }).join('');
+    const header = await renderHeader(req);
     res.type('html').send(`
       <html><head><title>Archive</title><link rel=\"stylesheet\" href=\"/style.css\"></head>
       <body class=\"ta-body\" style=\"padding:24px;\">
+      ${header}
         <h1>Past Quizzes</h1>
         <p><a href=\"/calendar\">Back to Calendar</a></p>
         <ul style=\"list-style:none;padding:0;\">${items || '<li>No past quizzes.</li>'}</ul>
@@ -2165,9 +2221,11 @@ app.get('/admin/quizzes', requireAdmin, async (req, res) => {
       <td>${fmtEt(q.freeze_at)}</td>
       <td><a href="/admin/quiz/${q.id}">View/Edit</a> · <a href="/admin/quiz/${q.id}/analytics">Analytics</a> · <a href="/admin/quiz/${q.id}/grade">Grade</a> · <a href="/quiz/${q.id}">Open</a></td>
     </tr>`).join('');
+    const header = await renderHeader(req);
     res.type('html').send(`
       <html><head><title>Quizzes</title><link rel="stylesheet" href="/style.css"></head>
       <body class="ta-body" style="padding:24px;">
+      ${header}
         <h1>Quizzes</h1>
         <table border="1" cellspacing="0" cellpadding="6">
           <tr><th>ID</th><th>Title</th><th>Unlock</th><th>Freeze</th><th>Actions</th></tr>
@@ -2191,9 +2249,11 @@ app.get('/admin/quiz/:id', requireAdmin, async (req, res) => {
     const quiz = qr.rows[0];
     const qs = await pool.query('SELECT * FROM questions WHERE quiz_id = $1 ORDER BY number ASC', [id]);
     const list = qs.rows.map(q => `<li><strong>Q${q.number}</strong> ${q.text} <em>(Ans: ${q.answer})</em></li>`).join('');
+    const header = await renderHeader(req);
   res.type('html').send(`
     <html><head><title>Edit Quiz #${id}</title><link rel="stylesheet" href="/style.css"></head>
     <body class="ta-body" style="padding:24px;">
+    ${header}
         <h1>Edit Quiz #${id}</h1>
         <form method="post" action="/admin/quiz/${id}">
           <div><label>Title <input name="title" value="${quiz.title}" required /></label></div>
@@ -2766,10 +2826,11 @@ app.get('/admin/quiz/:id/analytics', requireAdmin, async (req, res) => {
       `;
     }).join('');
     
+    const header = await renderHeader(req);
     res.type('html').send(`
       <html><head><title>Analytics: ${quiz.title} • Admin</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
       <body class="ta-body">
-        <header class="ta-header"><div class="ta-header-inner"><div class="ta-brand"><img class="ta-logo" src="/logo.svg"/><span class="ta-title">Trivia Advent‑ure</span></div><nav class="ta-nav"><a href="/admin">Admin</a> <a href="/calendar">Calendar</a> <a href="/logout">Logout</a></nav></div></header>
+        ${header}
         <main class="ta-main ta-container">
           <h1 class="ta-page-title">Quiz Analytics</h1>
           <div style="background:#1a1a1a;padding:16px;border-radius:8px;margin-bottom:24px;">
@@ -2804,10 +2865,12 @@ app.get('/admin/quiz/:id/analytics', requireAdmin, async (req, res) => {
 });
 
 // --- Admin: access & links ---
-app.get('/admin/access', requireAdmin, (req, res) => {
+app.get('/admin/access', requireAdmin, async (req, res) => {
+  const header = await renderHeader(req);
   res.type('html').send(`
     <html><head><title>Access & Links</title><link rel="stylesheet" href="/style.css"></head>
     <body class="ta-body" style="padding:24px;">
+    ${header}
       <h1>Access & Links</h1>
       <h3>Grant Access</h3>
       <form method="post" action="/admin/grant">
@@ -2913,10 +2976,11 @@ app.get('/admin/players', requireAdmin, async (req, res) => {
         </td>
       </tr>`;
     }).join('');
+    const header = await renderHeader(req);
     res.type('html').send(`
       <html><head><title>Players • Admin</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
       <body class="ta-body">
-        <header class="ta-header"><div class="ta-header-inner"><div class="ta-brand"><img class="ta-logo" src="/logo.svg"/><span class="ta-title">Trivia Advent‑ure</span></div><nav class="ta-nav"><a href="/admin">Admin</a> <a href="/calendar">Calendar</a> <a href="/logout">Logout</a></nav></div></header>
+        ${header}
         <main class="ta-main ta-container">
           <h1 class="ta-page-title">Players</h1>
           ${req.query.msg ? `<p style="padding:8px 12px;background:#2e7d32;color:#fff;border-radius:4px;margin-bottom:16px;">${req.query.msg}</p>` : ''}
@@ -3346,10 +3410,11 @@ app.get('/admin/players/:email', requireAdmin, async (req, res) => {
       `;
     }).join('');
     
+    const header = await renderHeader(req);
     res.type('html').send(`
       <html><head><title>Player: ${player.username || player.email} • Admin</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
       <body class="ta-body">
-        <header class="ta-header"><div class="ta-header-inner"><div class="ta-brand"><img class="ta-logo" src="/logo.svg"/><span class="ta-title">Trivia Advent‑ure</span></div><nav class="ta-nav"><a href="/admin">Admin</a> <a href="/calendar">Calendar</a> <a href="/logout">Logout</a></nav></div></header>
+        ${header}
         <main class="ta-main ta-container">
           <h1 class="ta-page-title">Player Profile</h1>
           <div style="background:#1a1a1a;padding:16px;border-radius:8px;margin-bottom:24px;">
@@ -3392,10 +3457,12 @@ app.get('/admin/admins', requireAdmin, async (_req, res) => {
         <button type="submit">Remove</button>
       </form>
     </td></tr>`).join('');
+    const header = await renderHeader(_req);
     res.type('html').send(`
       <html><head><title>Admins</title><link rel="stylesheet" href="/style.css"></head>
       <body class="ta-body" style="padding:24px;">
-        <h1>Admins</h1>
+      ${header}
+      <h1>Admins</h1>
         <form method="post" action="/admin/admins/add" style="margin-bottom:12px;">
           <label>Email <input name="email" type="email" required /></label>
           <button type="submit">Add admin</button>
