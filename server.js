@@ -946,6 +946,7 @@ app.get('/admin', requireAdmin, (req, res) => {
         <section style="margin-bottom:32px;">
           <h2 style="margin-bottom:12px;color:#ffd700;">Access & Users</h2>
           <div class="ta-card-grid">
+            <a class="ta-card" href="/admin/players"><strong>Players</strong><span>View and manage all players</span></a>
             <a class="ta-card" href="/admin/access"><strong>Access & Links</strong><span>Grant or send magic links</span></a>
             <a class="ta-card" href="/admin/admins"><strong>Admins</strong><span>Manage admin emails</span></a>
           </div>
@@ -2687,6 +2688,73 @@ app.post('/admin/send-link', requireAdmin, async (req, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).send('Failed to send');
+  }
+});
+
+// --- Players management ---
+app.get('/admin/players', requireAdmin, async (_req, res) => {
+  try {
+    const rows = (await pool.query(`
+      SELECT 
+        p.id,
+        p.email,
+        p.username,
+        p.access_granted_at,
+        p.onboarding_complete,
+        p.password_set_at,
+        COUNT(DISTINCT r.quiz_id) as quizzes_played,
+        MAX(r.created_at) as last_activity
+      FROM players p
+      LEFT JOIN responses r ON r.user_email = p.email
+      GROUP BY p.id, p.email, p.username, p.access_granted_at, p.onboarding_complete, p.password_set_at
+      ORDER BY p.access_granted_at DESC
+    `)).rows;
+    const items = rows.map(r => {
+      const status = [];
+      if (r.onboarding_complete) status.push('Onboarded');
+      if (r.password_set_at) status.push('Password set');
+      const statusStr = status.length ? status.join(', ') : 'Pending setup';
+      return `<tr>
+        <td>${r.email || ''}</td>
+        <td>${r.username || '<em>Not set</em>'}</td>
+        <td>${fmtEt(r.access_granted_at)}</td>
+        <td>${statusStr}</td>
+        <td>${r.quizzes_played || 0}</td>
+        <td>${r.last_activity ? fmtEt(r.last_activity) : '<em>Never</em>'}</td>
+      </tr>`;
+    }).join('');
+    res.type('html').send(`
+      <html><head><title>Players • Admin</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
+      <body class="ta-body">
+        <header class="ta-header"><div class="ta-header-inner"><div class="ta-brand"><img class="ta-logo" src="/logo.svg"/><span class="ta-title">Trivia Advent‑ure</span></div><nav class="ta-nav"><a href="/admin">Admin</a> <a href="/calendar">Calendar</a> <a href="/logout">Logout</a></nav></div></header>
+        <main class="ta-main ta-container">
+          <h1 class="ta-page-title">Players</h1>
+          <p style="margin-bottom:16px;opacity:0.8;">Total: ${rows.length} player${rows.length !== 1 ? 's' : ''}</p>
+          <div style="overflow-x:auto;">
+            <table border="1" cellspacing="0" cellpadding="8" style="width:100%;border-collapse:collapse;">
+              <thead>
+                <tr style="background:#333;">
+                  <th style="text-align:left;padding:8px;">Email</th>
+                  <th style="text-align:left;padding:8px;">Username</th>
+                  <th style="text-align:left;padding:8px;">Access Granted</th>
+                  <th style="text-align:left;padding:8px;">Status</th>
+                  <th style="text-align:left;padding:8px;">Quizzes Played</th>
+                  <th style="text-align:left;padding:8px;">Last Activity</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${items || '<tr><td colspan="6">No players yet</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+          <p style="margin-top:16px;"><a href="/admin">Back to Admin</a></p>
+        </main>
+        <footer class="ta-footer"><div class="ta-container">© Trivia Advent‑ure</div></footer>
+      </body></html>
+    `);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to load players');
   }
 });
 
