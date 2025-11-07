@@ -961,8 +961,7 @@ app.get('/admin/writer-invites', requireAdmin, (req, res) => {
           background: #181818; color: #ffd700; border: 1px solid #444; border-radius: 6px; 
           padding: 6px 8px; height: 30px; box-sizing: border-box; width: 100%;
         }
-        #tbl input[name="author"] { background: #000; color: #fff; border: 1px solid #d4af37; font-weight: 600; }
-        #tbl input[name="author"]::placeholder { color: #777; }
+        /* Author inputs match email inputs */
         #tbl input[type="text"]:focus, #tbl input[type="email"]:focus {
           outline: none; border-color: #d4af37; box-shadow: 0 0 0 2px rgba(212,175,55,0.15);
         }
