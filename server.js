@@ -142,6 +142,16 @@ async function initDb() {
     DO $$ BEGIN
       ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS description TEXT;
     EXCEPTION WHEN others THEN NULL; END $$;
+    -- Optimistic locking fields for manual grading
+    DO $$ BEGIN
+      ALTER TABLE responses ADD COLUMN IF NOT EXISTS override_version INTEGER NOT NULL DEFAULT 0;
+    EXCEPTION WHEN others THEN NULL; END $$;
+    DO $$ BEGIN
+      ALTER TABLE responses ADD COLUMN IF NOT EXISTS override_updated_at TIMESTAMPTZ;
+    EXCEPTION WHEN others THEN NULL; END $$;
+    DO $$ BEGIN
+      ALTER TABLE responses ADD COLUMN IF NOT EXISTS override_updated_by TEXT;
+    EXCEPTION WHEN others THEN NULL; END $$;
   `);
 }
 
@@ -1275,7 +1285,8 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
     );
     // Load responses joined with questions
     const rows = (await pool.query(
-      `SELECT q.id AS qid, q.number, q.text, q.answer, r.user_email, r.response_text, r.locked, r.override_correct, COALESCE(r.flagged,false) AS flagged
+      `SELECT q.id AS qid, q.number, q.text, q.answer, r.user_email, r.response_text, r.locked, r.override_correct, COALESCE(r.flagged,false) AS flagged,
+              COALESCE(r.override_version,0) AS override_version, r.override_updated_at, r.override_updated_by
        FROM questions q
        LEFT JOIN responses r ON r.question_id = q.id
        WHERE q.quiz_id=$1
@@ -1337,6 +1348,7 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
       });
       const items = list.map(([ans, arr]) => {
         const auto = arr.length && isCorrectAnswer(arr[0].response_text || '', sec.answer);
+        const groupVersion = Math.max(0, ...arr.map(r => Number(r.override_version || 0)));
         // Determine accepted state using override when set; if mixed, show '-'
         let accepted;
         const overrides = arr.map(r => typeof r.override_correct === 'boolean' ? r.override_correct : null);
@@ -1356,6 +1368,7 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
             <form method="post" action="/admin/quiz/${id}/override" style="display:inline;">
               <input type="hidden" name="question_id" value="${sec.number}"/>
               <input type="hidden" name="norm" value="${ans}"/>
+              <input type="hidden" name="expected_version" value="${groupVersion}"/>
               <button name="action" value="accept">Accept</button>
               <button name="action" value="reject">Reject</button>
               <button name="action" value="clear">Clear</button>
@@ -1414,11 +1427,13 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
         </table>
       </div>`;
     }).join('');
+    const isStale = String(req.query.stale || '') === '1';
     res.type('html').send(`
       <html><head><title>Grade • ${quiz.title}</title><link rel=\"stylesheet\" href=\"/style.css\"></head>
       <body class=\"ta-body\">
         <main class=\"grader-container\">
           <h1 class=\"grader-title\">Grading: ${quiz.title}</h1>
+          ${isStale ? '<div style="background:#ffefef;border:1px solid #cc5555;color:#5a1a1a;padding:10px;border-radius:6px;margin-bottom:10px;">Another grader changed one or more items you were viewing. Please refresh to see the latest state.</div>' : ''}
           <div class=\"grader-date\">Viewing: <strong>Awaiting review</strong> by default (🚩 flagged always shown and prioritized). Use “Show graded / Hide graded” in each question section to include graded rows for that question.</div>
           <form method=\"post\" action=\"/admin/quiz/${id}/regrade\" class=\"btn-row\">
             <button class=\"btn-save\" type=\"submit\">Save All Grading Decisions</button>
@@ -1442,6 +1457,7 @@ app.post('/admin/quiz/:id/override', requireAdmin, async (req, res) => {
     const qNumber = Number(req.body.question_id);
     const action = String(req.body.action || '').toLowerCase(); // accept|reject|clear
     const norm = String(req.body.norm || '');
+    const expectedVersion = Number(req.body.expected_version || '0');
     const q = await pool.query('SELECT id FROM questions WHERE quiz_id=$1 AND number=$2', [quizId, qNumber]);
     if (q.rows.length === 0) return res.status(404).send('Question not found');
     const questionId = q.rows[0].id;
@@ -1449,13 +1465,20 @@ app.post('/admin/quiz/:id/override', requireAdmin, async (req, res) => {
     const resp = await pool.query('SELECT id, response_text FROM responses WHERE question_id=$1', [questionId]);
     const ids = resp.rows.filter(r => normalizeAnswer(r.response_text || '') === norm).map(r => r.id);
     if (ids.length === 0) { return res.redirect(`/admin/quiz/${quizId}/grade`); }
+    // Optimistic check: ensure no one has updated these since the version we rendered
+    const ver = await pool.query('SELECT MAX(override_version) AS v FROM responses WHERE id = ANY($1)', [ids]);
+    const currentMax = Number(ver.rows[0].v || 0);
+    if (currentMax !== expectedVersion) {
+      return res.redirect(`/admin/quiz/${quizId}/grade?stale=1`);
+    }
     let val = null;
     if (action === 'accept') val = true;
     else if (action === 'reject') val = false;
+    const updatedBy = getAdminEmail() || 'admin';
     if (action === 'accept' || action === 'reject') {
-      await pool.query('UPDATE responses SET override_correct = $1, flagged = FALSE WHERE id = ANY($2)', [val, ids]);
+      await pool.query('UPDATE responses SET override_correct = $1, flagged = FALSE, override_version = override_version + 1, override_updated_at = NOW(), override_updated_by = $3 WHERE id = ANY($2)', [val, ids, updatedBy]);
     } else {
-      await pool.query('UPDATE responses SET override_correct = $1 WHERE id = ANY($2)', [val, ids]);
+      await pool.query('UPDATE responses SET override_correct = $1, override_version = override_version + 1, override_updated_at = NOW(), override_updated_by = $3 WHERE id = ANY($2)', [val, ids, updatedBy]);
     }
     res.redirect(`/admin/quiz/${quizId}/grade`);
   } catch (e) {
@@ -1475,11 +1498,12 @@ app.post('/admin/quiz/:id/override-all', requireAdmin, async (req, res) => {
     let val = null;
     if (action === 'accept') val = true;
     else if (action === 'reject') val = false;
-  if (action === 'accept' || action === 'reject') {
-    await pool.query('UPDATE responses SET override_correct = $1, flagged = FALSE WHERE question_id=$2', [val, questionId]);
-  } else {
-    await pool.query('UPDATE responses SET override_correct = $1 WHERE question_id=$2', [val, questionId]);
-  }
+    const updatedBy = getAdminEmail() || 'admin';
+    if (action === 'accept' || action === 'reject') {
+      await pool.query('UPDATE responses SET override_correct = $1, flagged = FALSE, override_version = override_version + 1, override_updated_at = NOW(), override_updated_by = $3 WHERE question_id=$2', [val, questionId, updatedBy]);
+    } else {
+      await pool.query('UPDATE responses SET override_correct = $1, override_version = override_version + 1, override_updated_at = NOW(), override_updated_by = $3 WHERE question_id=$2', [val, questionId, updatedBy]);
+    }
     res.redirect(`/admin/quiz/${quizId}/grade`);
   } catch (e) {
     console.error(e);
