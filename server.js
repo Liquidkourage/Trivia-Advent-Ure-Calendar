@@ -1012,8 +1012,8 @@ app.get('/admin/writer-invites', requireAdmin, (req, res) => {
           }
           out.innerHTML = results.map(x=>'<div>'+x+'</div>').join('');
         });
-        // seed one row for convenience
-        addRow();
+        // seed 48 rows for a full Advent run
+        for (let i = 0; i < 48; i++) addRow();
       </script>
     </body></html>
   `);
