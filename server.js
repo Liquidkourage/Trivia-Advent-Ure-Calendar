@@ -452,7 +452,7 @@ function utcToEtParts(d){
 
 // Helper function to generate consistent header HTML across all pages
 async function renderHeader(req) {
-  const email = req.session?.email || null;
+  const email = (req.session?.user?.email || '').toLowerCase() || null;
   let displayName = '';
   let isAdmin = false;
   
