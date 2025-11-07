@@ -44,7 +44,7 @@ app.get('/admin/writer-submissions/:id', requireAdmin, async (req, res) => {
         ${qHtml || '<div>No questions.</div>'}
         <form method="post" action="/admin/writer-submissions/${id}/publish" style="margin-top:12px;">
           <label>Title <input name="title" required style="width:40%"/></label>
-          <label style="margin-left:12px;">Unlock (ET) <input name="unlock_at" type="datetime-local" required/></label>
+          <label style="margin-left:12px;">Unlock (ET) <input name="unlock_at" type="datetime-local" required value="${(req.query && req.query.unlock) ? String(req.query.unlock).replace(' ','T') : ''}"/></label>
           <button type="submit" style="margin-left:12px;">Publish</button>
         </form>
         <p style="margin-top:16px;"><a href="/admin/writer-submissions">Back</a></p>
@@ -673,6 +673,70 @@ app.get('/public', (req, res) => {
   `);
 });
 
+// --- Admin: Calendar occupancy view (AM/PM) ---
+app.get('/admin/calendar', requireAdmin, async (req, res) => {
+  try {
+    const { rows: quizzes } = await pool.query('SELECT id, title, unlock_at FROM quizzes ORDER BY unlock_at ASC, id ASC');
+    const bySlot = new Map(); // key: YYYY-MM-DD|AM|PM → array of quizzes
+    let baseYear = quizzes.length ? utcToEtParts(new Date(quizzes[0].unlock_at)).y : new Date().getUTCFullYear();
+    function slotKey(dParts){
+      const day = `${dParts.y}-${String(dParts.m).padStart(2,'0')}-${String(dParts.d).padStart(2,'0')}`;
+      const half = dParts.h === 0 ? 'AM' : 'PM';
+      return `${day}|${half}`;
+    }
+    for (const q of quizzes) {
+      const p = utcToEtParts(new Date(q.unlock_at));
+      baseYear = p.y;
+      const key = slotKey(p);
+      if (!bySlot.has(key)) bySlot.set(key, []);
+      bySlot.get(key).push(q);
+    }
+    const rows = [];
+    for (let d=1; d<=24; d++) {
+      const day = `${baseYear}-12-${String(d).padStart(2,'0')}`;
+      const amKey = `${day}|AM`;
+      const pmKey = `${day}|PM`;
+      const am = bySlot.get(amKey) || [];
+      const pm = bySlot.get(pmKey) || [];
+      rows.push({ day, am, pm });
+    }
+    function cellHtml(list, day, half){
+      if (!list.length) {
+        const hh = half === 'AM' ? '00:00' : '12:00';
+        const unlock = `${day}T${hh}`;
+        return `<div style=\"color:#999;\">Empty</div><div><a class=\"ta-btn-small\" href=\"/admin/writer-submissions?unlock=${unlock}\">Publish here</a></div>`;
+      }
+      if (list.length === 1) {
+        const q = list[0];
+        return `<div><a href=\"/admin/quiz/${q.id}\">#${q.id} ${q.title.replace(/</g,'&lt;')}</a></div>`;
+      }
+      // Conflict
+      const links = list.map(q=>`<div><a href=\"/admin/quiz/${q.id}\">#${q.id} ${q.title.replace(/</g,'&lt;')}</a></div>`).join('');
+      return `<div style=\"color:#c62828;\"><strong>Conflict (${list.length})</strong></div>${links}`;
+    }
+    const htmlRows = rows.map(r => `
+      <tr>
+        <td style=\"padding:6px 4px;\">${r.day}</td>
+        <td style=\"padding:6px 4px;\">${cellHtml(r.am, r.day, 'AM')}</td>
+        <td style=\"padding:6px 4px;\">${cellHtml(r.pm, r.day, 'PM')}</td>
+      </tr>`).join('');
+    res.type('html').send(`
+      <html><head><title>Admin Calendar</title><link rel=\"stylesheet\" href=\"/style.css\"></head>
+      <body class=\"ta-body\" style=\"padding:24px;\">
+        <h1>Calendar (Admin)</h1>
+        <p><a href=\"/admin\">Back</a></p>
+        <table style=\"width:100%;border-collapse:collapse;\">
+          <thead><tr><th style=\"text-align:left;padding:6px 4px;\">Day</th><th style=\"text-align:left;padding:6px 4px;\">AM</th><th style=\"text-align:left;padding:6px 4px;\">PM</th></tr></thead>
+          <tbody>${htmlRows}</tbody>
+        </table>
+      </body></html>
+    `);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to load admin calendar');
+  }
+});
+
 // Player landing (logged-in non-admin)
 app.get('/player', requireAuth, (req, res) => {
   const adminEmail = getAdminEmail();
@@ -707,6 +771,7 @@ app.get('/admin', requireAdmin, (req, res) => {
           <a class="ta-card" href="/admin/writer-invite"><strong>Writer Invite</strong><span>Create token link for guest authors</span></a>
           <a class="ta-card" href="/admin/writer-invites"><strong>Writer Invites (CSV)</strong><span>Prepare CSV and bulk-generate links</span></a>
           <a class="ta-card" href="/admin/writer-invites/list"><strong>Writer Invites (List)</strong><span>Status, resend, deactivate, copy</span></a>
+          <a class="ta-card" href="/admin/calendar"><strong>Admin Calendar</strong><span>AM/PM occupancy and conflicts</span></a>
           <a class="ta-card" href="/admin/access"><strong>Access & Links</strong><span>Grant or send magic links</span></a>
           <a class="ta-card" href="/admin/admins"><strong>Admins</strong><span>Manage admin emails</span></a>
           <a class="ta-card" href="/leaderboard"><strong>Overall Leaderboard</strong></a>
@@ -1673,6 +1738,75 @@ app.get('/quiz/:id/leaderboard', async (req, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).send('Failed to load leaderboard');
+  }
+});
+
+// --- Public: Past quizzes archive ---
+app.get('/archive', async (_req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT id, title, unlock_at FROM quizzes WHERE unlock_at < NOW() ORDER BY unlock_at DESC LIMIT 500');
+    const items = rows.map(q => {
+      const p = utcToEtParts(new Date(q.unlock_at));
+      const day = `${p.y}-${String(p.m).padStart(2,'0')}-${String(p.d).padStart(2,'0')}`;
+      const half = (p.h === 0 ? 'AM' : 'PM');
+      return `<li style=\"margin:8px 0;\"><a href=\"/archive/${q.id}\">${day} ${half} — ${q.title.replace(/</g,'&lt;')}</a> <span style=\"opacity:.7\">(#${q.id})</span></li>`;
+    }).join('');
+    res.type('html').send(`
+      <html><head><title>Archive</title><link rel=\"stylesheet\" href=\"/style.css\"></head>
+      <body class=\"ta-body\" style=\"padding:24px;\">
+        <h1>Past Quizzes</h1>
+        <p><a href=\"/calendar\">Back to Calendar</a></p>
+        <ul style=\"list-style:none;padding:0;\">${items || '<li>No past quizzes.</li>'}</ul>
+      </body></html>
+    `);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to load archive');
+  }
+});
+
+app.get('/archive/:id', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!id) return res.status(400).send('Invalid id');
+    const qz = await pool.query('SELECT id, title, author, author_blurb, description, unlock_at FROM quizzes WHERE id=$1', [id]);
+    if (!qz.rows.length) return res.status(404).send('Not found');
+    const qas = await pool.query('SELECT number, text, answer, category, ask FROM questions WHERE quiz_id=$1 ORDER BY number ASC', [id]);
+    const quiz = qz.rows[0];
+    const esc = (v)=>String(v||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
+    const p = utcToEtParts(new Date(quiz.unlock_at));
+    const day = `${p.y}-${String(p.m).padStart(2,'0')}-${String(p.d).padStart(2,'0')}`;
+    const half = (p.h === 0 ? 'AM' : 'PM');
+    const qHtml = qas.rows.map(r => {
+      const text = String(r.text||'');
+      const ask = String(r.ask||'');
+      let highlighted = esc(text);
+      if (ask) {
+        try {
+          const re = new RegExp(ask.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), 'i');
+          highlighted = highlighted.replace(re, '<mark>$&</mark>');
+        } catch {}
+      }
+      return `<div style=\"border:1px solid #ddd;padding:8px;margin:8px 0;border-radius:6px;\">\n\
+        <div><strong>Q${r.number}</strong> <em>${esc(r.category||'')}</em></div>\n\
+        <div style=\"margin-top:6px;\">${highlighted}</div>\n\
+        <div style=\"margin-top:6px;color:#666;\">Answer: <strong>${esc(r.answer||'')}</strong>${r.ask ? ' · Ask: <code>'+esc(r.ask)+'</code>' : ''}</div>\n\
+      </div>`;
+    }).join('');
+    res.type('html').send(`
+      <html><head><title>${esc(quiz.title)} • Archive</title><link rel=\"stylesheet\" href=\"/style.css\"></head>
+      <body class=\"ta-body\" style=\"padding:24px;\">
+        <h1>${esc(quiz.title)}</h1>
+        <div>${day} ${half}</div>
+        ${(quiz.author || quiz.author_blurb) ? `<div style=\"margin-top:8px;\"><strong>${esc(quiz.author||'')}</strong><div style=\"opacity:.9;\">${esc(quiz.author_blurb||'')}</div></div>` : ''}
+        ${quiz.description ? `<div style=\"margin-top:8px;\">${esc(quiz.description)}</div>` : ''}
+        <div style=\"margin-top:12px;\">${qHtml}</div>
+        <p style=\"margin-top:16px;\"><a href=\"/quiz/${quiz.id}\">View quiz page</a> · <a href=\"/archive\">Back to Archive</a></p>
+      </body></html>
+    `);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to load archived quiz');
   }
 });
 
