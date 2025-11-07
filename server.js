@@ -1,3 +1,4 @@
+/*
 // Admin: preview a writer submission
 app.get('/admin/writer-submissions/:id', requireAdmin, async (req, res) => {
   try {
@@ -55,6 +56,7 @@ app.get('/admin/writer-submissions/:id', requireAdmin, async (req, res) => {
     res.status(500).send('Failed to load preview');
   }
 });
+*/
 import express from 'express';
 import session from 'express-session';
 import connectPgSimple from 'connect-pg-simple';
@@ -1323,6 +1325,63 @@ app.get('/admin/writer-submissions', requireAdmin, async (req, res) => {
   }
 });
 
+// Admin: preview a writer submission
+app.get('/admin/writer-submissions/:id', requireAdmin, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!id) return res.status(400).send('Invalid id');
+    const sres = await pool.query('SELECT ws.token, ws.author, ws.submitted_at, ws.updated_at, ws.data, wi.slot_date, wi.slot_half FROM writer_submissions ws LEFT JOIN writer_invites wi ON wi.token = ws.token WHERE ws.id=$1', [id]);
+    if (!sres.rows.length) return res.status(404).send('Not found');
+    const row = sres.rows[0];
+    const data = typeof row.data === 'string' ? JSON.parse(row.data) : row.data;
+    const questions = Array.isArray(data?.questions) ? data.questions : [];
+    const warn = [];
+    const esc = (v)=>String(v||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
+    const qHtml = questions.map((q, i) => {
+      const text = String(q.text||'');
+      const ask = String(q.ask||'');
+      let occ = 0;
+      if (ask) {
+        const h = text.toLowerCase();
+        const n = ask.toLowerCase();
+        let idx = 0; while ((idx = h.indexOf(n, idx)) !== -1) { occ++; idx += n.length; }
+        if (occ !== 1) warn.push(`Q${i+1}: Ask appears ${occ} times (must be exactly once).`);
+      }
+      const safeText = esc(text);
+      const safeAsk = esc(ask);
+      const highlighted = ask && occ === 1 ? safeText.replace(new RegExp(ask.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), 'i'), '<mark>$&</mark>') : safeText;
+      return `<div style="border:1px solid #ddd;padding:8px;margin:8px 0;border-radius:6px;">
+        <div><strong>Q${i+1}</strong> <em>${esc(q.category||'')}</em></div>
+        <div style="margin-top:6px;">${highlighted}</div>
+        <div style="margin-top:6px;color:#666;">Answer: <strong>${esc(q.answer||'')}</strong>${ask ? ` · Ask: <code>${safeAsk}</code>` : ''}</div>
+      </div>`;
+    }).join('');
+    const warnHtml = warn.length ? `<div style="background:#fff3cd;color:#664d03;border:1px solid #ffecb5;padding:8px;border-radius:6px;margin:8px 0;">${warn.map(esc).join('<br/>')}</div>` : '';
+    res.type('html').send(`
+      <html><head><title>Preview Submission #${id}</title><link rel="stylesheet" href="/style.css"></head>
+      <body class="ta-body" style="padding:24px;">
+        <h1>Submission #${id} Preview</h1>
+        <div>Author: <strong>${esc(row.author||'')}</strong></div>
+        <div>Slot: ${row.slot_date || ''} ${row.slot_half || ''}</div>
+        <div>Submitted: ${fmtEt(row.submitted_at)}${row.updated_at ? ` · Updated: ${fmtEt(row.updated_at)}` : ''}</div>
+        ${data.description ? `<h3 style="margin-top:12px;">About this quiz</h3><div>${esc(data.description)}</div>` : ''}
+        ${data.author_blurb ? `<h3 style="margin-top:12px;">About the author</h3><div>${esc(data.author_blurb)}</div>` : ''}
+        ${warnHtml}
+        <h3 style="margin-top:12px;">Questions</h3>
+        ${qHtml || '<div>No questions.</div>'}
+        <form method="post" action="/admin/writer-submissions/${id}/publish" style="margin-top:12px;">
+          <label>Title <input name="title" required style="width:40%"/></label>
+          <label style="margin-left:12px;">Unlock (ET) <input name="unlock_at" type="datetime-local" required value="${(req.query && req.query.unlock) ? String(req.query.unlock).replace(' ','T') : ''}"/></label>
+          <button type="submit" style="margin-left:12px;">Publish</button>
+        </form>
+        <p style="margin-top:16px;"><a href="/admin/writer-submissions">Back</a></p>
+      </body></html>
+    `);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to load preview');
+  }
+});
 app.post('/admin/writer-submissions/:id/publish', requireAdmin, express.urlencoded({ extended: true }), async (req, res) => {
   try {
     const id = Number(req.params.id);
