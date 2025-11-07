@@ -158,6 +158,23 @@ async function initDb() {
       email CITEXT PRIMARY KEY,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+    
+    -- Writer invites and submissions
+    CREATE TABLE IF NOT EXISTS writer_invites (
+      token TEXT PRIMARY KEY,
+      author TEXT NOT NULL,
+      email CITEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      expires_at TIMESTAMPTZ,
+      active BOOLEAN NOT NULL DEFAULT TRUE
+    );
+    CREATE TABLE IF NOT EXISTS writer_submissions (
+      id SERIAL PRIMARY KEY,
+      token TEXT NOT NULL REFERENCES writer_invites(token),
+      author TEXT,
+      submitted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      data JSONB NOT NULL
+    );
   `);
   // Seed ADMIN_EMAIL into admins table if provided
   const seedAdmin = (process.env.ADMIN_EMAIL || '').toLowerCase();
@@ -762,6 +779,175 @@ app.post('/admin/upload-quiz', requireAdmin, async (req, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).send('Failed to create quiz');
+  }
+});
+
+// --- Admin: create writer invite (returns unique link) ---
+app.post('/admin/writer-invite', requireAdmin, express.urlencoded({ extended: true }), async (req, res) => {
+  try {
+    const author = String(req.body.author || '').trim();
+    const email = String(req.body.email || '').trim() || null;
+    if (!author) return res.status(400).send('Missing author');
+    const token = crypto.randomBytes(16).toString('hex');
+    await pool.query('INSERT INTO writer_invites(token, author, email) VALUES($1,$2,$3)', [token, author, email]);
+    const base = `${req.protocol}://${req.get('host')}`;
+    const link = `${base}/writer/${token}`;
+    res.type('text').send(link);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to create invite');
+  }
+});
+
+// --- Writer: tokenized quiz submission (no title/unlock fields for authors) ---
+app.get('/writer/:token', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT token, author FROM writer_invites WHERE token=$1 AND active=true AND (expires_at IS NULL OR expires_at > NOW())',
+      [req.params.token]
+    );
+    if (!rows.length) return res.status(404).send('Invalid or expired link');
+    const invite = rows[0];
+    res.type('html').send(`
+      <html><head><title>Submit Quiz</title><link rel="stylesheet" href="/style.css"></head>
+      <body class="ta-body" style="padding:24px;">
+        <h1>Submit Your Quiz</h1>
+        <p>Author: <strong>${invite.author}</strong></p>
+        <form method="post" action="/writer/${invite.token}">
+          <fieldset style="margin-top:12px;">
+            <legend>Questions (10)</legend>
+            ${Array.from({length:10}, (_,i)=>{
+              const n=i+1;
+              return `<div style="border:1px solid #ddd;padding:8px;margin:6px 0;border-radius:6px;">
+                <div><strong>Q${n}</strong></div>
+                <div><label>Text <input name="q${n}_text" required style="width:90%"/></label></div>
+                <div><label>Answer <input name="q${n}_answer" required style="width:90%"/></label></div>
+                <div><label>Category <input name="q${n}_category" value="General"/></label>
+                <label style="margin-left:12px;">Ask <input name="q${n}_ask"/></label></div>
+              </div>`
+            }).join('')}
+          </fieldset>
+          <div style="margin-top:12px;"><button type="submit">Submit Quiz</button></div>
+        </form>
+        <p style="margin-top:16px;"><a href="/">Home</a></p>
+      </body></html>
+    `);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to load page');
+  }
+});
+
+app.post('/writer/:token', express.urlencoded({ extended: true }), async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT token, author FROM writer_invites WHERE token=$1 AND active=true AND (expires_at IS NULL OR expires_at > NOW())',
+      [req.params.token]
+    );
+    if (!rows.length) return res.status(404).send('Invalid or expired link');
+    const invite = rows[0];
+    const questions = [];
+    for (let i=1;i<=10;i++) {
+      const qt = String(req.body[\`q\${i}_text\`] || '').trim();
+      const qa = String(req.body[\`q\${i}_answer\`] || '').trim();
+      const qc = String(req.body[\`q\${i}_category\`] || 'General').trim();
+      const qk = String(req.body[\`q\${i}_ask\`] || '').trim() || null;
+      if (!qt || !qa) continue;
+      questions.push({ text: qt, answer: qa, category: qc, ask: qk });
+    }
+    if (!questions.length) return res.status(400).send('Please provide at least one question');
+    await pool.query(
+      'INSERT INTO writer_submissions(token, author, data) VALUES($1,$2,$3)',
+      [invite.token, invite.author, JSON.stringify({ questions })]
+    );
+    res.type('html').send(`
+      <html><head><title>Submitted</title><link rel="stylesheet" href="/style.css"></head>
+      <body class="ta-body" style="padding:24px;">
+        <h1>Thanks, ${invite.author}!</h1>
+        <p>Your quiz was submitted successfully. The team will schedule it.</p>
+        <p><a href="/">Return home</a></p>
+      </body></html>
+    `);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to submit quiz');
+  }
+});
+
+// --- Admin: list and publish writer submissions ---
+app.get('/admin/writer-submissions', requireAdmin, async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT ws.id, ws.submitted_at, ws.author, ws.data
+      FROM writer_submissions ws
+      ORDER BY ws.id DESC
+      LIMIT 200
+    `);
+    const list = rows.map(r => {
+      let first = '';
+      try { first = (r.data?.questions?.[0]?.text) || ''; } catch {}
+      return `
+        <li style="margin:10px 0;padding:8px;border:1px solid #ddd;border-radius:6px;">
+          <div><strong>ID:</strong> ${r.id} · <strong>Author:</strong> ${r.author} · <strong>Submitted:</strong> ${new Date(r.submitted_at).toLocaleString()}</div>
+          <div style="margin-top:4px;color:#555;"><em>Preview:</em> ${first ? first.replace(/</g,'&lt;') : '(no preview)'} </div>
+          <form method="post" action="/admin/writer-submissions/${r.id}/publish" style="margin-top:8px;">
+            <label>Title <input name="title" required style="width:40%"/></label>
+            <label style="margin-left:12px;">Unlock (ET) <input name="unlock_at" type="datetime-local" required/></label>
+            <button type="submit" style="margin-left:12px;">Publish</button>
+          </form>
+        </li>
+      `;
+    }).join('');
+    res.type('html').send(`
+      <html><head><title>Writer Submissions</title><link rel="stylesheet" href="/style.css"></head>
+      <body class="ta-body" style="padding:24px;">
+        <h1>Writer Submissions</h1>
+        <ul style="list-style:none;padding:0;margin:0;">
+          ${list || '<li>No submissions yet.</li>'}
+        </ul>
+        <p style="margin-top:16px;"><a href="/admin">Back</a></p>
+      </body></html>
+    `);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to load submissions');
+  }
+});
+
+app.post('/admin/writer-submissions/:id/publish', requireAdmin, express.urlencoded({ extended: true }), async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const title = String(req.body.title || '').trim();
+    const unlockInput = String(req.body.unlock_at || '').trim();
+    if (!id || !title || !unlockInput) return res.status(400).send('Missing fields');
+    const sres = await pool.query('SELECT data, author FROM writer_submissions WHERE id=$1', [id]);
+    if (!sres.rows.length) return res.status(404).send('Submission not found');
+    const data = typeof sres.rows[0].data === 'string' ? JSON.parse(sres.rows[0].data) : sres.rows[0].data;
+    const questions = Array.isArray(data?.questions) ? data.questions : [];
+    if (!questions.length) return res.status(400).send('Submission has no questions');
+    const unlockUtc = etToUtc(unlockInput);
+    const freezeUtc = new Date(unlockUtc.getTime() + 24*60*60*1000);
+    const qInsert = await pool.query(
+      'INSERT INTO quizzes(title, unlock_at, freeze_at, author) VALUES($1,$2,$3,$4) RETURNING id',
+      [title, unlockUtc, freezeUtc, sres.rows[0].author || null]
+    );
+    const quizId = qInsert.rows[0].id;
+    for (let i=0;i<Math.min(10, questions.length);i++) {
+      const q = questions[i];
+      const text = String(q.text || '').trim();
+      const answer = String(q.answer || '').trim();
+      const category = String(q.category || 'General').trim();
+      const ask = (q.ask && String(q.ask).trim()) || null;
+      if (!text || !answer) continue;
+      await pool.query(
+        'INSERT INTO questions(quiz_id, number, text, answer, category, ask) VALUES($1,$2,$3,$4,$5,$6)',
+        [quizId, i+1, text, answer, category, ask]
+      );
+    }
+    res.redirect(`/quiz/${quizId}`);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to publish submission');
   }
 });
 
@@ -1674,6 +1860,9 @@ app.get('/admin/admins', requireAdmin, async (_req, res) => {
           <label>Email <input name="email" type="email" required /></label>
           <button type="submit">Add admin</button>
         </form>
+        <form method="post" action="/admin/admins/send-links" style="margin-bottom:16px;">
+          <button type="submit">Send magic links to all admins</button>
+        </form>
         <table border="1" cellspacing="0" cellpadding="6">
           <tr><th>Email</th><th>Added</th><th>Actions</th></tr>
           ${items || '<tr><td colspan="3">No admins yet</td></tr>'}
@@ -1708,6 +1897,34 @@ app.post('/admin/admins/remove', requireAdmin, async (req, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).send('Failed to remove admin');
+  }
+});
+
+app.post('/admin/admins/send-links', requireAdmin, async (_req, res) => {
+  try {
+    const rows = (await pool.query('SELECT email FROM admins ORDER BY email ASC')).rows;
+    let sent = 0;
+    for (const r of rows) {
+      const email = (r.email || '').toLowerCase();
+      if (!email) continue;
+      // Ensure admin can sign in
+      await pool.query('INSERT INTO players(email, access_granted_at) VALUES($1, NOW()) ON CONFLICT (email) DO NOTHING', [email]);
+      // Create magic token and send
+      const token = crypto.randomBytes(24).toString('base64url');
+      const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
+      await pool.query('INSERT INTO magic_tokens(token,email,expires_at,used) VALUES($1,$2,$3,false)', [token, email, expiresAt]);
+      const linkUrl = `${process.env.PUBLIC_BASE_URL || ''}/auth/magic?token=${encodeURIComponent(token)}`;
+      try {
+        await sendMagicLink(email, token, linkUrl);
+        sent++;
+      } catch (mailErr) {
+        console.warn('Send mail failed for', email, mailErr?.message || mailErr);
+      }
+    }
+    res.type('html').send(`<html><body style="font-family: system-ui; padding:24px;"><h1>Magic links sent</h1><p>Sent ${sent} link(s) to ${rows.length} admin(s).</p><p><a href="/admin/admins">Back</a></p></body></html>`);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to send links');
   }
 });
 
