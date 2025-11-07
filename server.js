@@ -70,6 +70,9 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
+// Feature flags / security toggles
+const ADMIN_PIN_ENABLED = (String(process.env.ADMIN_PIN_ENABLE || '').toLowerCase() === 'true') && String(process.env.ADMIN_PIN || '').trim().length > 0;
+
 // Password hashing (scrypt)
 import { randomBytes, scrypt as _scrypt, timingSafeEqual } from 'crypto';
 import { promisify } from 'util';
@@ -958,7 +961,7 @@ app.get('/login', (req, res) => {
         </div>
         ${showMagic ? '' : '<div style=\"margin-top:8px;color:#888;\">Forgot your password? Ask an admin or use the magic link (if enabled).</div>'}
       `}
-      <p style=\"margin-top:16px;\"><a href=\"/\">Home</a> · <a href=\"/admin/pin\">Admin PIN</a></p>
+      <p style="margin-top:16px;"><a href="/">Home</a>${ADMIN_PIN_ENABLED ? ' · <a href="/admin/pin">Admin PIN</a>' : ''}</p>
     </body></html>
   `);
 });
@@ -972,6 +975,7 @@ app.get('/logout', (req, res) => {
 
 // Admin PIN login (sets admin session without email check)
 app.get('/admin/pin', (req, res) => {
+  if (!ADMIN_PIN_ENABLED) return res.status(404).send('Not found');
   res.type('html').send(`
     <html><head><title>Admin PIN • Trivia Advent-ure</title><link rel="stylesheet" href="/style.css"></head>
     <body class="ta-body" style="padding: 24px;">
@@ -986,6 +990,7 @@ app.get('/admin/pin', (req, res) => {
 });
 
 app.post('/admin/pin', (req, res) => {
+  if (!ADMIN_PIN_ENABLED) return res.status(404).send('Not found');
   const provided = String((req.body && req.body.pin) || '').trim();
   const expected = String(process.env.ADMIN_PIN || '').trim();
   if (!expected) return res.status(500).send('ADMIN_PIN not set');
