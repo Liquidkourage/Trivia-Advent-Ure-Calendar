@@ -1038,7 +1038,7 @@ app.get('/writer/:token', async (req, res) => {
     try { await pool.query('UPDATE writer_invites SET clicked_at = COALESCE(clicked_at, NOW()) WHERE token=$1', [invite.token]); } catch {}
     res.type('html').send(`
       <html><head><title>Submit Quiz</title><link rel="stylesheet" href="/style.css"></head>
-      <body class="ta-body" style="padding:24px;">
+      <body class="ta-body" style="padding:24px;font-size:18px;line-height:1.5;">
         <h1>Submit Your Quiz</h1>
         <p>Author: <strong>${invite.author}</strong></p>
         <form method="post" action="/writer/${invite.token}">
@@ -1046,24 +1046,25 @@ app.get('/writer/:token', async (req, res) => {
             <legend>Questions (10)</legend>
             ${Array.from({length:10}, (_,i)=>{
               const n=i+1;
-              return `<div style="border:1px solid #ddd;padding:12px;margin:8px 0;border-radius:8px;">
-                <div style="margin-bottom:8px;"><strong>Q${n}</strong></div>
-                <div style="margin-bottom:8px;">
-                  <label style="display:block;margin-bottom:4px;">Text</label>
-                  <textarea name="q${n}_text" required style="width:100%;min-height:96px;border:1px solid #ccc;border-radius:6px;padding:8px;"></textarea>
-                </div>
-                <div style="margin-bottom:8px;">
-                  <label style="display:block;margin-bottom:4px;">Answer</label>
-                  <input name="q${n}_answer" required style="width:100%;border:1px solid #ccc;border-radius:6px;padding:8px;"/>
-                </div>
-                <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
-                  <label>Category
-                    <input name="q${n}_category" placeholder="General" style="width:220px;border:1px solid #ccc;border-radius:6px;padding:6px;"/>
-                  </label>
-                  <label>Ask <span style="opacity:.8;font-size:.9em;">(the most important part of your question, i.e. the thing that players will be responding to)</span>
-                    <input name="q${n}_ask" placeholder="the most important part of your question, i.e. the thing that players will be responding to" style="width:420px;border:1px solid #ccc;border-radius:6px;padding:6px;"/>
-                  </label>
-                </div>
+              return `<div style=\"border:1px solid #ddd;padding:12px;margin:8px 0;border-radius:8px;\">\n\
+                <div style=\"margin-bottom:8px;\"><strong>Q${n}</strong></div>\n\
+                <div style=\"margin-bottom:10px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;\">\n\
+                  <label style=\"font-weight:600;\">Category\n\
+                    <input name=\"q${n}_category\" placeholder=\"General\" style=\"width:260px;border:1px solid #ccc;border-radius:6px;padding:8px;font-size:16px;\"/>\n\
+                  </label>\n\
+                </div>\n\
+                <div style=\"margin-bottom:10px;\">\n\
+                  <label style=\"display:block;margin-bottom:6px;font-weight:600;\">Text</label>\n\
+                  <textarea name=\"q${n}_text\" required style=\"width:100%;min-height:120px;border:1px solid #ccc;border-radius:6px;padding:10px;font-size:16px;\"></textarea>\n\
+                </div>\n\
+                <div style=\"margin-bottom:10px;\">\n\
+                  <label style=\"display:block;margin-bottom:6px;font-weight:600;\">Answer</label>\n\
+                  <input name=\"q${n}_answer\" required style=\"width:100%;border:1px solid #ccc;border-radius:6px;padding:10px;font-size:16px;\"/>\n\
+                </div>\n\
+                <div style=\"margin-bottom:6px;\">\n\
+                  <label style=\"display:block;margin-bottom:6px;font-weight:600;\">Ask <span style=\"opacity:.8;font-size:.9em;\">(the most important part of your question, i.e. the thing that players will be responding to)</span></label>\n\
+                  <input name=\"q${n}_ask\" style=\"width:100%;border:1px solid #ccc;border-radius:6px;padding:10px;font-size:16px;\"/>\n\
+                </div>\n\
               </div>`
             }).join('')}
           </fieldset>
