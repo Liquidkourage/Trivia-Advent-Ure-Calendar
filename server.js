@@ -1320,7 +1320,7 @@ app.get('/admin/writer-invite', requireAdmin, async (req, res) => {
 });
 
 // --- Admin: CSV builder for writer invites ---
-app.get('/admin/writer-invites', requireAdmin, (req, res) => {
+app.get('/admin/writer-invites', requireAdmin, async (req, res) => {
   const year = new Date().getFullYear();
   const preRowsArr = [];
   let rowNum = 1;
