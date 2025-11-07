@@ -1042,6 +1042,14 @@ app.get('/writer/:token', async (req, res) => {
         <h1>Submit Your Quiz</h1>
         <p>Author: <strong>${invite.author}</strong></p>
         <form method="post" action="/writer/${invite.token}">
+          <div style="margin-top:12px;">
+            <label style="display:block;margin-bottom:6px;font-weight:600;">About this quiz</label>
+            <textarea name="description" style="width:100%;min-height:100px;border:1px solid #ccc;border-radius:6px;padding:10px;font-size:16px;"></textarea>
+          </div>
+          <div style="margin-top:12px;">
+            <label style="display:block;margin-bottom:6px;font-weight:600;">About the author</label>
+            <textarea name="author_blurb" style="width:100%;min-height:80px;border:1px solid #ccc;border-radius:6px;padding:10px;font-size:16px;"></textarea>
+          </div>
           <fieldset style="margin-top:12px;">
             <legend>Questions (10)</legend>
             ${Array.from({length:10}, (_,i)=>{
@@ -1088,6 +1096,8 @@ app.post('/writer/:token', express.urlencoded({ extended: true }), async (req, r
     if (!rows.length) return res.status(404).send('Invalid or expired link');
     const invite = rows[0];
     const questions = [];
+    const description = (String(req.body.description || '').trim() || null);
+    const authorBlurb = (String(req.body.author_blurb || '').trim() || null);
     for (let i=1;i<=10;i++) {
       const qt = String(req.body['q' + i + '_text'] || '').trim();
       const qa = String(req.body['q' + i + '_answer'] || '').trim();
@@ -1099,7 +1109,7 @@ app.post('/writer/:token', express.urlencoded({ extended: true }), async (req, r
     if (!questions.length) return res.status(400).send('Please provide at least one question');
     await pool.query(
       'INSERT INTO writer_submissions(token, author, data) VALUES($1,$2,$3)',
-      [invite.token, invite.author, JSON.stringify({ questions })]
+      [invite.token, invite.author, JSON.stringify({ description, author_blurb: authorBlurb, questions })]
     );
     try { await pool.query('UPDATE writer_invites SET submitted_at = NOW() WHERE token=$1', [invite.token]); } catch {}
     res.type('html').send(`
@@ -1169,9 +1179,11 @@ app.post('/admin/writer-submissions/:id/publish', requireAdmin, express.urlencod
     if (!questions.length) return res.status(400).send('Submission has no questions');
     const unlockUtc = etToUtc(unlockInput);
     const freezeUtc = new Date(unlockUtc.getTime() + 24*60*60*1000);
+    const authorBlurb = (data && typeof data.author_blurb !== 'undefined') ? (String(data.author_blurb || '').trim() || null) : null;
+    const description = (data && typeof data.description !== 'undefined') ? (String(data.description || '').trim() || null) : null;
     const qInsert = await pool.query(
-      'INSERT INTO quizzes(title, unlock_at, freeze_at, author) VALUES($1,$2,$3,$4) RETURNING id',
-      [title, unlockUtc, freezeUtc, sres.rows[0].author || null]
+      'INSERT INTO quizzes(title, unlock_at, freeze_at, author, author_blurb, description) VALUES($1,$2,$3,$4,$5,$6) RETURNING id',
+      [title, unlockUtc, freezeUtc, sres.rows[0].author || null, authorBlurb, description]
     );
     const quizId = qInsert.rows[0].id;
     for (let i=0;i<Math.min(10, questions.length);i++) {
