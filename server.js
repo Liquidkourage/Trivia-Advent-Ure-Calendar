@@ -1100,16 +1100,7 @@ app.get('/admin/writer-invites', requireAdmin, (req, res) => {
           // Scroll into view
           resultsPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
         });
-        // seed 48 rows for December: 1 AM through 24 PM of the current year
-        (function seedDefaultDecember(){
-          const year = new Date().getFullYear();
-          for (let d = 1; d <= 24; d++) {
-            const dd = String(d).padStart(2,'0');
-            const dateStr = year + '-12-' + dd;
-            addRow({ slotDate: dateStr, slotHalf: 'AM' });
-            addRow({ slotDate: dateStr, slotHalf: 'PM' });
-          }
-        })();
+        // pre-rendered server-side; no client seeding required
       </script>
     </body></html>
   `);
