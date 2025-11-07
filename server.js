@@ -1020,7 +1020,7 @@ app.get('/admin/writer-invites', requireAdmin, (req, res) => {
         <h3 style="margin:0 0 8px 0;color:#ffd700;">Generated Links</h3>
         <div id="resultsList" style="display:flex;flex-direction:column;gap:6px;"></div>
       </div>
-      <script src="/admin/writer-invites.js"></script>
+      <script src="/js/writer-invites.js"></script>
     </body></html>
   `);
 });
