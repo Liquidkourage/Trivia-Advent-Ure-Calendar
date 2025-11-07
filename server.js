@@ -848,10 +848,10 @@ app.post('/writer/:token', express.urlencoded({ extended: true }), async (req, r
     const invite = rows[0];
     const questions = [];
     for (let i=1;i<=10;i++) {
-      const qt = String(req.body[\`q\${i}_text\`] || '').trim();
-      const qa = String(req.body[\`q\${i}_answer\`] || '').trim();
-      const qc = String(req.body[\`q\${i}_category\`] || 'General').trim();
-      const qk = String(req.body[\`q\${i}_ask\`] || '').trim() || null;
+      const qt = String(req.body['q' + i + '_text'] || '').trim();
+      const qa = String(req.body['q' + i + '_answer'] || '').trim();
+      const qc = String(req.body['q' + i + '_category'] || 'General').trim();
+      const qk = String(req.body['q' + i + '_ask'] || '').trim() || null;
       if (!qt || !qa) continue;
       questions.push({ text: qt, answer: qa, category: qc, ask: qk });
     }
