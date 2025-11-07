@@ -1046,12 +1046,24 @@ app.get('/writer/:token', async (req, res) => {
             <legend>Questions (10)</legend>
             ${Array.from({length:10}, (_,i)=>{
               const n=i+1;
-              return `<div style="border:1px solid #ddd;padding:8px;margin:6px 0;border-radius:6px;">
-                <div><strong>Q${n}</strong></div>
-                <div><label>Text <input name="q${n}_text" required style="width:90%"/></label></div>
-                <div><label>Answer <input name="q${n}_answer" required style="width:90%"/></label></div>
-                <div><label>Category <input name="q${n}_category" value="General"/></label>
-                <label style="margin-left:12px;">Ask <input name="q${n}_ask"/></label></div>
+              return `<div style="border:1px solid #ddd;padding:12px;margin:8px 0;border-radius:8px;">
+                <div style="margin-bottom:8px;"><strong>Q${n}</strong></div>
+                <div style="margin-bottom:8px;">
+                  <label style="display:block;margin-bottom:4px;">Text</label>
+                  <textarea name="q${n}_text" required style="width:100%;min-height:96px;border:1px solid #ccc;border-radius:6px;padding:8px;"></textarea>
+                </div>
+                <div style="margin-bottom:8px;">
+                  <label style="display:block;margin-bottom:4px;">Answer</label>
+                  <input name="q${n}_answer" required style="width:100%;border:1px solid #ccc;border-radius:6px;padding:8px;"/>
+                </div>
+                <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+                  <label>Category
+                    <input name="q${n}_category" placeholder="General" style="width:220px;border:1px solid #ccc;border-radius:6px;padding:6px;"/>
+                  </label>
+                  <label>Ask <span style="opacity:.8;font-size:.9em;">(the most important part of your question, i.e. the thing that players will be responding to)</span>
+                    <input name="q${n}_ask" placeholder="the most important part of your question, i.e. the thing that players will be responding to" style="width:420px;border:1px solid #ccc;border-radius:6px;padding:6px;"/>
+                  </label>
+                </div>
               </div>`
             }).join('')}
           </fieldset>
