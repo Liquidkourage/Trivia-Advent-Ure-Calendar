@@ -1039,6 +1039,7 @@ app.get('/writer/:token', async (req, res) => {
     res.type('html').send(`
       <html><head><title>Submit Quiz</title><link rel="stylesheet" href="/style.css"></head>
       <body class="ta-body" style="padding:24px;font-size:18px;line-height:1.5;">
+        <div style="max-width: 820px; margin: 0 auto;">
         <h1>Submit Your Quiz</h1>
         <p>Author: <strong>${invite.author}</strong></p>
         <form method="post" action="/writer/${invite.token}">
@@ -1079,6 +1080,7 @@ app.get('/writer/:token', async (req, res) => {
           <div style="margin-top:12px;"><button type="submit">Submit Quiz</button></div>
         </form>
         <p style="margin-top:16px;"><a href="/">Home</a></p>
+        </div>
         <script src="/js/writer-form.js"></script>
       </body></html>
     `);
