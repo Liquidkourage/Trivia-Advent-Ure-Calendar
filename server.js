@@ -347,6 +347,15 @@ function utcToEtParts(d){
   return {y: et.getUTCFullYear(), m: et.getUTCMonth()+1, d: et.getUTCDate(), h: et.getUTCHours(), et};
 }
 
+function fmtEt(dateLike){
+  if (!dateLike) return '';
+  try {
+    return new Date(dateLike).toLocaleString('en-US', { timeZone: 'America/New_York' });
+  } catch {
+    return String(dateLike);
+  }
+}
+
 // --- Grading helpers ---
 function normalizeAnswer(s) {
   return String(s || '')
@@ -1144,7 +1153,7 @@ app.get('/admin/writer-submissions', requireAdmin, async (req, res) => {
       try { first = (r.data?.questions?.[0]?.text) || ''; } catch {}
       return `
         <li style="margin:10px 0;padding:8px;border:1px solid #ddd;border-radius:6px;">
-          <div><strong>ID:</strong> ${r.id} · <strong>Author:</strong> ${r.author} · <strong>Submitted:</strong> ${new Date(r.submitted_at).toLocaleString()}</div>
+          <div><strong>ID:</strong> ${r.id} · <strong>Author:</strong> ${r.author} · <strong>Submitted:</strong> ${fmtEt(r.submitted_at)}</div>
           <div style="margin-top:4px;color:#555;"><em>Preview:</em> ${first ? first.replace(/</g,'&lt;') : '(no preview)'} </div>
           <form method="post" action="/admin/writer-submissions/${r.id}/publish" style="margin-top:8px;">
             <label>Title <input name="title" required style="width:40%"/></label>
@@ -1225,7 +1234,7 @@ app.get('/admin/writer-invites/list', requireAdmin, async (req, res) => {
        ORDER BY slot_date NULLS LAST, slot_half NULLS LAST, created_at DESC
        LIMIT 500`
     );
-    const fmt = (d) => d ? new Date(d).toLocaleString() : '';
+    const fmt = (d) => fmtEt(d);
     const list = rows.map(r => {
       const link = `${baseUrl}/writer/${r.token}`;
       const slotStr = r.slot_date ? (typeof r.slot_date === 'string' ? r.slot_date : new Date(r.slot_date).toISOString().slice(0,10)) : '';
@@ -1568,7 +1577,7 @@ app.get('/quiz/:id/leaderboard', async (req, res) => {
        ORDER BY points DESC, first_time ASC`,
       [id, freezeUtc]
     );
-    const items = rows.map(r => `<tr><td>${r.user_email}</td><td>${r.points}</td><td>${new Date(r.first_time).toLocaleString()}</td></tr>`).join('');
+    const items = rows.map(r => `<tr><td>${r.user_email}</td><td>${r.points}</td><td>${fmtEt(r.first_time)}</td></tr>`).join('');
     res.type('html').send(`
       <html><head><title>Leaderboard • Quiz ${id}</title><link rel="stylesheet" href="/style.css"></head>
       <body class="ta-body" style="padding:24px;">
@@ -1674,8 +1683,8 @@ app.get('/admin/quizzes', requireAdmin, async (req, res) => {
     const items = rows.map(q => `<tr>
       <td>#${q.id}</td>
       <td>${q.title}</td>
-      <td>${new Date(q.unlock_at).toLocaleString()}</td>
-      <td>${new Date(q.freeze_at).toLocaleString()}</td>
+      <td>${fmtEt(q.unlock_at)}</td>
+      <td>${fmtEt(q.freeze_at)}</td>
       <td><a href="/admin/quiz/${q.id}">View/Edit</a> · <a href="/quiz/${q.id}">Open</a></td>
     </tr>`).join('');
     res.type('html').send(`
@@ -2208,7 +2217,7 @@ app.post('/admin/send-link', requireAdmin, async (req, res) => {
 app.get('/admin/admins', requireAdmin, async (_req, res) => {
   try {
     const rows = (await pool.query('SELECT email, created_at FROM admins ORDER BY email ASC')).rows;
-    const items = rows.map(r => `<tr><td>${r.email}</td><td>${new Date(r.created_at).toLocaleString()}</td><td>
+    const items = rows.map(r => `<tr><td>${r.email}</td><td>${fmtEt(r.created_at)}</td><td>
       <form method="post" action="/admin/admins/remove" onsubmit="return confirm('Remove admin ${r.email}?');" style="display:inline;">
         <input type="hidden" name="email" value="${r.email}"/>
         <button type="submit">Remove</button>
