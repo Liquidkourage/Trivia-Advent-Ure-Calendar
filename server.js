@@ -867,14 +867,13 @@ app.get('/admin/writer-invites', requireAdmin, (req, res) => {
         const out = document.getElementById('out');
         function addRow(init={}){
           const r = document.createElement('tr');
-          r.innerHTML = `
-            <td class="idx" style="padding:6px 4px;">-</td>
-            <td style="padding:6px 4px;"><input name="author" value="${init.author||''}" required style="width:100%"></td>
-            <td style="padding:6px 4px;"><input name="email" value="${init.email||''}" style="width:100%" type="email"></td>
-            <td style="padding:6px 4px;"><input name="slotDate" value="${init.slotDate||''}" placeholder="YYYY-MM-DD" style="width:100%"></td>
-            <td style="padding:6px 4px;"><input name="sendAt" value="${init.sendAt||''}" placeholder="YYYY-MM-DD HH:mm" style="width:100%"></td>
-            <td style="padding:6px 4px;"><button class="rm">Remove</button></td>
-          `;
+          r.innerHTML =
+            '<td class="idx" style="padding:6px 4px;">-</td>' +
+            '<td style="padding:6px 4px;"><input name="author" value="' + (init.author||'') + '" required style="width:100%"></td>' +
+            '<td style="padding:6px 4px;"><input name="email" value="' + (init.email||'') + '" style="width:100%" type="email"></td>' +
+            '<td style="padding:6px 4px;"><input name="slotDate" value="' + (init.slotDate||'') + '" placeholder="YYYY-MM-DD" style="width:100%"></td>' +
+            '<td style="padding:6px 4px;"><input name="sendAt" value="' + (init.sendAt||'') + '" placeholder="YYYY-MM-DD HH:mm" style="width:100%"></td>' +
+            '<td style="padding:6px 4px;"><button class="rm">Remove</button></td>';
           tbody.appendChild(r);
           renumber();
           r.querySelector('.rm').addEventListener('click', ()=>{ r.remove(); renumber(); });
@@ -925,7 +924,7 @@ app.get('/admin/writer-invites', requireAdmin, (req, res) => {
               results.push(`${r.author}: ${text}`);
             }catch(e){ results.push(`${r.author}: ERROR ${e && e.message ? e.message : 'Failed'}`); }
           }
-          out.innerHTML = results.map(x=>`<div>${x}</div>`).join('');
+          out.innerHTML = results.map(x=>'<div>'+x+'</div>').join('');
         });
         // seed one row for convenience
         addRow();
