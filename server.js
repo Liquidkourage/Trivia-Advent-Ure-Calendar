@@ -929,9 +929,8 @@ app.get('/admin/writer-invites', requireAdmin, (req, res) => {
       '<td class="idx" style="padding:6px 4px;">-</td>' +
       '<td style="padding:6px 4px;"><input name="author" value="" required style="width:100%"></td>' +
       '<td style="padding:6px 4px;"><input name="email" value="" style="width:100%" type="email"></td>' +
-      `<td style=\"padding:6px 4px;\"><input name=\"slotDate\" value=\"${dateStr}\" placeholder=\"YYYY-MM-DD\" style=\"width:100%\"></td>` +
-      '<td style="padding:6px 4px;"><select name="slotHalf" style="width:100%"><option value="AM" selected>AM</option><option value="PM">PM</option></select></td>' +
-      '<td style="padding:6px 4px;"><input name="sendAt" value="" placeholder="YYYY-MM-DD HH:mm" style="width:100%"></td>' +
+      '<td style="padding:6px 4px;"><span>'+dateStr+'</span><input type="hidden" name="slotDate" value="${dateStr}"></td>' +
+      '<td style="padding:6px 4px;"><span>AM</span><input type="hidden" name="slotHalf" value="AM"></td>' +
       '<td style="padding:6px 4px;"><button class="rm">Remove</button></td>' +
       '</tr>'
     );
@@ -940,9 +939,8 @@ app.get('/admin/writer-invites', requireAdmin, (req, res) => {
       '<td class="idx" style="padding:6px 4px;">-</td>' +
       '<td style="padding:6px 4px;"><input name="author" value="" required style="width:100%"></td>' +
       '<td style="padding:6px 4px;"><input name="email" value="" style="width:100%" type="email"></td>' +
-      `<td style=\"padding:6px 4px;\"><input name=\"slotDate\" value=\"${dateStr}\" placeholder=\"YYYY-MM-DD\" style=\"width:100%\"></td>` +
-      '<td style="padding:6px 4px;"><select name="slotHalf" style="width:100%"><option value="AM">AM</option><option value="PM" selected>PM</option></select></td>' +
-      '<td style="padding:6px 4px;"><input name="sendAt" value="" placeholder="YYYY-MM-DD HH:mm" style="width:100%"></td>' +
+      '<td style="padding:6px 4px;"><span>'+dateStr+'</span><input type="hidden" name="slotDate" value="${dateStr}"></td>' +
+      '<td style="padding:6px 4px;"><span>PM</span><input type="hidden" name="slotHalf" value="PM"></td>' +
       '<td style="padding:6px 4px;"><button class="rm">Remove</button></td>' +
       '</tr>'
     );
@@ -952,9 +950,8 @@ app.get('/admin/writer-invites', requireAdmin, (req, res) => {
     <html><head><title>Writer Invites (CSV)</title><link rel="stylesheet" href="/style.css"></head>
     <body class="ta-body" style="padding:24px;">
       <h1>Writer Invites (CSV Builder)</h1>
-      <p>Add rows for Author, Email, optional SlotDate (YYYY-MM-DD) and SendAt (YYYY-MM-DD HH:mm ET). You can download the CSV, or click Generate Links to create invites now.</p>
+      <p>Add author names and emails. Slots (date and AM/PM) are pre-filled and fixed. You can download the CSV, or click Generate Links to create invites now.</p>
       <div style="margin:12px 0;">
-        <button id="addRow">Add Row</button>
         <button id="downloadCsv">Download CSV</button>
         <button id="generateLinks">Generate Links</button>
         <a href="/admin" style="margin-left:12px;">Back to Admin</a>
@@ -964,9 +961,8 @@ app.get('/admin/writer-invites', requireAdmin, (req, res) => {
           <th style="text-align:left;border-bottom:1px solid #444;">#</th>
           <th style="text-align:left;border-bottom:1px solid #444;">Author</th>
           <th style="text-align:left;border-bottom:1px solid #444;">Email</th>
-          <th style="text-align:left;border-bottom:1px solid #444;">SlotDate (optional)</th>
+          <th style="text-align:left;border-bottom:1px solid #444;">SlotDate</th>
           <th style="text-align:left;border-bottom:1px solid #444;">Half</th>
-          <th style="text-align:left;border-bottom:1px solid #444;">SendAt ET (optional)</th>
           <th style="text-align:left;border-bottom:1px solid #444;">Actions</th>
         </tr></thead>
         <tbody>${preRows}</tbody>
@@ -975,20 +971,7 @@ app.get('/admin/writer-invites', requireAdmin, (req, res) => {
       <script>
         const tbody = document.querySelector('#tbl tbody');
         const out = document.getElementById('out');
-        function addRow(init={}){
-          const r = document.createElement('tr');
-          r.innerHTML =
-            '<td class="idx" style="padding:6px 4px;">-</td>' +
-            '<td style="padding:6px 4px;"><input name="author" value="' + (init.author||'') + '" required style="width:100%"></td>' +
-            '<td style="padding:6px 4px;"><input name="email" value="' + (init.email||'') + '" style="width:100%" type="email"></td>' +
-            '<td style="padding:6px 4px;"><input name="slotDate" value="' + (init.slotDate||'') + '" placeholder="YYYY-MM-DD" style="width:100%"></td>' +
-            '<td style="padding:6px 4px;"><select name="slotHalf" style="width:100%"><option value="">(none)</option><option value="AM"' + ((init.slotHalf||'')==='AM'?' selected':'') + '>AM</option><option value="PM"' + ((init.slotHalf||'')==='PM'?' selected':'') + '>PM</option></select></td>' +
-            '<td style="padding:6px 4px;"><input name="sendAt" value="' + (init.sendAt||'') + '" placeholder="YYYY-MM-DD HH:mm" style="width:100%"></td>' +
-            '<td style="padding:6px 4px;"><button class="rm">Remove</button></td>';
-          tbody.appendChild(r);
-          renumber();
-          r.querySelector('.rm').addEventListener('click', ()=>{ r.remove(); renumber(); });
-        }
+        // rows are pre-rendered server-side
         function renumber(){
           [...tbody.querySelectorAll('tr')].forEach((tr,i)=>tr.querySelector('.idx').textContent = String(i+1));
         }
@@ -1003,8 +986,8 @@ app.get('/admin/writer-invites', requireAdmin, (req, res) => {
         }
         function toCsv(data){
           const esc = v => '"' + String(v||'').replaceAll('"','""') + '"';
-          const lines = ['Author,Email,SlotDate,SendAt'];
-          data.forEach(r=>lines.push([r.author,r.email,r.slotDate,r.sendAt].map(esc).join(',')));
+          const lines = ['Author,Email,SlotDate,Half'];
+          data.forEach(r=>lines.push([r.author,r.email,r.slotDate,r.slotHalf].map(esc).join(',')));
           return lines.join('\n');
         }
         document.getElementById('addRow').addEventListener('click', ()=> addRow());
@@ -1035,7 +1018,6 @@ app.get('/admin/writer-invites', requireAdmin, (req, res) => {
               if (r.email) body.append('email', r.email);
               if (r.slotDate) body.append('slotDate', r.slotDate);
               if (r.slotHalf) body.append('slotHalf', r.slotHalf);
-              if (r.sendAt) body.append('sendAt', r.sendAt);
               const res = await fetch('/admin/writer-invite', { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body });
               const text = await res.text();
               if (!res.ok) throw new Error(text||'Failed');
