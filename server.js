@@ -1062,7 +1062,7 @@ app.get('/writer/:token', async (req, res) => {
                   <input name=\"q${n}_answer\" required style=\"width:100%;border:1px solid #ccc;border-radius:6px;padding:10px;font-size:16px;\"/>\n\
                 </div>\n\
                 <div style=\"margin-bottom:6px;\">\n\
-                  <label style=\"display:block;margin-bottom:6px;font-weight:600;\">Ask <span style=\"opacity:.8;font-size:.9em;\">(the most important part of your question, i.e. the thing that players will be responding to)</span></label>\n\
+                  <label style=\"display:block;margin-bottom:6px;font-weight:600;\">Ask <span style=\"opacity:.8;font-size:.9em;\">(the key part of your question, typically the \"what\" or \"who\" or \"name the\" etc.)</span></label>\n\
                   <input name=\"q${n}_ask\" style=\"width:100%;border:1px solid #ccc;border-radius:6px;padding:10px;font-size:16px;\"/>\n\
                 </div>\n\
               </div>`
