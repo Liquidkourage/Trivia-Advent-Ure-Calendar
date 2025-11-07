@@ -921,12 +921,13 @@ app.get('/admin/writer-invite', requireAdmin, (req, res) => {
 app.get('/admin/writer-invites', requireAdmin, (req, res) => {
   const year = new Date().getFullYear();
   const preRowsArr = [];
+  let rowNum = 1;
   for (let d = 1; d <= 24; d++) {
     const dd = String(d).padStart(2,'0');
     const dateStr = `${year}-12-${dd}`;
     preRowsArr.push(
       '<tr>' +
-      '<td class="idx" style="padding:6px 4px;">-</td>' +
+      '<td class="idx" style="padding:6px 4px;">'+ (rowNum++) +'</td>' +
       '<td style="padding:6px 4px;"><input name="author" value="" required style="width:100%"></td>' +
       '<td style="padding:6px 4px;"><input name="email" value="" style="width:100%" type="email"></td>' +
       '<td style="padding:6px 4px;"><span>'+dateStr+'</span><input type="hidden" name="slotDate" value="${dateStr}"></td>' +
@@ -936,7 +937,7 @@ app.get('/admin/writer-invites', requireAdmin, (req, res) => {
     );
     preRowsArr.push(
       '<tr>' +
-      '<td class="idx" style="padding:6px 4px;">-</td>' +
+      '<td class="idx" style="padding:6px 4px;">'+ (rowNum++) +'</td>' +
       '<td style="padding:6px 4px;"><input name="author" value="" required style="width:100%"></td>' +
       '<td style="padding:6px 4px;"><input name="email" value="" style="width:100%" type="email"></td>' +
       '<td style="padding:6px 4px;"><span>'+dateStr+'</span><input type="hidden" name="slotDate" value="${dateStr}"></td>' +
@@ -960,6 +961,7 @@ app.get('/admin/writer-invites', requireAdmin, (req, res) => {
           background: #181818; color: #ffd700; border: 1px solid #444; border-radius: 6px; 
           padding: 6px 8px; height: 30px; box-sizing: border-box; width: 100%;
         }
+        #tbl input[name="author"] { background: #000; }
         #tbl input[type="text"]:focus, #tbl input[type="email"]:focus {
           outline: none; border-color: #d4af37; box-shadow: 0 0 0 2px rgba(212,175,55,0.15);
         }
