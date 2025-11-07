@@ -936,26 +936,29 @@ app.get('/admin', requireAdmin, (req, res) => {
 // Dedicated login page (magic-link)
 app.get('/login', (req, res) => {
   const loggedIn = !!req.session.user;
+  const showMagic = String(process.env.SHOW_MAGIC_LINK_FORM || '').toLowerCase() === 'true' || String(req.query.magic||'') === '1';
   res.type('html').send(`
-    <html><head><title>Login • Trivia Advent-ure</title><link rel="stylesheet" href="/style.css"></head>
-    <body class="ta-body" style="padding: 24px;">
+    <html><head><title>Login • Trivia Advent-ure</title><link rel=\"stylesheet\" href=\"/style.css\"></head>
+    <body class=\"ta-body\" style=\"padding: 24px;\">
       <h1>Login</h1>
-      ${loggedIn ? `<p>You are signed in as ${req.session.user.email}. <a href="/logout">Logout</a></p>` : `
-        <div style="display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap;">
-          <form method="post" action="/auth/login-password" style="min-width:300px;">
+      ${loggedIn ? `<p>You are signed in as ${req.session.user.email}. <a href=\"/logout\">Logout</a></p>` : `
+        <div style=\"display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap;\">
+          <form method=\"post\" action=\"/auth/login-password\" style=\"min-width:300px;\">
             <h3>Password</h3>
-            <div><label>Email <input name="email" type="email" required /></label></div>
-            <div style="margin-top:8px;"><label>Password <input name="password" type="password" required /></label></div>
-            <button type="submit" style="margin-top:8px;">Sign in</button>
+            <div><label>Email <input name=\"email\" type=\"email\" required /></label></div>
+            <div style=\"margin-top:8px;\"><label>Password <input name=\"password\" type=\"password\" required /></label></div>
+            <button type=\"submit\" style=\"margin-top:8px;\">Sign in</button>
           </form>
-          <form method="post" action="/auth/request-link" onsubmit="event.preventDefault(); const fd=new FormData(this); const v=String(fd.get('email')||'').trim(); if(!v){alert('Enter your email'); return;} fetch('/auth/request-link',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ email: v })}).then(r=>r.json()).then(d=>{ if (d.link) { alert('Magic link (dev):\n'+d.link); } else { alert('If you have access, a magic link was sent.'); } }).catch(()=>alert('Failed.'));" style="min-width:340px;">
+          ${showMagic ? `
+          <form method=\"post\" action=\"/auth/request-link\" onsubmit=\"event.preventDefault(); const fd=new FormData(this); const v=String(fd.get('email')||'').trim(); if(!v){alert('Enter your email'); return;} fetch('/auth/request-link',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ email: v })}).then(r=>r.json()).then(d=>{ if (d.link) { alert('Magic link (dev):\\n'+d.link); } else { alert('If you have access, a magic link was sent.'); } }).catch(()=>alert('Failed.'));\" style=\"min-width:340px;\">
             <h3>Magic link</h3>
-            <label>Email <input name="email" type="email" required /></label>
-            <button type="submit" style="margin-left:8px;">Send magic link</button>
-          </form>
+            <label>Email <input name=\"email\" type=\"email\" required /></label>
+            <button type=\"submit\" style=\"margin-left:8px;\">Send magic link</button>
+          </form>` : ''}
         </div>
+        ${showMagic ? '' : '<div style=\"margin-top:8px;color:#888;\">Forgot your password? Ask an admin or use the magic link (if enabled).</div>'}
       `}
-      <p style="margin-top:16px;"><a href="/">Home</a> · <a href="/admin/pin">Admin PIN</a></p>
+      <p style=\"margin-top:16px;\"><a href=\"/\">Home</a> · <a href=\"/admin/pin\">Admin PIN</a></p>
     </body></html>
   `);
 });
