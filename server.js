@@ -799,6 +799,42 @@ app.post('/admin/writer-invite', requireAdmin, express.urlencoded({ extended: tr
   }
 });
 
+// --- Admin: writer invite form (GET) ---
+app.get('/admin/writer-invite', requireAdmin, (req, res) => {
+  res.type('html').send(`
+    <html><head><title>Create Writer Invite</title><link rel="stylesheet" href="/style.css"></head>
+    <body class="ta-body" style="padding:24px;">
+      <h1>Create Writer Invite</h1>
+      <form id="inviteForm" style="margin-top:12px;max-width:520px;">
+        <div style="margin:8px 0;"><label>Author <input name="author" required style="width:100%"/></label></div>
+        <div style="margin:8px 0;"><label>Email (optional) <input name="email" style="width:100%"/></label></div>
+        <button type="submit">Generate Invite Link</button>
+      </form>
+      <div id="result" style="margin-top:16px;font-family:monospace;"></div>
+      <p style="margin-top:16px;"><a href="/admin">Back</a></p>
+      <script>
+        const form = document.getElementById('inviteForm');
+        const result = document.getElementById('result');
+        form.addEventListener('submit', async (e) => {
+          e.preventDefault();
+          const fd = new FormData(form);
+          const body = new URLSearchParams();
+          for (const [k,v] of fd.entries()) body.append(k, v);
+          result.textContent = 'Generating...';
+          try {
+            const res = await fetch('/admin/writer-invite', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
+            const text = await res.text();
+            if (!res.ok) throw new Error(text || 'Failed');
+            result.innerHTML = 'Invite Link: <a href="' + text + '" target="_blank">' + text + '</a>';
+          } catch (err) {
+            result.textContent = 'Error: ' + (err && err.message ? err.message : 'Failed to create invite');
+          }
+        });
+      </script>
+    </body></html>
+  `);
+});
+
 // --- Writer: tokenized quiz submission (no title/unlock fields for authors) ---
 app.get('/writer/:token', async (req, res) => {
   try {
