@@ -949,9 +949,30 @@ app.get('/admin/writer-invites', requireAdmin, (req, res) => {
   res.type('html').send(`
     <html><head><title>Writer Invites (CSV)</title><link rel="stylesheet" href="/style.css"></head>
     <body class="ta-body" style="padding:24px;">
+      <style>
+        /* Soften the visual load of many inputs */
+        #tbl { border: 1px solid rgba(212,175,55,0.2); border-radius: 8px; overflow: hidden; }
+        #tbl thead th { background: rgba(255,215,0,0.06); }
+        #tbl tbody tr:nth-child(odd) { background: rgba(255,255,255,0.02); }
+        #tbl tbody tr:nth-child(even) { background: rgba(0,0,0,0.05); }
+        #tbl td { vertical-align: middle; }
+        #tbl input[type="text"], #tbl input[type="email"] { 
+          background: #181818; color: #ffd700; border: 1px solid #444; border-radius: 6px; 
+          padding: 6px 8px; height: 30px; box-sizing: border-box; width: 100%;
+        }
+        #tbl input[type="text"]:focus, #tbl input[type="email"]:focus {
+          outline: none; border-color: #d4af37; box-shadow: 0 0 0 2px rgba(212,175,55,0.15);
+        }
+        #tbl .idx { color: #ffd700; width: 28px; }
+        #tbl .rm { background: transparent; border: 1px solid #555; color: #ffd700; border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+        #tbl .rm:hover { border-color: #d4af37; }
+        .toolbar button { background: #d4af37; color: #000; border: none; padding: 6px 10px; border-radius: 6px; font-weight: 700; cursor: pointer; }
+        .toolbar button:hover { filter: brightness(1.05); }
+        .toolbar a { color: #ffd700; }
+      </style>
       <h1>Writer Invites (CSV Builder)</h1>
       <p>Add author names and emails. Slots (date and AM/PM) are pre-filled and fixed. You can download the CSV, or click Generate Links to create invites now.</p>
-      <div style="margin:12px 0;">
+      <div class="toolbar" style="margin:12px 0; display:flex; gap:8px; align-items:center;">
         <button id="downloadCsv">Download CSV</button>
         <button id="generateLinks">Generate Links</button>
         <a href="/admin" style="margin-left:12px;">Back to Admin</a>
