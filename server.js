@@ -923,9 +923,14 @@ app.get('/calendar', async (req, res) => {
     const nowUtc = new Date();
     const email = req.session.user ? (req.session.user.email || '').toLowerCase() : '';
     let completedSet = new Set();
+    let needsPassword = false;
     if (email) {
       const { rows: c } = await pool.query('SELECT DISTINCT quiz_id FROM responses WHERE user_email = $1', [email]);
       c.forEach(r => completedSet.add(Number(r.quiz_id)));
+      try {
+        const pr = await pool.query('SELECT password_set_at FROM players WHERE email=$1', [email]);
+        needsPassword = pr.rows.length && !pr.rows[0].password_set_at;
+      } catch {}
     }
     // Group quizzes by ET date (YYYY-MM-DD), expect two per day: 00:00 and 12:00
     const byDay = new Map();
@@ -1001,8 +1006,9 @@ app.get('/calendar', async (req, res) => {
     res.type('html').send(`
       <html><head><title>Calendar</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
       <body class="ta-body">
-        <header class="ta-header"><div class="ta-header-inner"><div class="ta-brand"><img class="ta-logo" src="/logo.svg"/><span class="ta-title">Trivia Advent‑ure</span></div><nav class="ta-nav"><a href="/player">Player</a> <a href="/logout">Logout</a></nav></div></header>
+        <header class="ta-header"><div class="ta-header-inner"><div class="ta-brand"><img class="ta-logo" src="/logo.svg"/><span class="ta-title">Trivia Advent‑ure</span></div><nav class="ta-nav">${email ? `<a href="/calendar">Calendar</a> <a href="/account/security">Account</a> <a href="/logout">Logout</a>` : `<a href="/login">Login</a>`}</nav></div></header>
         <main class="ta-main ta-container ta-calendar">
+          ${email && needsPassword ? `<div style="margin:12px 0;padding:10px;border:1px solid #ffecb5;border-radius:6px;background:#fff8e1;color:#6b4f00;">Welcome! For cross-device login, please <a href="/account/security">set your password</a>.</div>` : ''}
           <h1 class="ta-page-title">Advent Calendar</h1>
           <div class="ta-calendar-grid">${grid}</div>
         </main>
