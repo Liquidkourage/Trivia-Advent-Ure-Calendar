@@ -1079,6 +1079,7 @@ app.get('/writer/:token', async (req, res) => {
           <div style="margin-top:12px;"><button type="submit">Submit Quiz</button></div>
         </form>
         <p style="margin-top:16px;"><a href="/">Home</a></p>
+        <script src="/js/writer-form.js"></script>
       </body></html>
     `);
   } catch (e) {
