@@ -2608,9 +2608,11 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
       </div>`;
     }).join('');
     const isStale = String(req.query.stale || '') === '1';
+    const header = await renderHeader(req);
     res.type('html').send(`
       <html><head><title>Grade • ${quiz.title}</title><link rel=\"stylesheet\" href=\"/style.css\"></head>
       <body class=\"ta-body\">
+      ${header}
         <main class=\"grader-container\">
           <h1 class=\"grader-title\">Grading: ${quiz.title}</h1>
           ${isStale ? '<div style="background:#ffefef;border:1px solid #cc5555;color:#5a1a1a;padding:10px;border-radius:6px;margin-bottom:10px;">Another grader changed one or more items you were viewing. Please refresh to see the latest state.</div>' : ''}
