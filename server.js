@@ -919,6 +919,35 @@ app.get('/admin/writer-invite', requireAdmin, (req, res) => {
 
 // --- Admin: CSV builder for writer invites ---
 app.get('/admin/writer-invites', requireAdmin, (req, res) => {
+  const year = new Date().getFullYear();
+  const preRowsArr = [];
+  for (let d = 1; d <= 24; d++) {
+    const dd = String(d).padStart(2,'0');
+    const dateStr = `${year}-12-${dd}`;
+    preRowsArr.push(
+      '<tr>' +
+      '<td class="idx" style="padding:6px 4px;">-</td>' +
+      '<td style="padding:6px 4px;"><input name="author" value="" required style="width:100%"></td>' +
+      '<td style="padding:6px 4px;"><input name="email" value="" style="width:100%" type="email"></td>' +
+      `<td style=\"padding:6px 4px;\"><input name=\"slotDate\" value=\"${dateStr}\" placeholder=\"YYYY-MM-DD\" style=\"width:100%\"></td>` +
+      '<td style="padding:6px 4px;"><select name="slotHalf" style="width:100%"><option value="AM" selected>AM</option><option value="PM">PM</option></select></td>' +
+      '<td style="padding:6px 4px;"><input name="sendAt" value="" placeholder="YYYY-MM-DD HH:mm" style="width:100%"></td>' +
+      '<td style="padding:6px 4px;"><button class="rm">Remove</button></td>' +
+      '</tr>'
+    );
+    preRowsArr.push(
+      '<tr>' +
+      '<td class="idx" style="padding:6px 4px;">-</td>' +
+      '<td style="padding:6px 4px;"><input name="author" value="" required style="width:100%"></td>' +
+      '<td style="padding:6px 4px;"><input name="email" value="" style="width:100%" type="email"></td>' +
+      `<td style=\"padding:6px 4px;\"><input name=\"slotDate\" value=\"${dateStr}\" placeholder=\"YYYY-MM-DD\" style=\"width:100%\"></td>` +
+      '<td style="padding:6px 4px;"><select name="slotHalf" style="width:100%"><option value="AM">AM</option><option value="PM" selected>PM</option></select></td>' +
+      '<td style="padding:6px 4px;"><input name="sendAt" value="" placeholder="YYYY-MM-DD HH:mm" style="width:100%"></td>' +
+      '<td style="padding:6px 4px;"><button class="rm">Remove</button></td>' +
+      '</tr>'
+    );
+  }
+  const preRows = preRowsArr.join('');
   res.type('html').send(`
     <html><head><title>Writer Invites (CSV)</title><link rel="stylesheet" href="/style.css"></head>
     <body class="ta-body" style="padding:24px;">
@@ -940,7 +969,7 @@ app.get('/admin/writer-invites', requireAdmin, (req, res) => {
           <th style="text-align:left;border-bottom:1px solid #444;">SendAt ET (optional)</th>
           <th style="text-align:left;border-bottom:1px solid #444;">Actions</th>
         </tr></thead>
-        <tbody></tbody>
+        <tbody>${preRows}</tbody>
       </table>
       <div id="out" style="margin-top:16px;font-family:monospace;"></div>
       <script>
@@ -979,6 +1008,9 @@ app.get('/admin/writer-invites', requireAdmin, (req, res) => {
           return lines.join('\n');
         }
         document.getElementById('addRow').addEventListener('click', ()=> addRow());
+        // attach remove listeners for pre-rendered rows and renumber
+        tbody.querySelectorAll('.rm').forEach(btn => btn.addEventListener('click', function(){ const tr=this.closest('tr'); if(tr){ tr.remove(); renumber(); } }));
+        renumber();
         document.getElementById('downloadCsv').addEventListener('click', ()=>{
           const data = rows();
           if (!data.length) { out.textContent = 'Add at least one row.'; return; }
