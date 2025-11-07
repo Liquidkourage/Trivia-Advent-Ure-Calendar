@@ -1,3 +1,60 @@
+// Admin: preview a writer submission
+app.get('/admin/writer-submissions/:id', requireAdmin, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!id) return res.status(400).send('Invalid id');
+    const sres = await pool.query('SELECT ws.token, ws.author, ws.submitted_at, ws.updated_at, ws.data, wi.slot_date, wi.slot_half FROM writer_submissions ws LEFT JOIN writer_invites wi ON wi.token = ws.token WHERE ws.id=$1', [id]);
+    if (!sres.rows.length) return res.status(404).send('Not found');
+    const row = sres.rows[0];
+    const data = typeof row.data === 'string' ? JSON.parse(row.data) : row.data;
+    const questions = Array.isArray(data?.questions) ? data.questions : [];
+    const warn = [];
+    const esc = (v)=>String(v||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
+    const qHtml = questions.map((q, i) => {
+      const text = String(q.text||'');
+      const ask = String(q.ask||'');
+      let occ = 0;
+      if (ask) {
+        const h = text.toLowerCase();
+        const n = ask.toLowerCase();
+        let idx = 0; while ((idx = h.indexOf(n, idx)) !== -1) { occ++; idx += n.length; }
+        if (occ !== 1) warn.push(`Q${i+1}: Ask appears ${occ} times (must be exactly once).`);
+      }
+      const safeText = esc(text);
+      const safeAsk = esc(ask);
+      const highlighted = ask && occ === 1 ? safeText.replace(new RegExp(ask.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), 'i'), '<mark>$&</mark>') : safeText;
+      return `<div style="border:1px solid #ddd;padding:8px;margin:8px 0;border-radius:6px;">
+        <div><strong>Q${i+1}</strong> <em>${esc(q.category||'')}</em></div>
+        <div style="margin-top:6px;">${highlighted}</div>
+        <div style="margin-top:6px;color:#666;">Answer: <strong>${esc(q.answer||'')}</strong>${ask ? ` · Ask: <code>${safeAsk}</code>` : ''}</div>
+      </div>`;
+    }).join('');
+    const warnHtml = warn.length ? `<div style="background:#fff3cd;color:#664d03;border:1px solid #ffecb5;padding:8px;border-radius:6px;margin:8px 0;">${warn.map(esc).join('<br/>')}</div>` : '';
+    res.type('html').send(`
+      <html><head><title>Preview Submission #${id}</title><link rel="stylesheet" href="/style.css"></head>
+      <body class="ta-body" style="padding:24px;">
+        <h1>Submission #${id} Preview</h1>
+        <div>Author: <strong>${esc(row.author||'')}</strong></div>
+        <div>Slot: ${row.slot_date || ''} ${row.slot_half || ''}</div>
+        <div>Submitted: ${fmtEt(row.submitted_at)}${row.updated_at ? ` · Updated: ${fmtEt(row.updated_at)}` : ''}</div>
+        ${data.description ? `<h3 style="margin-top:12px;">About this quiz</h3><div>${esc(data.description)}</div>` : ''}
+        ${data.author_blurb ? `<h3 style="margin-top:12px;">About the author</h3><div>${esc(data.author_blurb)}</div>` : ''}
+        ${warnHtml}
+        <h3 style="margin-top:12px;">Questions</h3>
+        ${qHtml || '<div>No questions.</div>'}
+        <form method="post" action="/admin/writer-submissions/${id}/publish" style="margin-top:12px;">
+          <label>Title <input name="title" required style="width:40%"/></label>
+          <label style="margin-left:12px;">Unlock (ET) <input name="unlock_at" type="datetime-local" required/></label>
+          <button type="submit" style="margin-left:12px;">Publish</button>
+        </form>
+        <p style="margin-top:16px;"><a href="/admin/writer-submissions">Back</a></p>
+      </body></html>
+    `);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to load preview');
+  }
+});
 import express from 'express';
 import session from 'express-session';
 import connectPgSimple from 'connect-pg-simple';
@@ -207,6 +264,12 @@ async function initDb() {
     EXCEPTION WHEN others THEN NULL; END $$;
     DO $$ BEGIN
       ALTER TABLE writer_invites ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT TRUE;
+    EXCEPTION WHEN others THEN NULL; END $$;
+    DO $$ BEGIN
+      ALTER TABLE writer_submissions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ;
+    EXCEPTION WHEN others THEN NULL; END $$;
+    DO $$ BEGIN
+      ALTER TABLE writer_submissions ADD CONSTRAINT writer_submissions_token_key UNIQUE(token);
     EXCEPTION WHEN others THEN NULL; END $$;
   `);
   // Seed ADMIN_EMAIL into admins table if provided
@@ -1046,6 +1109,13 @@ app.get('/writer/:token', async (req, res) => {
     const invite = rows[0];
     // mark clicked
     try { await pool.query('UPDATE writer_invites SET clicked_at = COALESCE(clicked_at, NOW()) WHERE token=$1', [invite.token]); } catch {}
+    // Load existing draft
+    let existing = null;
+    try {
+      const s = await pool.query('SELECT data, submitted_at, updated_at FROM writer_submissions WHERE token=$1 ORDER BY id DESC LIMIT 1', [invite.token]);
+      if (s.rows.length) existing = typeof s.rows[0].data === 'string' ? JSON.parse(s.rows[0].data) : s.rows[0].data;
+    } catch {}
+    const esc = (v)=>String(v||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
     res.type('html').send(`
       <html><head><title>Submit Quiz</title><link rel="stylesheet" href="/style.css"></head>
       <body class="ta-body" style="padding:24px;font-size:18px;line-height:1.5;">
@@ -1055,34 +1125,39 @@ app.get('/writer/:token', async (req, res) => {
         <form method="post" action="/writer/${invite.token}">
           <div style="margin-top:12px;">
             <label style="display:block;margin-bottom:6px;font-weight:600;">About the author</label>
-            <textarea name="author_blurb" style="width:100%;min-height:80px;border:1px solid #ccc;border-radius:6px;padding:10px;font-size:16px;"></textarea>
+            <textarea name="author_blurb" style="width:100%;min-height:80px;border:1px solid #ccc;border-radius:6px;padding:10px;font-size:16px;">${existing && existing.author_blurb ? esc(existing.author_blurb) : ''}</textarea>
           </div>
           <div style="margin-top:12px;">
             <label style="display:block;margin-bottom:6px;font-weight:600;">About this quiz</label>
-            <textarea name="description" style="width:100%;min-height:100px;border:1px solid #ccc;border-radius:6px;padding:10px;font-size:16px;"></textarea>
+            <textarea name="description" style="width:100%;min-height:100px;border:1px solid #ccc;border-radius:6px;padding:10px;font-size:16px;">${existing && existing.description ? esc(existing.description) : ''}</textarea>
           </div>
           <fieldset style="margin-top:12px;">
             <legend>Questions (10)</legend>
             ${Array.from({length:10}, (_,i)=>{
               const n=i+1;
+              const q = (existing && Array.isArray(existing.questions) && existing.questions[i]) ? existing.questions[i] : null;
+              const tVal = q && q.text ? esc(q.text) : '';
+              const aVal = q && q.answer ? esc(q.answer) : '';
+              const cVal = q && q.category ? esc(q.category) : '';
+              const kVal = q && q.ask ? esc(q.ask) : '';
               return `<div style=\"border:1px solid #ddd;padding:12px;margin:8px 0;border-radius:8px;\">\n\
                 <div style=\"margin-bottom:8px;\"><strong>Q${n}</strong></div>\n\
                 <div style=\"margin-bottom:10px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;\">\n\
                   <label style=\"font-weight:600;\">Category\n\
-                    <input name=\"q${n}_category\" placeholder=\"General\" style=\"width:260px;border:1px solid #ccc;border-radius:6px;padding:8px;font-size:16px;\"/>\n\
+                    <input name=\"q${n}_category\" value=\"${cVal}\" placeholder=\"General\" style=\"width:260px;border:1px solid #ccc;border-radius:6px;padding:8px;font-size:16px;\"/>\n\
                   </label>\n\
                 </div>\n\
                 <div style=\"margin-bottom:10px;\">\n\
                   <label style=\"display:block;margin-bottom:6px;font-weight:600;\">Text</label>\n\
-                  <textarea name=\"q${n}_text\" required style=\"width:100%;min-height:120px;border:1px solid #ccc;border-radius:6px;padding:10px;font-size:16px;\"></textarea>\n\
+                  <textarea name=\"q${n}_text\" required style=\"width:100%;min-height:120px;border:1px solid #ccc;border-radius:6px;padding:10px;font-size:16px;\">${tVal}</textarea>\n\
                 </div>\n\
                 <div style=\"margin-bottom:10px;\">\n\
                   <label style=\"display:block;margin-bottom:6px;font-weight:600;\">Answer</label>\n\
-                  <input name=\"q${n}_answer\" required style=\"width:100%;border:1px solid #ccc;border-radius:6px;padding:10px;font-size:16px;\"/>\n\
+                  <input name=\"q${n}_answer\" value=\"${aVal}\" required style=\"width:100%;border:1px solid #ccc;border-radius:6px;padding:10px;font-size:16px;\"/>\n\
                 </div>\n\
                 <div style=\"margin-bottom:6px;\">\n\
                   <label style=\"display:block;margin-bottom:6px;font-weight:600;\">Ask <span style=\"opacity:.8;font-size:.9em;\">(must appear verbatim in the Text; the key part of the question; used as an in-line highlight)</span></label>\n\
-                  <input name=\"q${n}_ask\" style=\"width:100%;border:1px solid #ccc;border-radius:6px;padding:10px;font-size:16px;\"/>\n\
+                  <input name=\"q${n}_ask\" value=\"${kVal}\" style=\"width:100%;border:1px solid #ccc;border-radius:6px;padding:10px;font-size:16px;\"/>\n\
                 </div>\n\
               </div>`
             }).join('')}
@@ -1120,11 +1195,14 @@ app.post('/writer/:token', express.urlencoded({ extended: true }), async (req, r
       questions.push({ text: qt, answer: qa, category: qc, ask: qk });
     }
     if (!questions.length) return res.status(400).send('Please provide at least one question');
-    await pool.query(
-      'INSERT INTO writer_submissions(token, author, data) VALUES($1,$2,$3)',
-      [invite.token, invite.author, JSON.stringify({ description, author_blurb: authorBlurb, questions })]
-    );
-    try { await pool.query('UPDATE writer_invites SET submitted_at = NOW() WHERE token=$1', [invite.token]); } catch {}
+    const payload = { description, author_blurb: authorBlurb, questions };
+    const existing = await pool.query('SELECT id FROM writer_submissions WHERE token=$1 ORDER BY id DESC LIMIT 1', [invite.token]);
+    if (existing.rows.length) {
+      await pool.query('UPDATE writer_submissions SET data=$2, updated_at=NOW() WHERE id=$1', [existing.rows[0].id, JSON.stringify(payload)]);
+    } else {
+      await pool.query('INSERT INTO writer_submissions(token, author, data) VALUES($1,$2,$3)', [invite.token, invite.author, JSON.stringify(payload)]);
+    }
+    try { await pool.query('UPDATE writer_invites SET submitted_at = COALESCE(submitted_at, NOW()) WHERE token=$1', [invite.token]); } catch {}
     res.type('html').send(`
       <html><head><title>Submitted</title><link rel="stylesheet" href="/style.css"></head>
       <body class="ta-body" style="padding:24px;">
@@ -1155,6 +1233,7 @@ app.get('/admin/writer-submissions', requireAdmin, async (req, res) => {
         <li style="margin:10px 0;padding:8px;border:1px solid #ddd;border-radius:6px;">
           <div><strong>ID:</strong> ${r.id} · <strong>Author:</strong> ${r.author} · <strong>Submitted:</strong> ${fmtEt(r.submitted_at)}</div>
           <div style="margin-top:4px;color:#555;"><em>Preview:</em> ${first ? first.replace(/</g,'&lt;') : '(no preview)'} </div>
+          <div style="margin-top:8px;"><a href="/admin/writer-submissions/${r.id}">Preview</a></div>
           <form method="post" action="/admin/writer-submissions/${r.id}/publish" style="margin-top:8px;">
             <label>Title <input name="title" required style="width:40%"/></label>
             <label style="margin-left:12px;">Unlock (ET) <input name="unlock_at" type="datetime-local" required/></label>
@@ -1185,12 +1264,15 @@ app.post('/admin/writer-submissions/:id/publish', requireAdmin, express.urlencod
     const title = String(req.body.title || '').trim();
     const unlockInput = String(req.body.unlock_at || '').trim();
     if (!id || !title || !unlockInput) return res.status(400).send('Missing fields');
-    const sres = await pool.query('SELECT data, author FROM writer_submissions WHERE id=$1', [id]);
+    const sres = await pool.query('SELECT token, data, author FROM writer_submissions WHERE id=$1', [id]);
     if (!sres.rows.length) return res.status(404).send('Submission not found');
     const data = typeof sres.rows[0].data === 'string' ? JSON.parse(sres.rows[0].data) : sres.rows[0].data;
     const questions = Array.isArray(data?.questions) ? data.questions : [];
     if (!questions.length) return res.status(400).send('Submission has no questions');
     const unlockUtc = etToUtc(unlockInput);
+    // Enforce unique slot: prevent duplicate unlock_at
+    const dupe = await pool.query('SELECT id FROM quizzes WHERE unlock_at=$1 LIMIT 1', [unlockUtc]);
+    if (dupe.rows.length) return res.status(400).send('A quiz already exists at this unlock time (ET).');
     const freezeUtc = new Date(unlockUtc.getTime() + 24*60*60*1000);
     const authorBlurb = (data && typeof data.author_blurb !== 'undefined') ? (String(data.author_blurb || '').trim() || null) : null;
     const description = (data && typeof data.description !== 'undefined') ? (String(data.description || '').trim() || null) : null;
@@ -1213,8 +1295,7 @@ app.post('/admin/writer-submissions/:id/publish', requireAdmin, express.urlencod
     }
     // mark published and deactivate token
     try {
-      const tokRes = await pool.query('SELECT token FROM writer_submissions WHERE id=$1', [id]);
-      const tok = tokRes.rows[0] && tokRes.rows[0].token;
+      const tok = sres.rows[0] && sres.rows[0].token;
       if (tok) await pool.query('UPDATE writer_invites SET published_at = NOW(), active = FALSE WHERE token=$1', [tok]);
     } catch {}
     res.redirect(`/quiz/${quizId}`);
