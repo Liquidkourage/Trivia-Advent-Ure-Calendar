@@ -810,10 +810,10 @@ app.post('/writer/quiz/new', async (req, res) => {
     const qInsert = await pool.query('INSERT INTO quizzes(title, unlock_at, freeze_at, author, author_blurb, description) VALUES($1,$2,$3,$4,$5,$6) RETURNING id', [title, unlockUtc, freezeUtc, author, authorBlurb, description]);
     const quizId = qInsert.rows[0].id;
     for (let i=1;i<=10;i++) {
-      const qt = String(req.body[\`q\${i}_text\`] || '').trim();
-      const qa = String(req.body[\`q\${i}_answer\`] || '').trim();
-      const qc = String(req.body[\`q\${i}_category\`] || 'General').trim();
-      const qk = String(req.body[\`q\${i}_ask\`] || '').trim() || null;
+      const qt = String(req.body[`q${i}_text`] || '').trim();
+      const qa = String(req.body[`q${i}_answer`] || '').trim();
+      const qc = String(req.body[`q${i}_category`] || 'General').trim();
+      const qk = String(req.body[`q${i}_ask`] || '').trim() || null;
       if (!qt || !qa) continue;
       await pool.query(
         'INSERT INTO questions(quiz_id, number, text, answer, category, ask) VALUES($1,$2,$3,$4,$5,$6)',
