@@ -1043,12 +1043,12 @@ app.get('/writer/:token', async (req, res) => {
         <p>Author: <strong>${invite.author}</strong></p>
         <form method="post" action="/writer/${invite.token}">
           <div style="margin-top:12px;">
-            <label style="display:block;margin-bottom:6px;font-weight:600;">About this quiz</label>
-            <textarea name="description" style="width:100%;min-height:100px;border:1px solid #ccc;border-radius:6px;padding:10px;font-size:16px;"></textarea>
-          </div>
-          <div style="margin-top:12px;">
             <label style="display:block;margin-bottom:6px;font-weight:600;">About the author</label>
             <textarea name="author_blurb" style="width:100%;min-height:80px;border:1px solid #ccc;border-radius:6px;padding:10px;font-size:16px;"></textarea>
+          </div>
+          <div style="margin-top:12px;">
+            <label style="display:block;margin-bottom:6px;font-weight:600;">About this quiz</label>
+            <textarea name="description" style="width:100%;min-height:100px;border:1px solid #ccc;border-radius:6px;padding:10px;font-size:16px;"></textarea>
           </div>
           <fieldset style="margin-top:12px;">
             <legend>Questions (10)</legend>
