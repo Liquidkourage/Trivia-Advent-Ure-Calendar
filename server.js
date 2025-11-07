@@ -152,7 +152,18 @@ async function initDb() {
     DO $$ BEGIN
       ALTER TABLE responses ADD COLUMN IF NOT EXISTS override_updated_by TEXT;
     EXCEPTION WHEN others THEN NULL; END $$;
+
+    -- Admins table for multiple admin accounts
+    CREATE TABLE IF NOT EXISTS admins (
+      email CITEXT PRIMARY KEY,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
   `);
+  // Seed ADMIN_EMAIL into admins table if provided
+  const seedAdmin = (process.env.ADMIN_EMAIL || '').toLowerCase();
+  if (seedAdmin) {
+    try { await pool.query('INSERT INTO admins(email) VALUES($1) ON CONFLICT (email) DO NOTHING', [seedAdmin]); } catch {}
+  }
 }
 
 // --- Mailer (Gmail OAuth via nodemailer) ---
@@ -313,14 +324,21 @@ function requireAuth(req, res, next) {
   next();
 }
 
-function requireAdmin(req, res, next) {
-  if (req.session && req.session.isAdmin === true) return next();
-  if (!req.session.user) return res.status(401).send('Please sign in.');
-  const adminEmail = getAdminEmail();
-  if ((req.session.user.email || '').toLowerCase() !== adminEmail) {
-    return res.status(403).send('Admins only');
+async function requireAdmin(req, res, next) {
+  try {
+    if (req.session && req.session.isAdmin === true) return next(); // PIN bypass
+    if (!req.session.user) return res.status(401).send('Please sign in.');
+    const email = (req.session.user.email || '').toLowerCase();
+    // Allow env ADMIN_EMAIL as implicit admin, and any in admins table
+    const envAdmin = (process.env.ADMIN_EMAIL || '').toLowerCase();
+    if (envAdmin && email === envAdmin) return next();
+    const r = await pool.query('SELECT 1 FROM admins WHERE email=$1', [email]);
+    if (r.rows.length === 0) return res.status(403).send('Admins only');
+    return next();
+  } catch (e) {
+    console.error('requireAdmin failed:', e);
+    return res.status(500).send('Admin check failed');
   }
-  next();
 }
 
 function parseEtToUtc(dateTimeStr) {
@@ -510,6 +528,7 @@ app.get('/admin', requireAdmin, (req, res) => {
           <a class="ta-card" href="/admin/generate-schedule"><strong>Generate Schedule</strong><span>Create Dec 1–24 placeholders</span></a>
           <a class="ta-card" href="/admin/quizzes"><strong>Manage Quizzes</strong><span>View/Edit/Clone/Delete</span></a>
           <a class="ta-card" href="/admin/access"><strong>Access & Links</strong><span>Grant or send magic links</span></a>
+          <a class="ta-card" href="/admin/admins"><strong>Admins</strong><span>Manage admin emails</span></a>
           <a class="ta-card" href="/leaderboard"><strong>Overall Leaderboard</strong></a>
         </div>
       </main>
@@ -743,6 +762,68 @@ app.post('/admin/upload-quiz', requireAdmin, async (req, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).send('Failed to create quiz');
+  }
+});
+
+// --- Writer: public submit quiz (same fields/flow as admin upload) ---
+app.get('/writer/quiz/new', (req, res) => {
+  res.type('html').send(`
+    <html><head><title>Submit Quiz</title><link rel="stylesheet" href="/style.css"></head>
+    <body class="ta-body" style="padding: 24px;">
+      <h1>Submit a New Quiz</h1>
+      <form method="post" action="/writer/quiz/new">
+        <div><label>Title <input name="title" required /></label></div>
+        <div style="margin-top:8px;"><label>Author <input name="author" /></label></div>
+        <div style="margin-top:8px;"><label>Author blurb <input name="author_blurb" /></label></div>
+        <div style="margin-top:8px;"><label>Description<br/><textarea name="description" rows="3" style="width: 100%;"></textarea></label></div>
+        <div style="margin-top:8px;"><label>Unlock (ET) <input name="unlock_at" type="datetime-local" required /></label></div>
+        <fieldset style="margin-top:12px;">
+          <legend>Questions (10)</legend>
+          ${Array.from({length:10}, (_,i)=>{
+            const n=i+1;
+            return `<div style=\"border:1px solid #ddd;padding:8px;margin:6px 0;border-radius:6px;\">
+              <div><strong>Q${n}</strong></div>
+              <div><label>Text <input name=\"q${n}_text\" required style=\"width:90%\"/></label></div>
+              <div><label>Answer <input name=\"q${n}_answer\" required style=\"width:90%\"/></label></div>
+              <div><label>Category <input name=\"q${n}_category\" value=\"General\"/></label>
+              <label style=\"margin-left:12px;\">Ask <input name=\"q${n}_ask\"/></label></div>
+            </div>`
+          }).join('')}
+        </fieldset>
+        <div style="margin-top:12px;"><button type="submit">Submit Quiz</button></div>
+      </form>
+      <p style="margin-top:16px;"><a href="/">Home</a></p>
+    </body></html>
+  `);
+});
+
+app.post('/writer/quiz/new', async (req, res) => {
+  try {
+    const title = String(req.body.title || '').trim();
+    const author = String(req.body.author || '').trim() || null;
+    const authorBlurb = String(req.body.author_blurb || '').trim() || null;
+    const description = String(req.body.description || '').trim() || null;
+    const unlockInput = String(req.body.unlock_at || '').trim();
+    if (!title || !unlockInput) return res.status(400).send('Missing title or unlock time');
+    const unlockUtc = etToUtc(unlockInput);
+    const freezeUtc = new Date(unlockUtc.getTime() + 24*60*60*1000);
+    const qInsert = await pool.query('INSERT INTO quizzes(title, unlock_at, freeze_at, author, author_blurb, description) VALUES($1,$2,$3,$4,$5,$6) RETURNING id', [title, unlockUtc, freezeUtc, author, authorBlurb, description]);
+    const quizId = qInsert.rows[0].id;
+    for (let i=1;i<=10;i++) {
+      const qt = String(req.body[\`q\${i}_text\`] || '').trim();
+      const qa = String(req.body[\`q\${i}_answer\`] || '').trim();
+      const qc = String(req.body[\`q\${i}_category\`] || 'General').trim();
+      const qk = String(req.body[\`q\${i}_ask\`] || '').trim() || null;
+      if (!qt || !qa) continue;
+      await pool.query(
+        'INSERT INTO questions(quiz_id, number, text, answer, category, ask) VALUES($1,$2,$3,$4,$5,$6)',
+        [quizId, i, qt, qa, qc, qk]
+      );
+    }
+    res.redirect(\`/quiz/\${quizId}\`);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to submit quiz');
   }
 });
 
@@ -1572,6 +1653,61 @@ app.post('/admin/send-link', requireAdmin, async (req, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).send('Failed to send');
+  }
+});
+
+// --- Admins management (list/add/remove) ---
+app.get('/admin/admins', requireAdmin, async (_req, res) => {
+  try {
+    const rows = (await pool.query('SELECT email, created_at FROM admins ORDER BY email ASC')).rows;
+    const items = rows.map(r => `<tr><td>${r.email}</td><td>${new Date(r.created_at).toLocaleString()}</td><td>
+      <form method="post" action="/admin/admins/remove" onsubmit="return confirm('Remove admin ${r.email}?');" style="display:inline;">
+        <input type="hidden" name="email" value="${r.email}"/>
+        <button type="submit">Remove</button>
+      </form>
+    </td></tr>`).join('');
+    res.type('html').send(`
+      <html><head><title>Admins</title><link rel="stylesheet" href="/style.css"></head>
+      <body class="ta-body" style="padding:24px;">
+        <h1>Admins</h1>
+        <form method="post" action="/admin/admins/add" style="margin-bottom:12px;">
+          <label>Email <input name="email" type="email" required /></label>
+          <button type="submit">Add admin</button>
+        </form>
+        <table border="1" cellspacing="0" cellpadding="6">
+          <tr><th>Email</th><th>Added</th><th>Actions</th></tr>
+          ${items || '<tr><td colspan="3">No admins yet</td></tr>'}
+        </table>
+        <p style="margin-top:16px;"><a href="/admin">Back</a></p>
+      </body></html>
+    `);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to load admins');
+  }
+});
+
+app.post('/admin/admins/add', requireAdmin, async (req, res) => {
+  try {
+    const email = String(req.body.email || '').trim().toLowerCase();
+    if (!email) return res.status(400).send('Email required');
+    await pool.query('INSERT INTO admins(email) VALUES($1) ON CONFLICT (email) DO NOTHING', [email]);
+    res.redirect('/admin/admins');
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to add admin');
+  }
+});
+
+app.post('/admin/admins/remove', requireAdmin, async (req, res) => {
+  try {
+    const email = String(req.body.email || '').trim().toLowerCase();
+    if (!email) return res.status(400).send('Email required');
+    await pool.query('DELETE FROM admins WHERE email=$1', [email]);
+    res.redirect('/admin/admins');
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to remove admin');
   }
 });
 
