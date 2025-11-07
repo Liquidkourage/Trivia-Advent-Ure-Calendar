@@ -545,6 +545,7 @@ app.get('/admin', requireAdmin, (req, res) => {
           <a class="ta-card" href="/admin/generate-schedule"><strong>Generate Schedule</strong><span>Create Dec 1–24 placeholders</span></a>
           <a class="ta-card" href="/admin/quizzes"><strong>Manage Quizzes</strong><span>View/Edit/Clone/Delete</span></a>
           <a class="ta-card" href="/admin/writer-invite"><strong>Writer Invite</strong><span>Create token link for guest authors</span></a>
+          <a class="ta-card" href="/admin/writer-invites"><strong>Writer Invites (CSV)</strong><span>Prepare CSV and bulk-generate links</span></a>
           <a class="ta-card" href="/admin/access"><strong>Access & Links</strong><span>Grant or send magic links</span></a>
           <a class="ta-card" href="/admin/admins"><strong>Admins</strong><span>Manage admin emails</span></a>
           <a class="ta-card" href="/leaderboard"><strong>Overall Leaderboard</strong></a>
@@ -831,6 +832,103 @@ app.get('/admin/writer-invite', requireAdmin, (req, res) => {
             result.textContent = 'Error: ' + (err && err.message ? err.message : 'Failed to create invite');
           }
         });
+      </script>
+    </body></html>
+  `);
+});
+
+// --- Admin: CSV builder for writer invites ---
+app.get('/admin/writer-invites', requireAdmin, (req, res) => {
+  res.type('html').send(`
+    <html><head><title>Writer Invites (CSV)</title><link rel="stylesheet" href="/style.css"></head>
+    <body class="ta-body" style="padding:24px;">
+      <h1>Writer Invites (CSV Builder)</h1>
+      <p>Add rows for Author, Email, optional SlotDate (YYYY-MM-DD) and SendAt (YYYY-MM-DD HH:mm ET). You can download the CSV, or click Generate Links to create invites now.</p>
+      <div style="margin:12px 0;">
+        <button id="addRow">Add Row</button>
+        <button id="downloadCsv">Download CSV</button>
+        <button id="generateLinks">Generate Links</button>
+        <a href="/admin" style="margin-left:12px;">Back to Admin</a>
+      </div>
+      <table id="tbl" style="width:100%;border-collapse:collapse;">
+        <thead><tr>
+          <th style="text-align:left;border-bottom:1px solid #444;">#</th>
+          <th style="text-align:left;border-bottom:1px solid #444;">Author</th>
+          <th style="text-align:left;border-bottom:1px solid #444;">Email</th>
+          <th style="text-align:left;border-bottom:1px solid #444;">SlotDate (optional)</th>
+          <th style="text-align:left;border-bottom:1px solid #444;">SendAt ET (optional)</th>
+          <th style="text-align:left;border-bottom:1px solid #444;">Actions</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+      <div id="out" style="margin-top:16px;font-family:monospace;"></div>
+      <script>
+        const tbody = document.querySelector('#tbl tbody');
+        const out = document.getElementById('out');
+        function addRow(init={}){
+          const r = document.createElement('tr');
+          r.innerHTML = `
+            <td class="idx" style="padding:6px 4px;">-</td>
+            <td style="padding:6px 4px;"><input name="author" value="${init.author||''}" required style="width:100%"></td>
+            <td style="padding:6px 4px;"><input name="email" value="${init.email||''}" style="width:100%" type="email"></td>
+            <td style="padding:6px 4px;"><input name="slotDate" value="${init.slotDate||''}" placeholder="YYYY-MM-DD" style="width:100%"></td>
+            <td style="padding:6px 4px;"><input name="sendAt" value="${init.sendAt||''}" placeholder="YYYY-MM-DD HH:mm" style="width:100%"></td>
+            <td style="padding:6px 4px;"><button class="rm">Remove</button></td>
+          `;
+          tbody.appendChild(r);
+          renumber();
+          r.querySelector('.rm').addEventListener('click', ()=>{ r.remove(); renumber(); });
+        }
+        function renumber(){
+          [...tbody.querySelectorAll('tr')].forEach((tr,i)=>tr.querySelector('.idx').textContent = String(i+1));
+        }
+        function rows(){
+          return [...tbody.querySelectorAll('tr')].map(tr=>({
+            author: tr.querySelector('input[name="author"]').value.trim(),
+            email: tr.querySelector('input[name="email"]').value.trim(),
+            slotDate: tr.querySelector('input[name="slotDate"]').value.trim(),
+            sendAt: tr.querySelector('input[name="sendAt"]').value.trim()
+          })).filter(r=>r.author);
+        }
+        function toCsv(data){
+          const esc = v => '"' + String(v||'').replaceAll('"','""') + '"';
+          const lines = ['Author,Email,SlotDate,SendAt'];
+          data.forEach(r=>lines.push([r.author,r.email,r.slotDate,r.sendAt].map(esc).join(',')));
+          return lines.join('\n');
+        }
+        document.getElementById('addRow').addEventListener('click', ()=> addRow());
+        document.getElementById('downloadCsv').addEventListener('click', ()=>{
+          const data = rows();
+          if (!data.length) { out.textContent = 'Add at least one row.'; return; }
+          const csv = toCsv(data);
+          const blob = new Blob([csv], { type: 'text/csv' });
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          a.download = 'writer_invites.csv';
+          a.click();
+          URL.revokeObjectURL(a.href);
+          out.textContent = 'CSV downloaded.';
+        });
+        document.getElementById('generateLinks').addEventListener('click', async ()=>{
+          const data = rows();
+          if (!data.length) { out.textContent = 'Add at least one row.'; return; }
+          out.textContent = 'Generating...';
+          const results = [];
+          for (const r of data){
+            try{
+              const body = new URLSearchParams();
+              body.append('author', r.author);
+              if (r.email) body.append('email', r.email);
+              const res = await fetch('/admin/writer-invite', { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body });
+              const text = await res.text();
+              if (!res.ok) throw new Error(text||'Failed');
+              results.push(`${r.author}: ${text}`);
+            }catch(e){ results.push(`${r.author}: ERROR ${e && e.message ? e.message : 'Failed'}`); }
+          }
+          out.innerHTML = results.map(x=>`<div>${x}</div>`).join('');
+        });
+        // seed one row for convenience
+        addRow();
       </script>
     </body></html>
   `);
