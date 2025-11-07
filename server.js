@@ -820,7 +820,7 @@ app.post('/writer/quiz/new', async (req, res) => {
         [quizId, i, qt, qa, qc, qk]
       );
     }
-    res.redirect(\`/quiz/\${quizId}\`);
+    res.redirect(`/quiz/${quizId}`);
   } catch (e) {
     console.error(e);
     res.status(500).send('Failed to submit quiz');
