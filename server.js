@@ -1228,6 +1228,7 @@ app.get('/admin/writer-invites/list', requireAdmin, async (req, res) => {
     const fmt = (d) => d ? new Date(d).toLocaleString() : '';
     const list = rows.map(r => {
       const link = `${baseUrl}/writer/${r.token}`;
+      const slotStr = r.slot_date ? (typeof r.slot_date === 'string' ? r.slot_date : new Date(r.slot_date).toISOString().slice(0,10)) : '';
       const status = [
         r.active ? 'active' : 'inactive',
         r.sent_at ? 'sent' : 'not sent',
@@ -1237,7 +1238,7 @@ app.get('/admin/writer-invites/list', requireAdmin, async (req, res) => {
       ].filter(Boolean).join(' · ');
       return `
         <tr>
-          <td style="padding:6px 4px;white-space:nowrap;">${r.slot_date || ''} ${r.slot_half || ''}</td>
+          <td style="padding:6px 4px;white-space:nowrap;">${slotStr} ${r.slot_half || ''}</td>
           <td style="padding:6px 4px;">${(r.author || '').replace(/</g,'&lt;')}</td>
           <td style="padding:6px 4px;">${(r.email || '').replace(/</g,'&lt;')}</td>
           <td style="padding:6px 4px;">${status}</td>
