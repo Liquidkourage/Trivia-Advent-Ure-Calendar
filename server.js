@@ -892,17 +892,19 @@ app.get('/player', requireAuth, async (req, res) => {
   const email = (req.session.user.email || '').toLowerCase();
   if (email === adminEmail) return res.redirect('/admin');
   let needsPassword = false;
+  let displayName = '';
   try {
-    const pr = await pool.query('SELECT password_set_at FROM players WHERE email=$1', [email]);
+    const pr = await pool.query('SELECT username, password_set_at FROM players WHERE email=$1', [email]);
     needsPassword = pr.rows.length && !pr.rows[0].password_set_at;
+    displayName = (pr.rows.length && pr.rows[0].username) ? pr.rows[0].username : email;
   } catch {}
   res.type('html').send(`
     <html><head><title>Player • Trivia Advent-ure</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
     <body class="ta-body">
-      <header class="ta-header"><div class="ta-header-inner"><div class="ta-brand"><img class="ta-logo" src="/logo.svg"/><span class="ta-title">Trivia Advent‑ure</span></div><nav class="ta-nav"><a href="/calendar">Calendar</a> <a href="/account/credentials">Account</a> <a href="/logout">Logout</a></nav></div></header>
+      <header class="ta-header"><div class="ta-header-inner"><div class="ta-brand"><img class="ta-logo" src="/logo.svg"/><span class="ta-title">Trivia Advent‑ure</span></div><nav class="ta-nav"><span class="ta-user" style="margin-right:12px;opacity:.9;">${displayName}</span> <a href="/calendar">Calendar</a> <a href="/account/credentials">Account</a> <a href="/logout">Logout</a></nav></div></header>
       <main class="ta-main ta-container">
         ${needsPassword ? `<div style="margin:12px 0;padding:10px;border:1px solid #ffecb5;border-radius:6px;background:#fff8e1;color:#6b4f00;">Welcome! For cross-device login, please <a href="/account/security">set your password</a>.</div>` : ''}
-        <h1 class="ta-page-title">Welcome, ${req.session.user.email}</h1>
+        <h1 class="ta-page-title">Welcome, ${displayName}</h1>
         <p class="ta-lead">Head to the calendar to play unlocked quizzes.</p>
         <div class="ta-actions"><a class="ta-btn ta-btn-primary" href="/calendar">Open Calendar</a></div>
       </main>
@@ -1008,12 +1010,14 @@ app.get('/calendar', async (req, res) => {
     const email = req.session.user ? (req.session.user.email || '').toLowerCase() : '';
     let completedSet = new Set();
     let needsPassword = false;
+    let displayName = '';
     if (email) {
       const { rows: c } = await pool.query('SELECT DISTINCT quiz_id FROM responses WHERE user_email = $1', [email]);
       c.forEach(r => completedSet.add(Number(r.quiz_id)));
       try {
-        const pr = await pool.query('SELECT password_set_at FROM players WHERE email=$1', [email]);
+        const pr = await pool.query('SELECT username, password_set_at FROM players WHERE email=$1', [email]);
         needsPassword = pr.rows.length && !pr.rows[0].password_set_at;
+        displayName = (pr.rows.length && pr.rows[0].username) ? pr.rows[0].username : email;
       } catch {}
     }
     // Group quizzes by ET date (YYYY-MM-DD), expect two per day: 00:00 and 12:00
@@ -1090,7 +1094,7 @@ app.get('/calendar', async (req, res) => {
     res.type('html').send(`
       <html><head><title>Calendar</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
       <body class="ta-body">
-      <header class="ta-header"><div class="ta-header-inner"><div class="ta-brand"><img class="ta-logo" src="/logo.svg"/><span class="ta-title">Trivia Advent‑ure</span></div><nav class="ta-nav">${email ? `<a href="/calendar">Calendar</a> <a href="/account/credentials">Account</a> <a href="/logout">Logout</a>` : `<a href="/login">Login</a>`}</nav></div></header>
+      <header class="ta-header"><div class="ta-header-inner"><div class="ta-brand"><img class="ta-logo" src="/logo.svg"/><span class="ta-title">Trivia Advent‑ure</span></div><nav class="ta-nav">${email ? `<span class="ta-user" style="margin-right:12px;opacity:.9;">${displayName}</span> <a href="/calendar">Calendar</a> <a href="/account/credentials">Account</a> <a href="/logout">Logout</a>` : `<a href="/login">Login</a>`}</nav></div></header>
         <main class="ta-main ta-container ta-calendar">
           ${email && needsPassword ? `<div style="margin:12px 0;padding:10px;border:1px solid #ffecb5;border-radius:6px;background:#fff8e1;color:#6b4f00;">Welcome! For cross-device login, please <a href="/account/security">set your password</a>.</div>` : ''}
           <h1 class="ta-page-title">Advent Calendar</h1>
