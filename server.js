@@ -2692,7 +2692,7 @@ app.post('/admin/send-link', requireAdmin, async (req, res) => {
 });
 
 // --- Players management ---
-app.get('/admin/players', requireAdmin, async (_req, res) => {
+app.get('/admin/players', requireAdmin, async (req, res) => {
   try {
     const rows = (await pool.query(`
       SELECT 
@@ -2703,17 +2703,20 @@ app.get('/admin/players', requireAdmin, async (_req, res) => {
         p.onboarding_complete,
         p.password_set_at,
         COUNT(DISTINCT r.quiz_id) as quizzes_played,
-        MAX(r.created_at) as last_activity
+        MAX(r.created_at) as last_activity,
+        CASE WHEN a.email IS NOT NULL THEN true ELSE false END as is_admin
       FROM players p
       LEFT JOIN responses r ON r.user_email = p.email
-      GROUP BY p.id, p.email, p.username, p.access_granted_at, p.onboarding_complete, p.password_set_at
+      LEFT JOIN admins a ON a.email = p.email
+      GROUP BY p.id, p.email, p.username, p.access_granted_at, p.onboarding_complete, p.password_set_at, a.email
       ORDER BY p.access_granted_at DESC
     `)).rows;
     const items = rows.map(r => {
       const status = [];
+      if (r.is_admin) status.push('<span style="color:#ffd700;font-weight:bold;">ADMIN</span>');
       if (r.onboarding_complete) status.push('Onboarded');
       if (r.password_set_at) status.push('Password set');
-      const statusStr = status.length ? status.join(', ') : 'Pending setup';
+      const statusStr = status.length ? status.join(' • ') : 'Pending setup';
       return `<tr>
         <td>${r.email || ''}</td>
         <td>${r.username || '<em>Not set</em>'}</td>
@@ -2721,6 +2724,31 @@ app.get('/admin/players', requireAdmin, async (_req, res) => {
         <td>${statusStr}</td>
         <td>${r.quizzes_played || 0}</td>
         <td>${r.last_activity ? fmtEt(r.last_activity) : '<em>Never</em>'}</td>
+        <td style="white-space:nowrap;">
+          <form method="post" action="/admin/players/send-link" style="display:inline;" onsubmit="return confirm('Send magic link to ${r.email}?');">
+            <input type="hidden" name="email" value="${r.email}"/>
+            <button type="submit" style="padding:4px 8px;font-size:12px;margin:2px;">Send Link</button>
+          </form>
+          <form method="post" action="/admin/players/reset-password" style="display:inline;" onsubmit="return confirm('Reset password for ${r.email}? They will need to set a new password.');">
+            <input type="hidden" name="email" value="${r.email}"/>
+            <button type="submit" style="padding:4px 8px;font-size:12px;margin:2px;">Reset PW</button>
+          </form>
+          ${r.is_admin ? `
+          <form method="post" action="/admin/players/revoke-admin" style="display:inline;" onsubmit="return confirm('Revoke admin status from ${r.email}?');">
+            <input type="hidden" name="email" value="${r.email}"/>
+            <button type="submit" style="padding:4px 8px;font-size:12px;margin:2px;background:#d32f2f;">Revoke Admin</button>
+          </form>
+          ` : `
+          <form method="post" action="/admin/players/grant-admin" style="display:inline;" onsubmit="return confirm('Grant admin status to ${r.email}?');">
+            <input type="hidden" name="email" value="${r.email}"/>
+            <button type="submit" style="padding:4px 8px;font-size:12px;margin:2px;background:#2e7d32;">Grant Admin</button>
+          </form>
+          `}
+          <form method="post" action="/admin/players/revoke-access" style="display:inline;" onsubmit="return confirm('REVOKE ACCESS and delete all data for ${r.email}? This cannot be undone.');">
+            <input type="hidden" name="email" value="${r.email}"/>
+            <button type="submit" style="padding:4px 8px;font-size:12px;margin:2px;background:#d32f2f;">Revoke Access</button>
+          </form>
+        </td>
       </tr>`;
     }).join('');
     res.type('html').send(`
@@ -2729,6 +2757,7 @@ app.get('/admin/players', requireAdmin, async (_req, res) => {
         <header class="ta-header"><div class="ta-header-inner"><div class="ta-brand"><img class="ta-logo" src="/logo.svg"/><span class="ta-title">Trivia Advent‑ure</span></div><nav class="ta-nav"><a href="/admin">Admin</a> <a href="/calendar">Calendar</a> <a href="/logout">Logout</a></nav></div></header>
         <main class="ta-main ta-container">
           <h1 class="ta-page-title">Players</h1>
+          ${req.query.msg ? `<p style="padding:8px 12px;background:#2e7d32;color:#fff;border-radius:4px;margin-bottom:16px;">${req.query.msg}</p>` : ''}
           <p style="margin-bottom:16px;opacity:0.8;">Total: ${rows.length} player${rows.length !== 1 ? 's' : ''}</p>
           <div style="overflow-x:auto;">
             <table border="1" cellspacing="0" cellpadding="8" style="width:100%;border-collapse:collapse;">
@@ -2740,10 +2769,11 @@ app.get('/admin/players', requireAdmin, async (_req, res) => {
                   <th style="text-align:left;padding:8px;">Status</th>
                   <th style="text-align:left;padding:8px;">Quizzes Played</th>
                   <th style="text-align:left;padding:8px;">Last Activity</th>
+                  <th style="text-align:left;padding:8px;">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                ${items || '<tr><td colspan="6">No players yet</td></tr>'}
+                ${items || '<tr><td colspan="7">No players yet</td></tr>'}
               </tbody>
             </table>
           </div>
@@ -2755,6 +2785,76 @@ app.get('/admin/players', requireAdmin, async (_req, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).send('Failed to load players');
+  }
+});
+
+// Player management actions
+app.post('/admin/players/send-link', requireAdmin, async (req, res) => {
+  try {
+    const email = String(req.body.email || '').trim().toLowerCase();
+    if (!email) return res.status(400).send('Email required');
+    const token = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    await pool.query('INSERT INTO magic_tokens(token, email, expires_at) VALUES($1, $2, $3)', [token, email, expiresAt]);
+    const link = `${req.protocol}://${req.get('host')}/auth/verify?token=${token}`;
+    await sendMagicLink(email, token, link);
+    res.redirect('/admin/players?msg=Link sent');
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to send link');
+  }
+});
+
+app.post('/admin/players/reset-password', requireAdmin, async (req, res) => {
+  try {
+    const email = String(req.body.email || '').trim().toLowerCase();
+    if (!email) return res.status(400).send('Email required');
+    await pool.query('UPDATE players SET password_hash=NULL, password_set_at=NULL WHERE email=$1', [email]);
+    res.redirect('/admin/players?msg=Password reset');
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to reset password');
+  }
+});
+
+app.post('/admin/players/grant-admin', requireAdmin, async (req, res) => {
+  try {
+    const email = String(req.body.email || '').trim().toLowerCase();
+    if (!email) return res.status(400).send('Email required');
+    await pool.query('INSERT INTO admins(email) VALUES($1) ON CONFLICT (email) DO NOTHING', [email]);
+    res.redirect('/admin/players?msg=Admin granted');
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to grant admin');
+  }
+});
+
+app.post('/admin/players/revoke-admin', requireAdmin, async (req, res) => {
+  try {
+    const email = String(req.body.email || '').trim().toLowerCase();
+    if (!email) return res.status(400).send('Email required');
+    await pool.query('DELETE FROM admins WHERE email=$1', [email]);
+    res.redirect('/admin/players?msg=Admin revoked');
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to revoke admin');
+  }
+});
+
+app.post('/admin/players/revoke-access', requireAdmin, async (req, res) => {
+  try {
+    const email = String(req.body.email || '').trim().toLowerCase();
+    if (!email) return res.status(400).send('Email required');
+    // Delete responses first (foreign key constraint)
+    await pool.query('DELETE FROM responses WHERE user_email=$1', [email]);
+    // Delete player
+    await pool.query('DELETE FROM players WHERE email=$1', [email]);
+    // Also remove from admins if they were an admin
+    await pool.query('DELETE FROM admins WHERE email=$1', [email]);
+    res.redirect('/admin/players?msg=Access revoked');
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to revoke access');
   }
 });
 
