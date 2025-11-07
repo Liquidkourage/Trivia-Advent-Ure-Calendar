@@ -166,6 +166,14 @@ async function initDb() {
       email CITEXT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       expires_at TIMESTAMPTZ,
+      -- scheduling/status fields
+      slot_date DATE,
+      slot_half TEXT,
+      send_at TIMESTAMPTZ,
+      sent_at TIMESTAMPTZ,
+      clicked_at TIMESTAMPTZ,
+      submitted_at TIMESTAMPTZ,
+      published_at TIMESTAMPTZ,
       active BOOLEAN NOT NULL DEFAULT TRUE
     );
     CREATE TABLE IF NOT EXISTS writer_submissions (
@@ -182,6 +190,30 @@ async function initDb() {
     try { await pool.query('INSERT INTO admins(email) VALUES($1) ON CONFLICT (email) DO NOTHING', [seedAdmin]); } catch {}
   }
 }
+// --- Writer invite scheduler: send emails when due ---
+const WRITER_INVITE_CHECK_MS = 60 * 1000;
+setInterval(async () => {
+  try {
+    const baseUrl = process.env.PUBLIC_BASE_URL || '';
+    const { rows } = await pool.query(
+      `SELECT token, author, email, slot_date, slot_half FROM writer_invites
+       WHERE active = TRUE AND sent_at IS NULL AND (send_at IS NULL OR send_at <= NOW()) AND email IS NOT NULL`
+    );
+    for (const row of rows) {
+      const link = `${baseUrl}/writer/${row.token}`;
+      try {
+        await sendWriterInviteEmail(row.email, row.author, link, row.slot_date, row.slot_half);
+        await pool.query('UPDATE writer_invites SET sent_at = NOW() WHERE token=$1', [row.token]);
+        console.log('[invite] sent to', row.email, 'for', row.author);
+      } catch (e) {
+        console.error('[invite] failed to send for', row.email, e);
+      }
+    }
+  } catch (e) {
+    console.error('writer invite scheduler error:', e);
+  }
+}, WRITER_INVITE_CHECK_MS);
+
 
 // --- Mailer (Gmail OAuth via nodemailer) ---
 function createMailer() {
@@ -235,6 +267,37 @@ async function sendMagicLink(email, token, linkUrl) {
     userId: 'me',
     requestBody: { raw: rawMessage }
   });
+}
+
+async function sendPlainEmail(email, subject, text) {
+  const fromHeader = process.env.EMAIL_FROM || 'no-reply@example.com';
+  const oAuth2Client = new google.auth.OAuth2(
+    process.env.GMAIL_CLIENT_ID,
+    process.env.GMAIL_CLIENT_SECRET
+  );
+  oAuth2Client.setCredentials({ refresh_token: process.env.GMAIL_REFRESH_TOKEN });
+  const gmail = google.gmail({ version: 'v1', auth: oAuth2Client });
+  const rawLines = [
+    `From: ${fromHeader}`,
+    `To: ${email}`,
+    `Subject: ${subject}`,
+    'MIME-Version: 1.0',
+    'Content-Type: text/plain; charset=UTF-8',
+    '',
+    text
+  ];
+  const rawMessage = Buffer.from(rawLines.join('\r\n'))
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+  await gmail.users.messages.send({ userId: 'me', requestBody: { raw: rawMessage } });
+}
+
+async function sendWriterInviteEmail(to, author, linkUrl, slotDate, slotHalf) {
+  const slot = slotDate ? `\r\nSlot: ${slotDate}${slotHalf ? ' ' + slotHalf : ''}` : '';
+  const text = `Hi ${author || ''},\r\n\r\nHere is your private link to compose your quiz:${slot}\r\n${linkUrl}\r\n\r\nThanks!`;
+  await sendPlainEmail(to, 'Your Trivia Advent-ure writer link', text);
 }
 
 // --- Time helpers ---
@@ -789,9 +852,26 @@ app.post('/admin/writer-invite', requireAdmin, express.urlencoded({ extended: tr
   try {
     const author = String(req.body.author || '').trim();
     const email = String(req.body.email || '').trim() || null;
+    const slotDateRaw = String(req.body.slotDate || '').trim() || null;
+    const slotHalf = String(req.body.slotHalf || '').trim().toUpperCase() || null; // 'AM'|'PM'
+    const sendAtRaw = String(req.body.sendAt || '').trim() || null; // ET string "YYYY-MM-DD HH:mm"
     if (!author) return res.status(400).send('Missing author');
     const token = crypto.randomBytes(16).toString('hex');
-    await pool.query('INSERT INTO writer_invites(token, author, email) VALUES($1,$2,$3)', [token, author, email]);
+    // Parse sendAt (ET) -> UTC if provided
+    let sendAtUtc = null;
+    if (sendAtRaw) {
+      try { sendAtUtc = etToUtc(sendAtRaw.replace('T',' ')); } catch {}
+    }
+    // slot_date as date-only if provided
+    let slotDate = null;
+    if (slotDateRaw) {
+      const d = new Date(slotDateRaw + 'T00:00:00Z');
+      if (!isNaN(d.getTime())) slotDate = slotDateRaw;
+    }
+    await pool.query(
+      'INSERT INTO writer_invites(token, author, email, slot_date, slot_half, send_at) VALUES($1,$2,$3,$4,$5,$6)',
+      [token, author, email, slotDate, (slotHalf==='AM'||slotHalf==='PM')?slotHalf:null, sendAtUtc]
+    );
     const base = `${req.protocol}://${req.get('host')}`;
     const link = `${base}/writer/${token}`;
     res.type('text').send(link);
@@ -856,6 +936,7 @@ app.get('/admin/writer-invites', requireAdmin, (req, res) => {
           <th style="text-align:left;border-bottom:1px solid #444;">Author</th>
           <th style="text-align:left;border-bottom:1px solid #444;">Email</th>
           <th style="text-align:left;border-bottom:1px solid #444;">SlotDate (optional)</th>
+          <th style="text-align:left;border-bottom:1px solid #444;">Half</th>
           <th style="text-align:left;border-bottom:1px solid #444;">SendAt ET (optional)</th>
           <th style="text-align:left;border-bottom:1px solid #444;">Actions</th>
         </tr></thead>
@@ -872,6 +953,7 @@ app.get('/admin/writer-invites', requireAdmin, (req, res) => {
             '<td style="padding:6px 4px;"><input name="author" value="' + (init.author||'') + '" required style="width:100%"></td>' +
             '<td style="padding:6px 4px;"><input name="email" value="' + (init.email||'') + '" style="width:100%" type="email"></td>' +
             '<td style="padding:6px 4px;"><input name="slotDate" value="' + (init.slotDate||'') + '" placeholder="YYYY-MM-DD" style="width:100%"></td>' +
+            '<td style="padding:6px 4px;"><select name="slotHalf" style="width:100%"><option value="">(none)</option><option value="AM"' + ((init.slotHalf||'')==='AM'?' selected':'') + '>AM</option><option value="PM"' + ((init.slotHalf||'')==='PM'?' selected':'') + '>PM</option></select></td>' +
             '<td style="padding:6px 4px;"><input name="sendAt" value="' + (init.sendAt||'') + '" placeholder="YYYY-MM-DD HH:mm" style="width:100%"></td>' +
             '<td style="padding:6px 4px;"><button class="rm">Remove</button></td>';
           tbody.appendChild(r);
@@ -886,6 +968,7 @@ app.get('/admin/writer-invites', requireAdmin, (req, res) => {
             author: tr.querySelector('input[name="author"]').value.trim(),
             email: tr.querySelector('input[name="email"]').value.trim(),
             slotDate: tr.querySelector('input[name="slotDate"]').value.trim(),
+            slotHalf: (tr.querySelector('select[name="slotHalf"]').value || '').toUpperCase(),
             sendAt: tr.querySelector('input[name="sendAt"]').value.trim()
           })).filter(r=>r.author);
         }
@@ -918,6 +1001,9 @@ app.get('/admin/writer-invites', requireAdmin, (req, res) => {
               const body = new URLSearchParams();
               body.append('author', r.author);
               if (r.email) body.append('email', r.email);
+              if (r.slotDate) body.append('slotDate', r.slotDate);
+              if (r.slotHalf) body.append('slotHalf', r.slotHalf);
+              if (r.sendAt) body.append('sendAt', r.sendAt);
               const res = await fetch('/admin/writer-invite', { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body });
               const text = await res.text();
               if (!res.ok) throw new Error(text||'Failed');
@@ -942,6 +1028,8 @@ app.get('/writer/:token', async (req, res) => {
     );
     if (!rows.length) return res.status(404).send('Invalid or expired link');
     const invite = rows[0];
+    // mark clicked
+    try { await pool.query('UPDATE writer_invites SET clicked_at = COALESCE(clicked_at, NOW()) WHERE token=$1', [invite.token]); } catch {}
     res.type('html').send(`
       <html><head><title>Submit Quiz</title><link rel="stylesheet" href="/style.css"></head>
       <body class="ta-body" style="padding:24px;">
@@ -994,6 +1082,7 @@ app.post('/writer/:token', express.urlencoded({ extended: true }), async (req, r
       'INSERT INTO writer_submissions(token, author, data) VALUES($1,$2,$3)',
       [invite.token, invite.author, JSON.stringify({ questions })]
     );
+    try { await pool.query('UPDATE writer_invites SET submitted_at = NOW() WHERE token=$1', [invite.token]); } catch {}
     res.type('html').send(`
       <html><head><title>Submitted</title><link rel="stylesheet" href="/style.css"></head>
       <body class="ta-body" style="padding:24px;">
@@ -1078,6 +1167,12 @@ app.post('/admin/writer-submissions/:id/publish', requireAdmin, express.urlencod
         [quizId, i+1, text, answer, category, ask]
       );
     }
+    // mark published and deactivate token
+    try {
+      const tokRes = await pool.query('SELECT token FROM writer_submissions WHERE id=$1', [id]);
+      const tok = tokRes.rows[0] && tokRes.rows[0].token;
+      if (tok) await pool.query('UPDATE writer_invites SET published_at = NOW(), active = FALSE WHERE token=$1', [tok]);
+    } catch {}
     res.redirect(`/quiz/${quizId}`);
   } catch (e) {
     console.error(e);
