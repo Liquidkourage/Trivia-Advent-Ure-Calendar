@@ -1003,9 +1003,8 @@ app.get('/admin/writer-invites', requireAdmin, (req, res) => {
             author: tr.querySelector('input[name="author"]').value.trim(),
             email: tr.querySelector('input[name="email"]').value.trim(),
             slotDate: tr.querySelector('input[name="slotDate"]').value.trim(),
-            slotHalf: (tr.querySelector('select[name="slotHalf"]').value || '').toUpperCase(),
-            sendAt: tr.querySelector('input[name="sendAt"]').value.trim()
-          })).filter(r=>r.author);
+            slotHalf: (tr.querySelector('input[name="slotHalf"]').value || '').toUpperCase()
+          })).filter(r=>r.author || r.email);
         }
         function toCsv(data){
           const esc = v => '"' + String(v||'').replaceAll('"','""') + '"';
@@ -1013,10 +1012,29 @@ app.get('/admin/writer-invites', requireAdmin, (req, res) => {
           data.forEach(r=>lines.push([r.author,r.email,r.slotDate,r.slotHalf].map(esc).join(',')));
           return lines.join('\n');
         }
-        document.getElementById('addRow').addEventListener('click', ()=> addRow());
-        // attach remove listeners for pre-rendered rows and renumber
-        tbody.querySelectorAll('.rm').forEach(btn => btn.addEventListener('click', function(){ const tr=this.closest('tr'); if(tr){ tr.remove(); renumber(); } }));
+        // persistence
+        const STORAGE_KEY = 'ta_writer_invites_v1';
+        function save(){ try { localStorage.setItem(STORAGE_KEY, JSON.stringify(rows())); } catch(e) {} }
+        function load(){
+          try {
+            const raw = localStorage.getItem(STORAGE_KEY);
+            if (!raw) return;
+            const data = JSON.parse(raw);
+            const trs = [...tbody.querySelectorAll('tr')];
+            for (let i=0; i<trs.length && i<data.length; i++){
+              const r = data[i] || {};
+              if (r.author) trs[i].querySelector('input[name="author"]').value = r.author;
+              if (r.email) trs[i].querySelector('input[name="email"]').value = r.email;
+            }
+          } catch(e) {}
+        }
+        // attach remove listeners for pre-rendered rows and renumber + save
+        tbody.querySelectorAll('.rm').forEach(btn => btn.addEventListener('click', function(){ const tr=this.closest('tr'); if(tr){ tr.remove(); renumber(); save(); } }));
+        // auto-save on input
+        tbody.addEventListener('input', function(e){ if (e.target && (e.target.name==='author' || e.target.name==='email')) save(); });
+        // init
         renumber();
+        load();
         document.getElementById('downloadCsv').addEventListener('click', ()=>{
           const data = rows();
           if (!data.length) { out.textContent = 'Add at least one row.'; return; }
