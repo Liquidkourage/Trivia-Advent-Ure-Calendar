@@ -590,14 +590,15 @@ app.post('/auth/request-link', async (req, res) => {
 // Password login
 app.post('/auth/login-password', express.urlencoded({ extended: true }), async (req, res) => {
   try {
-    const emailRaw = (req.body && req.body.email) || '';
+    const usernameRaw = (req.body && req.body.username) || '';
     const password = (req.body && req.body.password) || '';
-    const email = String(emailRaw).trim().toLowerCase();
-    if (!email || !password) return res.status(400).send('Missing email or password');
-    const r = await pool.query('SELECT email, password_hash FROM players WHERE email=$1', [email]);
+    const username = String(usernameRaw).trim();
+    if (!username || !password) return res.status(400).send('Missing username or password');
+    const r = await pool.query('SELECT email, password_hash FROM players WHERE lower(username)=lower($1)', [username]);
     if (!r.rows.length) return res.status(403).send('No account. Use magic link first.');
     const ok = await verifyPassword(password, r.rows[0].password_hash);
-    if (!ok) return res.status(403).send('Invalid email or password');
+    if (!ok) return res.status(403).send('Invalid username or password');
+    const email = r.rows[0].email.toLowerCase();
     req.session.user = { email };
     res.redirect('/calendar');
   } catch (e) {
@@ -948,7 +949,7 @@ app.get('/login', (req, res) => {
         <div style=\"display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap;\">
           <form method=\"post\" action=\"/auth/login-password\" style=\"min-width:300px;\">
             <h3>Password</h3>
-            <div><label>Email <input name=\"email\" type=\"email\" required /></label></div>
+            <div><label>Username <input name=\"username\" required /></label></div>
             <div style=\"margin-top:8px;\"><label>Password <input name=\"password\" type=\"password\" required /></label></div>
             <button type=\"submit\" style=\"margin-top:8px;\">Sign in</button>
           </form>
