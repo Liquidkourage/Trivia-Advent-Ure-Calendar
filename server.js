@@ -928,7 +928,7 @@ app.get('/admin/writer-invites', requireAdmin, (req, res) => {
     preRowsArr.push(
       '<tr>' +
       '<td class="idx" style="padding:6px 4px;">'+ (rowNum++) +'</td>' +
-      '<td style="padding:6px 4px;"><input name="author" value="" required style="width:100%"></td>' +
+      '<td style="padding:6px 4px;"><input type="text" name="author" value="" required style="width:100%"></td>' +
       '<td style="padding:6px 4px;"><input name="email" value="" style="width:100%" type="email"></td>' +
       '<td style="padding:6px 4px;"><span>'+dateStr+'</span><input type="hidden" name="slotDate" value="${dateStr}"></td>' +
       '<td style="padding:6px 4px;"><span>AM</span><input type="hidden" name="slotHalf" value="AM"></td>' +
@@ -938,7 +938,7 @@ app.get('/admin/writer-invites', requireAdmin, (req, res) => {
     preRowsArr.push(
       '<tr>' +
       '<td class="idx" style="padding:6px 4px;">'+ (rowNum++) +'</td>' +
-      '<td style="padding:6px 4px;"><input name="author" value="" required style="width:100%"></td>' +
+      '<td style="padding:6px 4px;"><input type="text" name="author" value="" required style="width:100%"></td>' +
       '<td style="padding:6px 4px;"><input name="email" value="" style="width:100%" type="email"></td>' +
       '<td style="padding:6px 4px;"><span>'+dateStr+'</span><input type="hidden" name="slotDate" value="${dateStr}"></td>' +
       '<td style="padding:6px 4px;"><span>PM</span><input type="hidden" name="slotHalf" value="PM"></td>' +
