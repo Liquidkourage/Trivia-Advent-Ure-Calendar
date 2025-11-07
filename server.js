@@ -1020,115 +1020,31 @@ app.get('/admin/writer-invites', requireAdmin, (req, res) => {
         <h3 style="margin:0 0 8px 0;color:#ffd700;">Generated Links</h3>
         <div id="resultsList" style="display:flex;flex-direction:column;gap:6px;"></div>
       </div>
-      <script>
-        const tbody = document.querySelector('#tbl tbody');
-        const out = document.getElementById('out');
-        // rows are pre-rendered server-side
-        function renumber(){
-          [...tbody.querySelectorAll('tr')].forEach((tr,i)=>tr.querySelector('.idx').textContent = String(i+1));
-        }
-        function rows(){
-          return [...tbody.querySelectorAll('tr')].map(tr=>({
-            author: tr.querySelector('input[name="author"]').value.trim(),
-            email: tr.querySelector('input[name="email"]').value.trim(),
-            slotDate: tr.querySelector('input[name="slotDate"]').value.trim(),
-            slotHalf: (tr.querySelector('input[name="slotHalf"]').value || '').toUpperCase()
-          })).filter(r=>r.author || r.email);
-        }
-        function toCsv(data){
-          const esc = v => '"' + String(v||'').replaceAll('"','""') + '"';
-          const lines = ['Author,Email,SlotDate,Half'];
-          data.forEach(r=>lines.push([r.author,r.email,r.slotDate,r.slotHalf].map(esc).join(',')));
-          return lines.join('\n');
-        }
-        // persistence
-        const STORAGE_KEY = 'ta_writer_invites_v1';
-        function save(){ try { localStorage.setItem(STORAGE_KEY, JSON.stringify(rows())); } catch(e) {} }
-        function load(){
-          try {
-            const raw = localStorage.getItem(STORAGE_KEY);
-            if (!raw) return;
-            const data = JSON.parse(raw);
-            const trs = [...tbody.querySelectorAll('tr')];
-            for (let i=0; i<trs.length && i<data.length; i++){
-              const r = data[i] || {};
-              if (r.author) trs[i].querySelector('input[name="author"]').value = r.author;
-              if (r.email) trs[i].querySelector('input[name="email"]').value = r.email;
-            }
-          } catch(e) {}
-        }
-        // attach remove listeners for pre-rendered rows and renumber + save
-        tbody.querySelectorAll('.rm').forEach(btn => btn.addEventListener('click', function(){ const tr=this.closest('tr'); if(tr){ tr.remove(); renumber(); save(); } }));
-        // auto-save on input
-        tbody.addEventListener('input', function(e){ if (e.target && (e.target.name==='author' || e.target.name==='email')) save(); });
-        // init
-        renumber();
-        load();
-        document.getElementById('downloadCsv').addEventListener('click', ()=>{
-          const data = rows();
-          if (!data.length) { out.textContent = 'Add at least one row.'; return; }
-          const csv = toCsv(data);
-          const blob = new Blob([csv], { type: 'text/csv' });
-          const a = document.createElement('a');
-          a.href = URL.createObjectURL(blob);
-          a.download = 'writer_invites.csv';
-          a.click();
-          URL.revokeObjectURL(a.href);
-          out.textContent = 'CSV downloaded.';
-        });
-        const resultsPanel = document.getElementById('resultsPanel');
-        const resultsList = document.getElementById('resultsList');
-        document.getElementById('generateLinks').addEventListener('click', async ()=>{
-          const data = rows();
-          if (!data.length) { out.textContent = 'Add at least one row.'; return; }
-          out.textContent = 'Generating...';
-          const results = [];
-          for (const r of data){
-            try{
-              const body = new URLSearchParams();
-              body.append('author', r.author);
-              if (r.email) body.append('email', r.email);
-              if (r.slotDate) body.append('slotDate', r.slotDate);
-              if (r.slotHalf) body.append('slotHalf', r.slotHalf);
-              const res = await fetch('/admin/writer-invite', { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body });
-              const text = await res.text();
-              if (!res.ok) throw new Error(text||'Failed');
-              results.push({ author: r.author || '(no name)', link: text });
-            }catch(e){ results.push(r.author + ': ERROR ' + (e && e.message ? e.message : 'Failed')); }
-          }
-          // Render results list
-          let html = '';
-          for (const item of results) {
-            if (typeof item === 'string') {
-              html += '<div style="color:#ff6b6b;">' + item + '</div>';
-            } else {
-              const a = item;
-              html += '<div class="result-row" style="display:flex;gap:8px;align-items:center;">'
-                   + '<strong style="min-width:160px;">' + a.author + ':</strong>'
-                   + '<a href="' + a.link + '" target="_blank" style="color:#ffd700;word-break:break-all;">' + a.link + '</a>'
-                   + '<button class="copy" data-link="' + a.link + '" style="margin-left:auto;background:#d4af37;color:#000;border:none;border-radius:6px;padding:4px 8px;cursor:pointer;">Copy</button>'
-                   + '</div>';
-            }
-          }
-          resultsList.innerHTML = html;
-          resultsPanel.style.display = 'block';
-          out.textContent = 'Done - ' + results.length + ' link(s) generated.';
-          // Copy handler
-          resultsList.addEventListener('click', (e)=>{
-            const btn = e.target.closest('.copy');
-            if (!btn) return;
-            const link = btn.getAttribute('data-link');
-            navigator.clipboard.writeText(link).then(()=>{
-              const old = btn.textContent; btn.textContent = 'Copied'; setTimeout(()=>btn.textContent=old, 1000);
-            }).catch(()=>{});
-          }, { once: true });
-          // Scroll into view
-          resultsPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        });
-        // pre-rendered server-side; no client seeding required
-      </script>
+      <script src="/admin/writer-invites.js"></script>
     </body></html>
   `);
+});
+
+// Static JS for writer invites builder
+app.get('/admin/writer-invites.js', requireAdmin, (req, res) => {
+  res.type('application/javascript').send(
+"(function(){\n"+
+"  const tbody = document.querySelector('#tbl tbody');\n"+
+"  const out = document.getElementById('out');\n"+
+"  const resultsPanel = document.getElementById('resultsPanel');\n"+
+"  const resultsList = document.getElementById('resultsList');\n"+
+"  function renumber(){ Array.from(tbody.querySelectorAll('tr')).forEach((tr,i)=>tr.querySelector('.idx').textContent=String(i+1)); }\n"+
+"  function rows(){ return Array.from(tbody.querySelectorAll('tr')).map(tr=>({ author: (tr.querySelector('input[name=\\"author\\"]').value||'').trim(), email: (tr.querySelector('input[name=\\"email\\"]').value||'').trim(), slotDate: tr.querySelector('input[name=\\"slotDate\\"]').value, slotHalf: (tr.querySelector('input[name=\\"slotHalf\\"]').value||'').toUpperCase() })).filter(r=>r.author||r.email); }\n"+
+"  function toCsv(data){ const esc=v=>'\"'+String(v||'').replace(/\"/g,'\"\"')+'\"'; const lines=['Author,Email,SlotDate,Half']; data.forEach(r=>lines.push([r.author,r.email,r.slotDate,r.slotHalf].map(esc).join(','))); return lines.join('\\n'); }\n"+
+"  function save(){ try{ localStorage.setItem('ta_writer_invites_v1', JSON.stringify(rows())); }catch(e){} }\n"+
+"  function load(){ try{ const raw=localStorage.getItem('ta_writer_invites_v1'); if(!raw) return; const data=JSON.parse(raw); const trs=Array.from(tbody.querySelectorAll('tr')); for(let i=0;i<trs.length && i<data.length;i++){ const r=data[i]||{}; if(r.author) trs[i].querySelector('input[name=\\"author\\"]').value=r.author; if(r.email) trs[i].querySelector('input[name=\\"email\\"]').value=r.email; } }catch(e){} }\n"+
+"  Array.from(tbody.querySelectorAll('.rm')).forEach(btn=>btn.addEventListener('click',function(){ const tr=this.closest('tr'); if(tr){ tr.remove(); renumber(); save(); } }));\n"+
+"  tbody.addEventListener('input',function(e){ if(e.target && (e.target.name==='author'||e.target.name==='email')) save(); });\n"+
+"  renumber(); load();\n"+
+"  document.getElementById('downloadCsv').addEventListener('click', function(){ const data=rows(); if(!data.length){ out.textContent='Add at least one row.'; return;} const csv=toCsv(data); const blob=new Blob([csv],{type:'text/csv'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='writer_invites.csv'; a.click(); URL.revokeObjectURL(a.href); out.textContent='CSV downloaded.'; });\n"+
+"  document.getElementById('generateLinks').addEventListener('click', async function(){ const data=rows(); if(!data.length){ out.textContent='Add at least one row.'; return;} out.textContent='Generating...'; const results=[]; for(const r of data){ try{ const body=new URLSearchParams(); body.append('author', r.author); if(r.email) body.append('email', r.email); if(r.slotDate) body.append('slotDate', r.slotDate); if(r.slotHalf) body.append('slotHalf', r.slotHalf); const res=await fetch('/admin/writer-invite',{method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body}); const text=await res.text(); if(!res.ok) throw new Error(text||'Failed'); results.push({author:r.author||'(no name)', link:text}); }catch(e){ results.push(r.author+': ERROR '+(e&&e.message?e.message:'Failed')); } } let html=''; for(const item of results){ if(typeof item==='string'){ html+='<div style=\\"color:#ff6b6b;\\">'+item+'</div>'; } else { const a=item; html+='<div class=\\"result-row\\" style=\\"display:flex;gap:8px;align-items:center;\\">' + '<strong style=\\"min-width:160px;\\">'+a.author+':</strong>' + '<a href=\\"'+a.link+'\\" target=\\"_blank\\" style=\\"color:#ffd700;word-break:break-all;\\">'+a.link+'</a>' + '<button class=\\"copy\\" data-link=\\"'+a.link+'\\" style=\\"margin-left:auto;background:#d4af37;color:#000;border:none;border-radius:6px;padding:4px 8px;cursor:pointer;\\">Copy</button>' + '</div>'; } } resultsList.innerHTML=html; resultsPanel.style.display='block'; out.textContent='Done - '+results.length+' link(s) generated.'; resultsList.addEventListener('click', function(e){ const btn=e.target.closest('.copy'); if(!btn) return; const link=btn.getAttribute('data-link'); navigator.clipboard.writeText(link).then(function(){ const old=btn.textContent; btn.textContent='Copied'; setTimeout(function(){ btn.textContent=old; }, 1000); }).catch(function(){}); }, { once:true }); resultsPanel.scrollIntoView({behavior:'smooth', block:'start'}); });\n"+
+")
+  );
 });
 
 // --- Writer: tokenized quiz submission (no title/unlock fields for authors) ---
