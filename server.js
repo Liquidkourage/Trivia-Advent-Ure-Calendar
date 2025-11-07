@@ -70,6 +70,26 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
+// Password hashing (scrypt)
+import { randomBytes, scrypt as _scrypt, timingSafeEqual } from 'crypto';
+import { promisify } from 'util';
+const scrypt = promisify(_scrypt);
+async function hashPassword(password) {
+  const salt = randomBytes(16);
+  const key = await scrypt(password, salt, 64);
+  return 's1$' + salt.toString('base64') + '$' + Buffer.from(key).toString('base64');
+}
+async function verifyPassword(password, stored) {
+  try {
+    const parts = String(stored||'').split('$');
+    if (parts.length !== 3 || parts[0] !== 's1') return false;
+    const salt = Buffer.from(parts[1], 'base64');
+    const hash = Buffer.from(parts[2], 'base64');
+    const key = await scrypt(password, salt, hash.length);
+    return timingSafeEqual(hash, Buffer.from(key));
+  } catch { return false; }
+}
+
 const app = express();
 app.set('trust proxy', 1);
 app.use(express.json());
@@ -200,6 +220,12 @@ async function initDb() {
     EXCEPTION WHEN others THEN NULL; END $$;
     DO $$ BEGIN
       ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS description TEXT;
+    EXCEPTION WHEN others THEN NULL; END $$;
+    DO $$ BEGIN
+      ALTER TABLE players ADD COLUMN IF NOT EXISTS password_hash TEXT;
+    EXCEPTION WHEN others THEN NULL; END $$;
+    DO $$ BEGIN
+      ALTER TABLE players ADD COLUMN IF NOT EXISTS password_set_at TIMESTAMPTZ;
     EXCEPTION WHEN others THEN NULL; END $$;
     -- Optimistic locking fields for manual grading
     DO $$ BEGIN
@@ -551,6 +577,54 @@ app.post('/auth/request-link', async (req, res) => {
   }
 });
 
+// Password login
+app.post('/auth/login-password', express.urlencoded({ extended: true }), async (req, res) => {
+  try {
+    const emailRaw = (req.body && req.body.email) || '';
+    const password = (req.body && req.body.password) || '';
+    const email = String(emailRaw).trim().toLowerCase();
+    if (!email || !password) return res.status(400).send('Missing email or password');
+    const r = await pool.query('SELECT email, password_hash FROM players WHERE email=$1', [email]);
+    if (!r.rows.length) return res.status(403).send('No account. Use magic link first.');
+    const ok = await verifyPassword(password, r.rows[0].password_hash);
+    if (!ok) return res.status(403).send('Invalid email or password');
+    req.session.user = { email };
+    res.redirect('/calendar');
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to login');
+  }
+});
+
+// Account security: set/change password (requires login)
+app.get('/account/security', requireAuth, (req, res) => {
+  res.type('html').send(`
+    <html><head><title>Security</title><link rel="stylesheet" href="/style.css"></head>
+    <body class="ta-body" style="padding:24px;">
+      <h1>Account Security</h1>
+      <form method="post" action="/account/security">
+        <label>New password <input type="password" name="password" required minlength="8" /></label>
+        <button type="submit" style="margin-left:8px;">Save</button>
+      </form>
+      <p style="margin-top:16px;"><a href="/calendar">Calendar</a></p>
+    </body></html>
+  `);
+});
+
+app.post('/account/security', requireAuth, express.urlencoded({ extended: true }), async (req, res) => {
+  try {
+    const pw = String((req.body && req.body.password) || '').trim();
+    if (pw.length < 8 || pw.length > 200) return res.status(400).send('Password length invalid');
+    const hash = await hashPassword(pw);
+    const email = (req.session.user.email || '').toLowerCase();
+    await pool.query('UPDATE players SET password_hash=$1, password_set_at=NOW() WHERE email=$2', [hash, email]);
+    res.redirect('/calendar');
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to set password');
+  }
+});
+
 // Dev helper: request magic link via GET with ?email= when EXPOSE_MAGIC_LINKS=true
 app.get('/auth/dev-link', async (req, res) => {
   if ((process.env.EXPOSE_MAGIC_LINKS || '').toLowerCase() !== 'true') return res.status(404).send('Not found');
@@ -792,10 +866,19 @@ app.get('/login', (req, res) => {
     <body class="ta-body" style="padding: 24px;">
       <h1>Login</h1>
       ${loggedIn ? `<p>You are signed in as ${req.session.user.email}. <a href="/logout">Logout</a></p>` : `
-        <form method="post" action="/auth/request-link" onsubmit="event.preventDefault(); const fd=new FormData(this); const v=String(fd.get('email')||'').trim(); if(!v){alert('Enter your email'); return;} fetch('/auth/request-link',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ email: v })}).then(r=>r.json()).then(d=>{ if (d.link) { alert('Magic link (dev):\n'+d.link); } else { alert('If you have access, a magic link was sent.'); } }).catch(()=>alert('Failed.'));">
-          <label>Email (Ko-fi): <input id="email" name="email" type="email" required /></label>
-          <button type="submit">Send magic link</button>
-        </form>
+        <div style="display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap;">
+          <form method="post" action="/auth/login-password" style="min-width:300px;">
+            <h3>Password</h3>
+            <div><label>Email <input name="email" type="email" required /></label></div>
+            <div style="margin-top:8px;"><label>Password <input name="password" type="password" required /></label></div>
+            <button type="submit" style="margin-top:8px;">Sign in</button>
+          </form>
+          <form method="post" action="/auth/request-link" onsubmit="event.preventDefault(); const fd=new FormData(this); const v=String(fd.get('email')||'').trim(); if(!v){alert('Enter your email'); return;} fetch('/auth/request-link',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ email: v })}).then(r=>r.json()).then(d=>{ if (d.link) { alert('Magic link (dev):\n'+d.link); } else { alert('If you have access, a magic link was sent.'); } }).catch(()=>alert('Failed.'));" style="min-width:340px;">
+            <h3>Magic link</h3>
+            <label>Email <input name="email" type="email" required /></label>
+            <button type="submit" style="margin-left:8px;">Send magic link</button>
+          </form>
+        </div>
       `}
       <p style="margin-top:16px;"><a href="/">Home</a> · <a href="/admin/pin">Admin PIN</a></p>
     </body></html>
