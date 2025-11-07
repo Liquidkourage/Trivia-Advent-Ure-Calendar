@@ -952,7 +952,7 @@ app.post('/admin/writer-submissions/:id/publish', requireAdmin, express.urlencod
 });
 
 // --- Writer: public submit quiz (same fields/flow as admin upload) ---
-app.get('/writer/quiz/new', (req, res) => {
+/* app.get('/writer/quiz/new', (req, res) => {
   res.type('html').send(`
     <html><head><title>Submit Quiz</title><link rel="stylesheet" href="/style.css"></head>
     <body class="ta-body" style="padding: 24px;">
@@ -981,9 +981,9 @@ app.get('/writer/quiz/new', (req, res) => {
       <p style="margin-top:16px;"><a href="/">Home</a></p>
     </body></html>
   `);
-});
+}); */
 
-app.post('/writer/quiz/new', async (req, res) => {
+/* app.post('/writer/quiz/new', async (req, res) => {
   try {
     const title = String(req.body.title || '').trim();
     const author = String(req.body.author || '').trim() || null;
@@ -1011,7 +1011,7 @@ app.post('/writer/quiz/new', async (req, res) => {
     console.error(e);
     res.status(500).send('Failed to submit quiz');
   }
-});
+}); */
 
 // --- Admin: generate schedule ---
 app.get('/admin/generate-schedule', requireAdmin, (req, res) => {
