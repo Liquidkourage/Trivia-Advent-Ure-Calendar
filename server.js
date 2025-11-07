@@ -926,18 +926,36 @@ app.get('/admin', requireAdmin, (req, res) => {
       <header class="ta-header"><div class="ta-header-inner"><div class="ta-brand"><img class="ta-logo" src="/logo.svg"/><span class="ta-title">Trivia Advent‑ure</span></div><nav class="ta-nav"><a href="/calendar">Calendar</a> <a href="/logout">Logout</a></nav></div></header>
       <main class="ta-main ta-container">
         <h1 class="ta-page-title">Admin Dashboard</h1>
-        <div class="ta-card-grid">
-          <a class="ta-card" href="/admin/upload-quiz"><strong>Upload Quiz</strong><span>Create a quiz with 10 questions</span></a>
-          <a class="ta-card" href="/admin/generate-schedule"><strong>Generate Schedule</strong><span>Create Dec 1–24 placeholders</span></a>
-          <a class="ta-card" href="/admin/quizzes"><strong>Manage Quizzes</strong><span>View/Edit/Clone/Delete</span></a>
-          <a class="ta-card" href="/admin/writer-invite"><strong>Writer Invite</strong><span>Create token link for guest authors</span></a>
-          <a class="ta-card" href="/admin/writer-invites"><strong>Writer Invites (CSV)</strong><span>Prepare CSV and bulk-generate links</span></a>
-          <a class="ta-card" href="/admin/writer-invites/list"><strong>Writer Invites (List)</strong><span>Status, resend, deactivate, copy</span></a>
-          <a class="ta-card" href="/admin/calendar"><strong>Admin Calendar</strong><span>AM/PM occupancy and conflicts</span></a>
-          <a class="ta-card" href="/admin/access"><strong>Access & Links</strong><span>Grant or send magic links</span></a>
-          <a class="ta-card" href="/admin/admins"><strong>Admins</strong><span>Manage admin emails</span></a>
-          <a class="ta-card" href="/leaderboard"><strong>Overall Leaderboard</strong></a>
-        </div>
+        <section style="margin-bottom:32px;">
+          <h2 style="margin-bottom:12px;color:#ffd700;">Quizzes</h2>
+          <div class="ta-card-grid">
+            <a class="ta-card" href="/admin/upload-quiz"><strong>Upload Quiz</strong><span>Create a quiz with 10 questions</span></a>
+            <a class="ta-card" href="/admin/generate-schedule"><strong>Generate Schedule</strong><span>Create Dec 1–24 placeholders</span></a>
+            <a class="ta-card" href="/admin/quizzes"><strong>Manage Quizzes</strong><span>View/Edit/Clone/Delete</span></a>
+            <a class="ta-card" href="/admin/calendar"><strong>Admin Calendar</strong><span>AM/PM occupancy and conflicts</span></a>
+          </div>
+        </section>
+        <section style="margin-bottom:32px;">
+          <h2 style="margin-bottom:12px;color:#ffd700;">Writers</h2>
+          <div class="ta-card-grid">
+            <a class="ta-card" href="/admin/writer-invite"><strong>Writer Invite</strong><span>Create token link for guest authors</span></a>
+            <a class="ta-card" href="/admin/writer-invites"><strong>Writer Invites (CSV)</strong><span>Prepare CSV and bulk-generate links</span></a>
+            <a class="ta-card" href="/admin/writer-invites/list"><strong>Writer Invites (List)</strong><span>Status, resend, deactivate, copy</span></a>
+          </div>
+        </section>
+        <section style="margin-bottom:32px;">
+          <h2 style="margin-bottom:12px;color:#ffd700;">Access & Users</h2>
+          <div class="ta-card-grid">
+            <a class="ta-card" href="/admin/access"><strong>Access & Links</strong><span>Grant or send magic links</span></a>
+            <a class="ta-card" href="/admin/admins"><strong>Admins</strong><span>Manage admin emails</span></a>
+          </div>
+        </section>
+        <section style="margin-bottom:32px;">
+          <h2 style="margin-bottom:12px;color:#ffd700;">Leaderboards</h2>
+          <div class="ta-card-grid">
+            <a class="ta-card" href="/leaderboard"><strong>Overall Leaderboard</strong></a>
+          </div>
+        </section>
       </main>
       <footer class="ta-footer"><div class="ta-container">© Trivia Advent‑ure</div></footer>
     </body></html>
