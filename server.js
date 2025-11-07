@@ -921,8 +921,8 @@ app.get('/admin/writer-invites', requireAdmin, (req, res) => {
               const res = await fetch('/admin/writer-invite', { method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body });
               const text = await res.text();
               if (!res.ok) throw new Error(text||'Failed');
-              results.push(`${r.author}: ${text}`);
-            }catch(e){ results.push(`${r.author}: ERROR ${e && e.message ? e.message : 'Failed'}`); }
+              results.push(r.author + ': ' + text);
+            }catch(e){ results.push(r.author + ': ERROR ' + (e && e.message ? e.message : 'Failed')); }
           }
           out.innerHTML = results.map(x=>'<div>'+x+'</div>').join('');
         });
