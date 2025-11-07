@@ -153,7 +153,8 @@ async function initDb() {
       id SERIAL PRIMARY KEY,
       email CITEXT UNIQUE NOT NULL,
       access_granted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      onboarding_complete BOOLEAN NOT NULL DEFAULT FALSE
+      onboarding_complete BOOLEAN NOT NULL DEFAULT FALSE,
+      username CITEXT UNIQUE
     );
     CREATE TABLE IF NOT EXISTS magic_tokens (
       token TEXT PRIMARY KEY,
@@ -226,6 +227,12 @@ async function initDb() {
     EXCEPTION WHEN others THEN NULL; END $$;
     DO $$ BEGIN
       ALTER TABLE players ADD COLUMN IF NOT EXISTS password_set_at TIMESTAMPTZ;
+    EXCEPTION WHEN others THEN NULL; END $$;
+    DO $$ BEGIN
+      ALTER TABLE players ADD COLUMN IF NOT EXISTS username CITEXT;
+    EXCEPTION WHEN others THEN NULL; END $$;
+    DO $$ BEGIN
+      CREATE UNIQUE INDEX IF NOT EXISTS ux_players_username ON players((lower(username))) WHERE username IS NOT NULL;
     EXCEPTION WHEN others THEN NULL; END $$;
     -- Optimistic locking fields for manual grading
     DO $$ BEGIN
@@ -625,6 +632,65 @@ app.post('/account/security', requireAuth, express.urlencoded({ extended: true }
   }
 });
 
+// Account credentials: set username and password (first-time prompt)
+app.get('/account/credentials', requireAuth, async (req, res) => {
+  try {
+    const email = (req.session.user.email || '').toLowerCase();
+    const r = await pool.query('SELECT username, password_set_at FROM players WHERE email=$1', [email]);
+    const havePw = r.rows.length && !!r.rows[0].password_set_at;
+    const uname = r.rows.length ? (r.rows[0].username || '') : '';
+    res.type('html').send(`
+      <html><head><title>Set your account</title><link rel="stylesheet" href="/style.css"></head>
+      <body class="ta-body" style="padding:24px; max-width:720px; margin:0 auto;">
+        <h1>Set your username and password</h1>
+        <form method="post" action="/account/credentials">
+          <div style="margin-bottom:10px;">
+            <label>Username <input name="username" value="${(uname || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;')}" placeholder="letters, numbers, underscore" required /></label>
+            <div style="opacity:.8;font-size:.9em;">3–20 characters, letters/numbers/underscore only. This will appear on leaderboards.</div>
+          </div>
+          <div style="margin-bottom:10px;">
+            <label>Password <input type="password" name="password" ${havePw ? '' : 'required'} minlength="8" /></label>
+          </div>
+          <button type="submit">Save</button>
+        </form>
+        <p style="margin-top:16px;"><a href="/calendar">Skip for now</a></p>
+      </body></html>
+    `);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to load credentials');
+  }
+});
+
+function isValidUsername(u){ return /^[A-Za-z0-9_]{3,20}$/.test(String(u||'')); }
+
+app.post('/account/credentials', requireAuth, express.urlencoded({ extended: true }), async (req, res) => {
+  try {
+    const email = (req.session.user.email || '').toLowerCase();
+    const username = String(req.body.username || '').trim();
+    const pw = String(req.body.password || '');
+    if (!isValidUsername(username)) return res.status(400).send('Invalid username');
+    const taken = await pool.query('SELECT 1 FROM players WHERE lower(username)=lower($1) AND email<>$2 LIMIT 1', [username, email]);
+    if (taken.rows.length) return res.status(400).send('Username already taken');
+    let updates = ['username=$1'];
+    const params = [username, email];
+    if (pw) {
+      if (pw.length < 8 || pw.length > 200) return res.status(400).send('Password length invalid');
+      const hash = await hashPassword(pw);
+      updates.push('password_hash=$3','password_set_at=NOW()');
+      params.splice(1,0,hash); // insert hash as $2 effectively; but we build query accordingly
+      const q = 'UPDATE players SET username=$1, password_hash=$2, password_set_at=NOW() WHERE email=$3';
+      await pool.query(q, [username, hash, email]);
+    } else {
+      await pool.query('UPDATE players SET username=$1 WHERE email=$2', [username, email]);
+    }
+    res.redirect('/calendar');
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to save credentials');
+  }
+});
+
 // Dev helper: request magic link via GET with ?email= when EXPOSE_MAGIC_LINKS=true
 app.get('/auth/dev-link', async (req, res) => {
   if ((process.env.EXPOSE_MAGIC_LINKS || '').toLowerCase() !== 'true') return res.status(404).send('Not found');
@@ -657,10 +723,13 @@ app.get('/auth/magic', async (req, res) => {
     if (new Date(row.expires_at) < new Date()) return res.status(400).send('Token expired');
     await pool.query('UPDATE magic_tokens SET used = true WHERE token = $1', [token]);
     req.session.user = { email: row.email };
-    // Check onboarding
-    const orow = await pool.query('SELECT onboarding_complete FROM players WHERE email = $1', [row.email]);
-    const done = orow.rows[0] && orow.rows[0].onboarding_complete === true;
-    res.redirect(done ? '/' : '/onboarding');
+    // Check onboarding and credentials
+    const orow = await pool.query('SELECT onboarding_complete, username, password_set_at FROM players WHERE email = $1', [row.email]);
+    const p = orow.rows[0] || {};
+    const onboardingDone = p.onboarding_complete === true;
+    if (!onboardingDone) return res.redirect('/onboarding');
+    if (!p.username || !p.password_set_at) return res.redirect('/account/credentials');
+    res.redirect('/');
   } catch (e) {
     console.error(e);
     res.status(500).send('Auth failed');
@@ -826,7 +895,7 @@ app.get('/player', requireAuth, async (req, res) => {
   res.type('html').send(`
     <html><head><title>Player • Trivia Advent-ure</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
     <body class="ta-body">
-      <header class="ta-header"><div class="ta-header-inner"><div class="ta-brand"><img class="ta-logo" src="/logo.svg"/><span class="ta-title">Trivia Advent‑ure</span></div><nav class="ta-nav"><a href="/calendar">Calendar</a> <a href="/account/security">Account</a> <a href="/logout">Logout</a></nav></div></header>
+      <header class="ta-header"><div class="ta-header-inner"><div class="ta-brand"><img class="ta-logo" src="/logo.svg"/><span class="ta-title">Trivia Advent‑ure</span></div><nav class="ta-nav"><a href="/calendar">Calendar</a> <a href="/account/credentials">Account</a> <a href="/logout">Logout</a></nav></div></header>
       <main class="ta-main ta-container">
         ${needsPassword ? `<div style="margin:12px 0;padding:10px;border:1px solid #ffecb5;border-radius:6px;background:#fff8e1;color:#6b4f00;">Welcome! For cross-device login, please <a href="/account/security">set your password</a>.</div>` : ''}
         <h1 class="ta-page-title">Welcome, ${req.session.user.email}</h1>
@@ -1012,7 +1081,7 @@ app.get('/calendar', async (req, res) => {
     res.type('html').send(`
       <html><head><title>Calendar</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
       <body class="ta-body">
-        <header class="ta-header"><div class="ta-header-inner"><div class="ta-brand"><img class="ta-logo" src="/logo.svg"/><span class="ta-title">Trivia Advent‑ure</span></div><nav class="ta-nav">${email ? `<a href="/calendar">Calendar</a> <a href="/account/security">Account</a> <a href="/logout">Logout</a>` : `<a href="/login">Login</a>`}</nav></div></header>
+      <header class="ta-header"><div class="ta-header-inner"><div class="ta-brand"><img class="ta-logo" src="/logo.svg"/><span class="ta-title">Trivia Advent‑ure</span></div><nav class="ta-nav">${email ? `<a href="/calendar">Calendar</a> <a href="/account/credentials">Account</a> <a href="/logout">Logout</a>` : `<a href="/login">Login</a>`}</nav></div></header>
         <main class="ta-main ta-container ta-calendar">
           ${email && needsPassword ? `<div style="margin:12px 0;padding:10px;border:1px solid #ffecb5;border-radius:6px;background:#fff8e1;color:#6b4f00;">Welcome! For cross-device login, please <a href="/account/security">set your password</a>.</div>` : ''}
           <h1 class="ta-page-title">Advent Calendar</h1>
@@ -1870,14 +1939,15 @@ app.get('/quiz/:id/leaderboard', async (req, res) => {
     if (qr.length === 0) return res.status(404).send('Quiz not found');
     const freezeUtc = new Date(qr[0].freeze_at);
     const { rows } = await pool.query(
-      `SELECT user_email, SUM(points) AS points, MIN(created_at) AS first_time
-       FROM responses
-       WHERE quiz_id = $1 AND created_at <= $2
-       GROUP BY user_email
+      `SELECT COALESCE(p.username, r.user_email) AS handle, SUM(r.points) AS points, MIN(r.created_at) AS first_time
+       FROM responses r
+       LEFT JOIN players p ON p.email = r.user_email
+       WHERE r.quiz_id = $1 AND r.created_at <= $2
+       GROUP BY COALESCE(p.username, r.user_email)
        ORDER BY points DESC, first_time ASC`,
       [id, freezeUtc]
     );
-    const items = rows.map(r => `<tr><td>${r.user_email}</td><td>${r.points}</td><td>${fmtEt(r.first_time)}</td></tr>`).join('');
+    const items = rows.map(r => `<tr><td>${r.handle}</td><td>${r.points}</td><td>${fmtEt(r.first_time)}</td></tr>`).join('');
     res.type('html').send(`
       <html><head><title>Leaderboard • Quiz ${id}</title><link rel="stylesheet" href="/style.css"></head>
       <body class="ta-body" style="padding:24px;">
@@ -1968,12 +2038,13 @@ app.get('/archive/:id', async (req, res) => {
 app.get('/leaderboard', async (_req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT user_email, SUM(points) AS points
-       FROM responses
-       GROUP BY user_email
+      `SELECT COALESCE(p.username, r.user_email) AS handle, SUM(r.points) AS points
+       FROM responses r
+       LEFT JOIN players p ON p.email = r.user_email
+       GROUP BY COALESCE(p.username, r.user_email)
        ORDER BY points DESC`
     );
-    const items = rows.map(r => `<tr><td>${r.user_email}</td><td>${r.points}</td></tr>`).join('');
+    const items = rows.map(r => `<tr><td>${r.handle}</td><td>${r.points}</td></tr>`).join('');
     res.type('html').send(`
       <html><head><title>Overall Leaderboard</title><link rel="stylesheet" href="/style.css"></head>
       <body class="ta-body" style="padding:24px;">
