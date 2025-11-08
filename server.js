@@ -508,6 +508,12 @@ function utcToEtParts(d){
   return {y: et.getUTCFullYear(), m: et.getUTCMonth()+1, d: et.getUTCDate(), h: et.getUTCHours(), et};
 }
 
+// Helper function to generate HTML head with viewport meta tag
+function renderHead(title, includeFavicon = true) {
+  const favicon = includeFavicon ? '<link rel="icon" href="/favicon.svg" type="image/svg+xml">' : '';
+  return `<html><head><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>${title}</title><link rel="stylesheet" href="/style.css">${favicon}</head>`;
+}
+
 // Helper function to generate consistent header HTML across all pages
 async function renderHeader(req) {
   const email = (req.session?.user?.email || '').toLowerCase() || null;
@@ -1561,7 +1567,7 @@ app.get('/public', async (req, res) => {
   
   const header = await renderHeader(req);
   res.type('html').send(`
-    <html><head><title>Trivia Advent-ure</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
+    ${renderHead('Trivia Advent-ure', true)}
     <body class="ta-body">
       ${header}
       <main class="ta-main ta-container" style="max-width:900px;">
