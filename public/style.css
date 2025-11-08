@@ -9,6 +9,9 @@
   --blue-top:#0f1d5a;
   --blue-mid:#15124a;
   --blue-bottom:#0b1338;
+  --header-height:72px;
+  --footer-height:200px;
+  --door-gap-y:24px;
 }
 @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800&family=Cinzel+Decorative:wght@700&display=swap');
 html{background:linear-gradient(180deg,var(--blue-top) 0%, var(--blue-mid) 60%, var(--blue-bottom) 100%);min-height:100%;background-color:#0b1338}
@@ -38,7 +41,7 @@ body.ta-body{margin:0;background:linear-gradient(180deg,var(--blue-top) 0%, var(
 .ta-menu-toggle[aria-expanded="true"] span:nth-child(1){transform:rotate(45deg) translate(8px,8px)}
 .ta-menu-toggle[aria-expanded="true"] span:nth-child(2){opacity:0}
 .ta-menu-toggle[aria-expanded="true"] span:nth-child(3){transform:rotate(-45deg) translate(8px,-8px)}
-.ta-main{overflow:auto;padding:24px 0 32px 0}
+.ta-main{overflow:auto;padding:calc(var(--door-gap-y)) 3vw calc(var(--footer-height) - 40px) 3vw;display:flex;flex-direction:column;align-items:center}
 .ta-footer{border-top:1px solid rgba(255,255,255,0.08);background:rgba(0,0,0,0.35);margin-top:0;position:sticky;bottom:0;z-index:30}
 .ta-footer-inner{display:flex;flex-wrap:wrap;gap:32px;align-items:flex-start;padding:28px 0;justify-content:space-between}
 .ta-footer-brand{display:flex;align-items:center;gap:12px;flex:0 0 auto;min-width:220px}
@@ -127,13 +130,23 @@ body.ta-body{margin:0;background:linear-gradient(180deg,var(--blue-top) 0%, var(
 .ta-calendar{margin-top:12px}
 .ta-calendar-grid{
   display:grid;
-  grid-template-columns:repeat(6,minmax(160px,1fr));
-  gap:20px 28px;
+  grid-template-columns:repeat(6,minmax(0,1fr));
+  gap:var(--door-gap-y) 32px;
+  width:min(1200px,100%);
   justify-content:center;
-  padding:20px 16px 56px 16px;
+  padding:20px 24px 56px 24px;
 }
 .ta-door-slot{position:relative;display:flex;flex-direction:column;align-items:center;gap:10px;width:100%}
-.ta-door{position:relative;width:100%;max-width:220px;aspect-ratio:3/4;perspective:1000px;border-radius:16px;overflow:hidden}
+.ta-door{
+  position:relative;
+  width:100%;
+  aspect-ratio:4/3;
+  max-width:220px;
+  height:min(210px, calc((100vh - var(--header-height) - var(--footer-height) - (5 * var(--door-gap-y)) - 80px)/4));
+  perspective:1000px;
+  border-radius:16px;
+  overflow:hidden;
+}
 .ta-door.is-unlocked{cursor:pointer}
 .ta-door-inner{position:relative;width:100%;height:100%;transform-style:preserve-3d;transition:transform .9s cubic-bezier(.2,.65,.2,1)}
 .ta-door-front,.ta-door-back{position:absolute;inset:0;border-radius:16px;backface-visibility:hidden;box-sizing:border-box}
