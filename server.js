@@ -537,8 +537,8 @@ async function renderHeader(req) {
   }
   
   const navLinks = email 
-    ? `<span class="ta-user" style="margin-right:12px;opacity:.9;">${displayName}</span> <a href="/calendar">Calendar</a> <a href="/account">Account</a>${isAdmin ? ' <a href="/admin">Admin</a>' : ''} <a href="/logout">Logout</a>`
-    : `<a href="/login">Login</a>`;
+    ? `<span class="ta-user" style="margin-right:12px;opacity:.9;">${displayName}</span> <a href="/calendar">Calendar</a> <a href="/leaderboard">Leaderboard</a> <a href="/account">Account</a>${isAdmin ? ' <a href="/admin">Admin</a>' : ''} <a href="/logout">Logout</a>`
+    : `<a href="/leaderboard">Leaderboard</a> <a href="/login">Login</a>`;
   
   return `<header class="ta-header"><div class="ta-header-inner"><div class="ta-brand"><img class="ta-logo" src="/logo.svg"/><span class="ta-title">Trivia Advent‑ure</span></div><button class="ta-menu-toggle" aria-label="Toggle menu" aria-expanded="false"><span></span><span></span><span></span></button><nav class="ta-nav">${navLinks}</nav></div></header><script src="/js/common-enhancements.js"></script>`;
 }
@@ -2021,9 +2021,10 @@ app.get('/player', requireAuth, async (req, res) => {
         </div>
         ` : ''}
         
-        <div class="ta-actions" style="margin-top:32px;">
+        <div class="ta-actions" style="margin-top:32px;display:flex;flex-wrap:wrap;gap:12px;">
           <a class="ta-btn ta-btn-primary" href="/calendar">Open Calendar</a>
-          <a class="ta-btn ta-btn-outline" href="/account/credentials" style="margin-left:8px;">Account Settings</a>
+          <a class="ta-btn ta-btn-outline" href="/leaderboard">View Leaderboard</a>
+          <a class="ta-btn ta-btn-outline" href="/account/credentials">Account Settings</a>
         </div>
       </main>
       <footer class="ta-footer"><div class="ta-container">© Trivia Advent‑ure</div></footer>
