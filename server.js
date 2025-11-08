@@ -834,6 +834,26 @@ async function processKofiDonation(body, skipSecretCheck = false) {
 }
 
 // --- Ko-fi webhook ---
+// GET handler for testing/verification
+app.get('/webhooks/kofi', (req, res) => {
+  res.type('html').send(`
+    <html>
+      <head><title>Ko-fi Webhook Endpoint</title></head>
+      <body style="font-family: sans-serif; padding: 24px; max-width: 600px; margin: 0 auto;">
+        <h1>Ko-fi Webhook Endpoint</h1>
+        <p>This endpoint is configured to receive POST requests from Ko-fi.</p>
+        <p><strong>Status:</strong> ✅ Active</p>
+        <p><strong>Method:</strong> POST only</p>
+        <p><strong>URL:</strong> <code>https://triviaadventure.org/webhooks/kofi</code></p>
+        ${WEBHOOK_SHARED_SECRET ? '<p><strong>Secret:</strong> Configured (required)</p>' : '<p><strong>Secret:</strong> Not configured (optional)</p>'}
+        <hr>
+        <p><small>This endpoint will process donation webhooks from Ko-fi and automatically grant access to players.</small></p>
+      </body>
+    </html>
+  `);
+});
+
+// POST handler for actual webhook
 app.post('/webhooks/kofi', async (req, res) => {
   try {
     console.log('[Ko-fi Webhook] Received request');
