@@ -1225,7 +1225,6 @@ app.get('/admin', requireAdmin, async (req, res) => {
           <h2 style="margin-bottom:12px;color:#ffd700;">Quizzes</h2>
           <div class="ta-card-grid">
             <a class="ta-card" href="/admin/upload-quiz"><strong>Upload Quiz</strong><span>Create a quiz with 10 questions</span></a>
-            <a class="ta-card" href="/admin/generate-schedule"><strong>Generate Schedule</strong><span>Create Dec 1–24 placeholders</span></a>
             <a class="ta-card" href="/admin/quizzes"><strong>Manage Quizzes</strong><span>View/Edit/Clone/Delete</span></a>
             <a class="ta-card" href="/admin/calendar"><strong>Admin Calendar</strong><span>AM/PM occupancy and conflicts</span></a>
           </div>
@@ -2146,54 +2145,6 @@ app.post('/admin/writer-invites/:token/deactivate', requireAdmin, async (req, re
     res.status(500).send('Failed to submit quiz');
   }
 }); */
-
-// --- Admin: generate schedule ---
-app.get('/admin/generate-schedule', requireAdmin, async (req, res) => {
-  const header = await renderHeader(req);
-  res.type('html').send(`
-    <html><head><title>Generate Schedule</title><link rel="stylesheet" href="/style.css"></head>
-    <body class="ta-body" style="padding: 24px;">
-    ${header}
-      <h1>Generate 48-quiz Schedule</h1>
-      <p>This will create placeholders for Dec 1–24 at 12:00am and 12:00pm ET. Existing entries are skipped.</p>
-      <form method="post" action="/admin/generate-schedule">
-        <label>Year <input name="year" type="number" value="${new Date().getUTCFullYear()}" required /></label>
-        <button type="submit" style="margin-left:8px;">Generate</button>
-      </form>
-      <p style="margin-top:16px;"><a href="/admin">Back</a></p>
-    </body></html>
-  `);
-});
-
-app.post('/admin/generate-schedule', requireAdmin, async (req, res) => {
-  try {
-    const year = Number(req.body.year || new Date().getUTCFullYear());
-    const inserts = [];
-    let count = 0;
-    for (let day = 1; day <= 24; day++) {
-      for (const hh of [0, 12]) {
-        const mm = '00';
-        const month = '12';
-        const dd = String(day).padStart(2, '0');
-        const hhStr = String(hh).padStart(2, '0');
-        const etStr = `${year}-${month}-${dd}T${hhStr}:${mm}`; // ET
-        const unlockUtc = etToUtc(etStr);
-        const freezeUtc = new Date(unlockUtc.getTime() + 24*60*60*1000);
-        const label = `${year}-12-${dd} ${hh === 0 ? 'Midnight' : 'Noon'} ET`;
-        // Skip if quiz already exists at same unlock
-        const exist = await pool.query('SELECT id FROM quizzes WHERE unlock_at = $1', [unlockUtc]);
-        if (exist.rows.length === 0) {
-          await pool.query('INSERT INTO quizzes(title, unlock_at, freeze_at) VALUES($1,$2,$3)', [label, unlockUtc, freezeUtc]);
-          count++;
-        }
-      }
-    }
-    res.type('html').send(`<html><body style="font-family: system-ui; padding:24px;"><h1>Generated ${count} quizzes</h1><p><a href="/calendar">View Calendar</a> · <a href="/admin">Back</a></p></body></html>`);
-  } catch (e) {
-    console.error(e);
-    res.status(500).send('Failed to generate');
-  }
-});
 
 // --- Play quiz ---
 app.get('/quiz/:id', async (req, res) => {
