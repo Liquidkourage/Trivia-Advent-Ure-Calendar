@@ -115,6 +115,15 @@ body.ta-body{margin:0;background:linear-gradient(180deg,var(--blue-top) 0%, var(
   #quiz-progress{padding:10px}
   .rules-panel{padding:12px}
   .meta-panel,.desc-panel{padding:14px;font-size:16px}
+  .ta-container{padding:16px}
+  .ta-card-grid{grid-template-columns:1fr}
+  table{font-size:14px}
+  table th,table td{padding:6px 4px}
+  .ta-actions{flex-direction:column}
+  .ta-actions .ta-btn{width:100%;margin-left:0!important;margin-top:8px}
+  .ta-header-inner{flex-direction:column;align-items:flex-start;gap:8px}
+  .ta-nav{flex-wrap:wrap;gap:8px}
+  input[type="text"],input[type="email"],input[type="password"],select,textarea{width:100%!important;max-width:100%!important}
 }
 .ta-door-panel{border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:10px;background:rgba(0,0,0,.25)}
 .ta-door-panel.locked{opacity:.7}
