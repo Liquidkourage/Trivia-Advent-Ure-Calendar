@@ -304,8 +304,12 @@ body.ta-body{margin:0;background:linear-gradient(180deg,var(--blue-top) 0%, var(
   .ta-door{max-width:220px}
 }
 
-@media (max-width: 420px){
-  .ta-calendar-grid{grid-template-columns:repeat(1,minmax(0,1fr));padding-bottom:24px}
+@media (max-width: 360px){
+  .ta-calendar-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;}
+  .ta-door{max-width:150px;min-width:95px;}
+}
+@media (max-width: 300px){
+  .ta-calendar-grid{grid-template-columns:repeat(1,minmax(0,1fr));}
 }
 
 /* Additional mobile optimizations */
