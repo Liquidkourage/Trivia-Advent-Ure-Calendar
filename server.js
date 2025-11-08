@@ -2741,15 +2741,19 @@ app.post('/admin/writer-invites/:token/deactivate', requireAdmin, async (req, re
 // --- Admin: My Writer Invites (shows invites for logged-in admin) ---
 app.get('/admin/writer-invites/my', requireAdmin, async (req, res) => {
   try {
-    const adminEmail = getAdminEmail();
+    // Get the logged-in user's email from session
+    const userEmail = req.session.user ? (req.session.user.email || '').toLowerCase() : '';
+    if (!userEmail) {
+      return res.status(400).send('Unable to determine your email address');
+    }
     const baseUrl = process.env.PUBLIC_BASE_URL || '';
     const { rows } = await pool.query(
       `SELECT token, author, email, slot_date, slot_half, send_at, sent_at, clicked_at, submitted_at, published_at, active, created_at
        FROM writer_invites
-       WHERE email = $1
+       WHERE LOWER(email) = $1
        ORDER BY slot_date NULLS LAST, slot_half NULLS LAST, created_at DESC
        LIMIT 100`,
-      [adminEmail]
+      [userEmail]
     );
     
     if (rows.length === 0) {
