@@ -239,6 +239,9 @@ async function initDb() {
     DO $$ BEGIN
       CREATE UNIQUE INDEX IF NOT EXISTS ux_players_username ON players((lower(username))) WHERE username IS NOT NULL;
     EXCEPTION WHEN others THEN NULL; END $$;
+    DO $$ BEGIN
+      ALTER TABLE players ADD COLUMN IF NOT EXISTS email_notifications_enabled BOOLEAN NOT NULL DEFAULT TRUE;
+    EXCEPTION WHEN others THEN NULL; END $$;
     -- Optimistic locking fields for manual grading
     DO $$ BEGIN
       ALTER TABLE responses ADD COLUMN IF NOT EXISTS override_version INTEGER NOT NULL DEFAULT 0;
@@ -482,7 +485,7 @@ async function renderHeader(req) {
   }
   
   const navLinks = email 
-    ? `<span class="ta-user" style="margin-right:12px;opacity:.9;">${displayName}</span> <a href="/calendar">Calendar</a> <a href="/account/credentials">Account</a>${isAdmin ? ' <a href="/admin">Admin</a>' : ''} <a href="/logout">Logout</a>`
+    ? `<span class="ta-user" style="margin-right:12px;opacity:.9;">${displayName}</span> <a href="/calendar">Calendar</a> <a href="/account">Account</a>${isAdmin ? ' <a href="/admin">Admin</a>' : ''} <a href="/logout">Logout</a>`
     : `<a href="/login">Login</a>`;
   
   return `<header class="ta-header"><div class="ta-header-inner"><div class="ta-brand"><img class="ta-logo" src="/logo.svg"/><span class="ta-title">Trivia Advent‑ure</span></div><nav class="ta-nav">${navLinks}</nav></div></header>`;
@@ -682,6 +685,182 @@ app.post('/account/security', requireAuth, express.urlencoded({ extended: true }
   }
 });
 
+// Main account page - hub for all account settings
+app.get('/account', requireAuth, async (req, res) => {
+  try {
+    const email = (req.session.user.email || '').toLowerCase();
+    const player = (await pool.query('SELECT username, email, access_granted_at, password_set_at, onboarding_complete FROM players WHERE email=$1', [email])).rows[0];
+    if (!player) return res.status(404).send('Account not found');
+    
+    const isAdmin = await isAdminUser(req);
+    const displayName = player.username || email;
+    const accountAge = player.access_granted_at ? Math.floor((Date.now() - new Date(player.access_granted_at).getTime()) / (1000 * 60 * 60 * 24)) : 0;
+    
+    // Get quick stats
+    let stats = { totalQuizzes: 0, totalQuestions: 0, avgScore: 0 };
+    try {
+      const statsResult = await pool.query(`
+        SELECT 
+          COUNT(DISTINCT r.quiz_id) as total_quizzes,
+          COUNT(DISTINCT r.question_id) as total_questions,
+          SUM(CASE WHEN r.override_correct = true OR (r.override_correct IS NULL AND LOWER(TRIM(r.response_text)) = LOWER(TRIM(qq.answer))) THEN 1 ELSE 0 END) as correct_answers
+        FROM responses r
+        JOIN questions qq ON qq.id = r.question_id
+        WHERE r.user_email = $1
+      `, [email]);
+      if (statsResult.rows.length) {
+        stats.totalQuizzes = parseInt(statsResult.rows[0].total_quizzes) || 0;
+        stats.totalQuestions = parseInt(statsResult.rows[0].total_questions) || 0;
+        const correct = parseInt(statsResult.rows[0].correct_answers) || 0;
+        stats.avgScore = stats.totalQuestions > 0 ? Math.round((correct / stats.totalQuestions) * 100) : 0;
+      }
+    } catch (e) {
+      console.error('Error fetching account stats:', e);
+    }
+    
+    const header = await renderHeader(req);
+    res.type('html').send(`
+      <html><head><title>Account • Trivia Advent-ure</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
+      <body class="ta-body">
+        ${header}
+        <main class="ta-main ta-container" style="max-width:800px;">
+          <h1 class="ta-page-title">Account Settings</h1>
+          ${req.query.msg ? `<div style="margin:12px 0;padding:12px;border:1px solid #2e7d32;border-radius:6px;background:rgba(46,125,50,0.1);color:#4caf50;">${req.query.msg}</div>` : ''}
+          
+          <div style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:24px;margin-bottom:24px;">
+            <h2 style="margin-top:0;color:#ffd700;">Account Overview</h2>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-top:16px;">
+              <div>
+                <div style="font-size:14px;opacity:0.7;margin-bottom:4px;">Username</div>
+                <div style="font-size:18px;font-weight:bold;color:#ffd700;">${displayName}</div>
+              </div>
+              <div>
+                <div style="font-size:14px;opacity:0.7;margin-bottom:4px;">Email</div>
+                <div style="font-size:14px;opacity:0.9;">${email}</div>
+              </div>
+              <div>
+                <div style="font-size:14px;opacity:0.7;margin-bottom:4px;">Member Since</div>
+                <div style="font-size:14px;opacity:0.9;">${player.access_granted_at ? new Date(player.access_granted_at).toLocaleDateString() : 'Unknown'}</div>
+                ${accountAge > 0 ? `<div style="font-size:12px;opacity:0.6;margin-top:4px;">${accountAge} days ago</div>` : ''}
+              </div>
+            </div>
+            
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:16px;margin-top:24px;padding-top:24px;border-top:1px solid #333;">
+              <div>
+                <div style="font-size:14px;opacity:0.7;margin-bottom:4px;">Quizzes Played</div>
+                <div style="font-size:24px;font-weight:bold;color:#ffd700;">${stats.totalQuizzes}</div>
+              </div>
+              <div>
+                <div style="font-size:14px;opacity:0.7;margin-bottom:4px;">Questions Answered</div>
+                <div style="font-size:24px;font-weight:bold;color:#ffd700;">${stats.totalQuestions}</div>
+              </div>
+              <div>
+                <div style="font-size:14px;opacity:0.7;margin-bottom:4px;">Average Score</div>
+                <div style="font-size:24px;font-weight:bold;color:#ffd700;">${stats.avgScore}%</div>
+              </div>
+            </div>
+          </div>
+          
+          <section style="margin-bottom:32px;">
+            <h2 style="margin-bottom:16px;color:#ffd700;">Profile & Security</h2>
+            <div class="ta-card-grid">
+              <a class="ta-card" href="/account/credentials">
+                <strong>Edit Profile</strong>
+                <span>Change username and password</span>
+              </a>
+              <a class="ta-card" href="/account/security">
+                <strong>Change Password</strong>
+                <span>Update your account password</span>
+              </a>
+            </div>
+          </section>
+          
+          <section style="margin-bottom:32px;">
+            <h2 style="margin-bottom:16px;color:#ffd700;">Activity & Data</h2>
+            <div class="ta-card-grid">
+              <a class="ta-card" href="/player">
+                <strong>My Dashboard</strong>
+                <span>View your stats and recent quizzes</span>
+              </a>
+              <a class="ta-card" href="/account/history">
+                <strong>Quiz History</strong>
+                <span>View all your quiz attempts</span>
+              </a>
+              <a class="ta-card" href="/account/export">
+                <strong>Export Data</strong>
+                <span>Download your quiz data (CSV/JSON)</span>
+              </a>
+              <a class="ta-card" href="/calendar">
+                <strong>Calendar</strong>
+                <span>Browse and play quizzes</span>
+              </a>
+            </div>
+          </section>
+          
+          <section style="margin-bottom:32px;">
+            <h2 style="margin-bottom:16px;color:#ffd700;">Preferences</h2>
+            <div class="ta-card-grid">
+              <a class="ta-card" href="/account/preferences">
+                <strong>Email Preferences</strong>
+                <span>Manage notification settings</span>
+              </a>
+            </div>
+          </section>
+          
+          <section style="margin-bottom:32px;">
+            <h2 style="margin-bottom:16px;color:#ffd700;">Danger Zone</h2>
+            <div style="background:#1a1a1a;border:1px solid #d32f2f;border-radius:8px;padding:16px;">
+              <h3 style="margin-top:0;color:#d32f2f;">Delete Account</h3>
+              <p style="opacity:0.9;margin-bottom:16px;">Permanently delete your account and all associated data. This action cannot be undone.</p>
+              <a href="/account/delete" class="ta-btn" style="background:#d32f2f;color:#fff;border-color:#d32f2f;">Delete Account</a>
+            </div>
+          </section>
+          
+          ${isAdmin ? `
+          <section style="margin-bottom:32px;">
+            <h2 style="margin-bottom:16px;color:#ffd700;">Admin</h2>
+            <div class="ta-card-grid">
+              <a class="ta-card" href="/admin">
+                <strong>Admin Dashboard</strong>
+                <span>Manage quizzes, players, and settings</span>
+              </a>
+            </div>
+          </section>
+          ` : ''}
+          
+          <section style="margin-bottom:32px;">
+            <h2 style="margin-bottom:16px;color:#ffd700;">Account Status</h2>
+            <div style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:16px;">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                <span>Password Set</span>
+                <span style="color:${player.password_set_at ? '#2e7d32' : '#d32f2f'};font-weight:bold;">
+                  ${player.password_set_at ? '✓ Yes' : '✗ No'}
+                </span>
+              </div>
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                <span>Onboarding Complete</span>
+                <span style="color:${player.onboarding_complete ? '#2e7d32' : '#d32f2f'};font-weight:bold;">
+                  ${player.onboarding_complete ? '✓ Yes' : '✗ No'}
+                </span>
+              </div>
+              ${isAdmin ? `
+              <div style="display:flex;justify-content:space-between;align-items:center;">
+                <span>Admin Access</span>
+                <span style="color:#ffd700;font-weight:bold;">✓ Yes</span>
+              </div>
+              ` : ''}
+            </div>
+          </section>
+        </main>
+        <footer class="ta-footer"><div class="ta-container">© Trivia Advent‑ure</div></footer>
+      </body></html>
+    `);
+  } catch (e) {
+    console.error('Error loading account page:', e);
+    res.status(500).send('Failed to load account page');
+  }
+});
+
 // Account credentials: set username and password (first-time prompt)
 app.get('/account/credentials', requireAuth, async (req, res) => {
   try {
@@ -742,6 +921,354 @@ app.post('/account/credentials', requireAuth, express.urlencoded({ extended: tru
   } catch (e) {
     console.error(e);
     res.status(500).send('Failed to save credentials');
+  }
+});
+
+// Quiz History - view all quiz attempts
+app.get('/account/history', requireAuth, async (req, res) => {
+  try {
+    const email = (req.session.user.email || '').toLowerCase();
+    const quizAttempts = (await pool.query(`
+      SELECT 
+        q.id,
+        q.title,
+        q.unlock_at,
+        q.freeze_at,
+        q.author,
+        COUNT(DISTINCT r.question_id) as questions_answered,
+        COUNT(DISTINCT qq.id) as total_questions,
+        SUM(CASE WHEN r.override_correct = true OR (r.override_correct IS NULL AND LOWER(TRIM(r.response_text)) = LOWER(TRIM(qq.answer))) THEN 1 ELSE 0 END) as correct_count,
+        SUM(r.points) as total_points,
+        MIN(r.created_at) as first_response,
+        MAX(r.created_at) as last_response
+      FROM quizzes q
+      LEFT JOIN questions qq ON qq.quiz_id = q.id
+      LEFT JOIN responses r ON r.quiz_id = q.id AND r.user_email = $1 AND r.question_id = qq.id
+      WHERE EXISTS (SELECT 1 FROM responses r2 WHERE r2.quiz_id = q.id AND r2.user_email = $1)
+      GROUP BY q.id, q.title, q.unlock_at, q.freeze_at, q.author
+      ORDER BY q.unlock_at DESC
+    `, [email])).rows;
+    
+    const header = await renderHeader(req);
+    res.type('html').send(`
+      <html><head><title>Quiz History • Trivia Advent-ure</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
+      <body class="ta-body">
+        ${header}
+        <main class="ta-main ta-container" style="max-width:900px;">
+          <h1 class="ta-page-title">Quiz History</h1>
+          <p style="margin-bottom:24px;"><a href="/account">← Back to Account</a></p>
+          
+          ${quizAttempts.length === 0 ? `
+            <div style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:32px;text-align:center;">
+              <p style="opacity:0.7;">You haven't taken any quizzes yet.</p>
+              <p style="margin-top:16px;"><a href="/calendar" class="ta-btn ta-btn-primary">Browse Quizzes</a></p>
+            </div>
+          ` : `
+            <div style="display:flex;flex-direction:column;gap:16px;">
+              ${quizAttempts.map(q => {
+                const score = q.total_questions > 0 ? Math.round((q.correct_count / q.total_questions) * 100) : 0;
+                const unlockDate = q.unlock_at ? new Date(q.unlock_at).toLocaleDateString() : '';
+                const isComplete = q.questions_answered === q.total_questions;
+                const isFrozen = q.freeze_at ? new Date(q.freeze_at) < new Date() : false;
+                return `
+                  <div style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:20px;">
+                    <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:12px;">
+                      <div style="flex:1;">
+                        <h3 style="margin:0 0 8px 0;color:#ffd700;">
+                          <a href="/quiz/${q.id}" style="color:#ffd700;text-decoration:none;">${q.title || 'Untitled Quiz'}</a>
+                        </h3>
+                        <div style="font-size:14px;opacity:0.7;margin-bottom:4px;">${unlockDate}${q.author ? ` • ${q.author}` : ''}</div>
+                        <div style="font-size:14px;opacity:0.7;">
+                          ${q.questions_answered}/${q.total_questions} questions answered
+                          ${isComplete ? ' • Complete' : isFrozen ? ' • Quiz closed' : ' • In progress'}
+                        </div>
+                      </div>
+                      <div style="text-align:right;margin-left:16px;">
+                        <div style="font-size:28px;font-weight:bold;color:#ffd700;">${score}%</div>
+                        <div style="font-size:12px;opacity:0.7;">${q.total_points || 0} pts</div>
+                      </div>
+                    </div>
+                    <div style="margin-top:12px;">
+                      <a href="/quiz/${q.id}" class="ta-btn ta-btn-small">View Quiz</a>
+                    </div>
+                  </div>
+                `;
+              }).join('')}
+            </div>
+          `}
+        </main>
+        <footer class="ta-footer"><div class="ta-container">© Trivia Advent‑ure</div></footer>
+      </body></html>
+    `);
+  } catch (e) {
+    console.error('Error loading quiz history:', e);
+    res.status(500).send('Failed to load quiz history');
+  }
+});
+
+// Data Export
+app.get('/account/export', requireAuth, async (req, res) => {
+  try {
+    const email = (req.session.user.email || '').toLowerCase();
+    const format = String(req.query.format || '').toLowerCase();
+    
+    // If no format specified, show selection page
+    if (!format || (format !== 'csv' && format !== 'json')) {
+      const header = await renderHeader(req);
+      res.type('html').send(`
+        <html><head><title>Export Data • Trivia Advent-ure</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
+        <body class="ta-body">
+          ${header}
+          <main class="ta-main ta-container" style="max-width:720px;">
+            <h1 class="ta-page-title">Export Your Data</h1>
+            <p style="margin-bottom:24px;"><a href="/account">← Back to Account</a></p>
+            
+            <div style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:24px;">
+              <p style="margin-bottom:24px;">Download all your quiz data, including responses, scores, and quiz history.</p>
+              
+              <div style="display:flex;gap:16px;flex-wrap:wrap;">
+                <a href="/account/export?format=json" class="ta-btn ta-btn-primary" style="flex:1;min-width:200px;text-align:center;">
+                  Download as JSON
+                </a>
+                <a href="/account/export?format=csv" class="ta-btn ta-btn-primary" style="flex:1;min-width:200px;text-align:center;">
+                  Download as CSV
+                </a>
+              </div>
+              
+              <div style="margin-top:24px;padding-top:24px;border-top:1px solid #333;">
+                <h3 style="margin-top:0;color:#ffd700;">What's included:</h3>
+                <ul style="opacity:0.9;">
+                  <li>All quiz attempts with scores</li>
+                  <li>All question responses</li>
+                  <li>Points earned</li>
+                  <li>Quiz dates and metadata</li>
+                </ul>
+              </div>
+            </div>
+          </main>
+          <footer class="ta-footer"><div class="ta-container">© Trivia Advent‑ure</div></footer>
+        </body></html>
+      `);
+      return;
+    }
+    
+    // Get all quiz attempts
+    const quizAttempts = (await pool.query(`
+      SELECT 
+        q.id,
+        q.title,
+        q.unlock_at,
+        q.freeze_at,
+        q.author,
+        COUNT(DISTINCT r.question_id) as questions_answered,
+        COUNT(DISTINCT qq.id) as total_questions,
+        SUM(CASE WHEN r.override_correct = true OR (r.override_correct IS NULL AND LOWER(TRIM(r.response_text)) = LOWER(TRIM(qq.answer))) THEN 1 ELSE 0 END) as correct_count,
+        SUM(r.points) as total_points
+      FROM quizzes q
+      LEFT JOIN questions qq ON qq.quiz_id = q.id
+      LEFT JOIN responses r ON r.quiz_id = q.id AND r.user_email = $1 AND r.question_id = qq.id
+      WHERE EXISTS (SELECT 1 FROM responses r2 WHERE r2.quiz_id = q.id AND r2.user_email = $1)
+      GROUP BY q.id, q.title, q.unlock_at, q.freeze_at, q.author
+      ORDER BY q.unlock_at DESC
+    `, [email])).rows;
+    
+    // Get all responses
+    const responses = (await pool.query(`
+      SELECT 
+        r.id,
+        r.quiz_id,
+        r.question_id,
+        r.response_text,
+        r.points,
+        r.locked,
+        r.override_correct,
+        r.created_at,
+        q.title as quiz_title,
+        qq.number as question_number,
+        qq.text as question_text,
+        qq.answer as correct_answer,
+        qq.category
+      FROM responses r
+      JOIN quizzes q ON q.id = r.quiz_id
+      JOIN questions qq ON qq.id = r.question_id
+      WHERE r.user_email = $1
+      ORDER BY q.unlock_at DESC, qq.number ASC
+    `, [email])).rows;
+    
+    if (format === 'csv') {
+      // CSV export
+      const csvRows = ['Quiz Title,Quiz Date,Question Number,Question Text,Your Answer,Correct Answer,Points,Category,Answered At'];
+      for (const r of responses) {
+        const row = [
+          `"${(r.quiz_title || '').replace(/"/g, '""')}"`,
+          r.quiz_id ? new Date(quizAttempts.find(q => q.id === r.quiz_id)?.unlock_at || '').toLocaleDateString() : '',
+          r.question_number,
+          `"${(r.question_text || '').replace(/"/g, '""')}"`,
+          `"${(r.response_text || '').replace(/"/g, '""')}"`,
+          `"${(r.correct_answer || '').replace(/"/g, '""')}"`,
+          r.points || 0,
+          `"${(r.category || '').replace(/"/g, '""')}"`,
+          r.created_at ? new Date(r.created_at).toISOString() : ''
+        ];
+        csvRows.push(row.join(','));
+      }
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename="trivia-adventure-export-${Date.now()}.csv"`);
+      res.send(csvRows.join('\n'));
+    } else {
+      // JSON export
+      const exportData = {
+        exported_at: new Date().toISOString(),
+        email: email,
+        quiz_attempts: quizAttempts.map(q => ({
+          quiz_id: q.id,
+          title: q.title,
+          unlock_at: q.unlock_at,
+          author: q.author,
+          questions_answered: parseInt(q.questions_answered) || 0,
+          total_questions: parseInt(q.total_questions) || 0,
+          correct_count: parseInt(q.correct_count) || 0,
+          score_percent: q.total_questions > 0 ? Math.round((q.correct_count / q.total_questions) * 100) : 0,
+          total_points: parseFloat(q.total_points) || 0
+        })),
+        responses: responses.map(r => ({
+          quiz_id: r.quiz_id,
+          quiz_title: r.quiz_title,
+          question_number: r.question_number,
+          question_text: r.question_text,
+          your_answer: r.response_text,
+          correct_answer: r.correct_answer,
+          points: parseFloat(r.points) || 0,
+          category: r.category,
+          answered_at: r.created_at
+        }))
+      };
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Content-Disposition', `attachment; filename="trivia-adventure-export-${Date.now()}.json"`);
+      res.send(JSON.stringify(exportData, null, 2));
+    }
+  } catch (e) {
+    console.error('Error exporting data:', e);
+    res.status(500).send('Failed to export data');
+  }
+});
+
+// Email Preferences
+app.get('/account/preferences', requireAuth, async (req, res) => {
+  try {
+    const email = (req.session.user.email || '').toLowerCase();
+    const player = (await pool.query('SELECT email_notifications_enabled FROM players WHERE email=$1', [email])).rows[0];
+    const notificationsEnabled = player ? (player.email_notifications_enabled !== false) : true;
+    
+    const header = await renderHeader(req);
+    res.type('html').send(`
+      <html><head><title>Email Preferences • Trivia Advent-ure</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
+      <body class="ta-body">
+        ${header}
+        <main class="ta-main ta-container" style="max-width:720px;">
+          <h1 class="ta-page-title">Email Preferences</h1>
+          <p style="margin-bottom:24px;"><a href="/account">← Back to Account</a></p>
+          
+          <form method="post" action="/account/preferences" style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:24px;">
+            <div style="margin-bottom:20px;">
+              <label style="display:flex;align-items:center;gap:12px;cursor:pointer;">
+                <input type="checkbox" name="email_notifications_enabled" value="1" ${notificationsEnabled ? 'checked' : ''} style="width:20px;height:20px;cursor:pointer;" />
+                <div>
+                  <div style="font-weight:bold;margin-bottom:4px;">Email Notifications</div>
+                  <div style="font-size:14px;opacity:0.7;">Receive email notifications about new quizzes and important updates</div>
+                </div>
+              </label>
+            </div>
+            
+            <div style="margin-top:24px;">
+              <button type="submit" class="ta-btn ta-btn-primary">Save Preferences</button>
+              <a href="/account" class="ta-btn" style="margin-left:8px;">Cancel</a>
+            </div>
+          </form>
+        </main>
+        <footer class="ta-footer"><div class="ta-container">© Trivia Advent‑ure</div></footer>
+      </body></html>
+    `);
+  } catch (e) {
+    console.error('Error loading preferences:', e);
+    res.status(500).send('Failed to load preferences');
+  }
+});
+
+app.post('/account/preferences', requireAuth, express.urlencoded({ extended: true }), async (req, res) => {
+  try {
+    const email = (req.session.user.email || '').toLowerCase();
+    const enabled = req.body.email_notifications_enabled === '1';
+    await pool.query('UPDATE players SET email_notifications_enabled=$1 WHERE email=$2', [enabled, email]);
+    res.redirect('/account?msg=Preferences saved');
+  } catch (e) {
+    console.error('Error saving preferences:', e);
+    res.status(500).send('Failed to save preferences');
+  }
+});
+
+// Account Deletion
+app.get('/account/delete', requireAuth, async (req, res) => {
+  const header = await renderHeader(req);
+  res.type('html').send(`
+    <html><head><title>Delete Account • Trivia Advent-ure</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
+    <body class="ta-body">
+      ${header}
+      <main class="ta-main ta-container" style="max-width:720px;">
+        <h1 class="ta-page-title">Delete Account</h1>
+        <p style="margin-bottom:24px;"><a href="/account">← Back to Account</a></p>
+        
+        <div style="background:#1a1a1a;border:2px solid #d32f2f;border-radius:8px;padding:24px;">
+          <h2 style="color:#d32f2f;margin-top:0;">Warning: This action cannot be undone</h2>
+          <p style="margin-bottom:16px;">Deleting your account will permanently remove:</p>
+          <ul style="margin-bottom:24px;padding-left:24px;">
+            <li>All your quiz responses and scores</li>
+            <li>Your account information and preferences</li>
+            <li>All associated data</li>
+          </ul>
+          
+          <form method="post" action="/account/delete" onsubmit="return confirm('Are you absolutely sure you want to delete your account? This cannot be undone!');">
+            <div style="margin-bottom:16px;">
+              <label style="display:block;margin-bottom:8px;font-weight:bold;">Type DELETE to confirm:</label>
+              <input type="text" name="confirm" required style="width:100%;padding:10px;border:1px solid #555;border-radius:6px;background:#0a0a0a;color:#ffd700;font-size:16px;" placeholder="DELETE" />
+            </div>
+            <div>
+              <button type="submit" class="ta-btn" style="background:#d32f2f;color:#fff;border-color:#d32f2f;">Delete My Account</button>
+              <a href="/account" class="ta-btn" style="margin-left:8px;">Cancel</a>
+            </div>
+          </form>
+        </div>
+      </main>
+      <footer class="ta-footer"><div class="ta-container">© Trivia Advent‑ure</div></footer>
+    </body></html>
+  `);
+});
+
+app.post('/account/delete', requireAuth, express.urlencoded({ extended: true }), async (req, res) => {
+  try {
+    if (String(req.body.confirm || '').trim() !== 'DELETE') {
+      return res.status(400).send('Confirmation text must be exactly "DELETE"');
+    }
+    
+    const email = (req.session.user.email || '').toLowerCase();
+    
+    // Delete responses first (foreign key constraint)
+    await pool.query('DELETE FROM responses WHERE user_email=$1', [email]);
+    // Delete player
+    await pool.query('DELETE FROM players WHERE email=$1', [email]);
+    // Also remove from admins if they were an admin
+    await pool.query('DELETE FROM admins WHERE email=$1', [email]);
+    
+    // Destroy session
+    req.session.destroy((err) => {
+      if (err) {
+        console.error('Error destroying session:', err);
+      }
+      res.redirect('/?msg=Account deleted');
+    });
+  } catch (e) {
+    console.error('Error deleting account:', e);
+    res.status(500).send('Failed to delete account');
   }
 });
 
