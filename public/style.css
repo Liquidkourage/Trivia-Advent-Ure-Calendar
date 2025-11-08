@@ -25,11 +25,6 @@ body.ta-body{margin:0;background:linear-gradient(180deg,var(--blue-top) 0%, var(
 @keyframes snowfall{from{background-position:0 0, 0 0, 0 0, 0 0}to{background-position:0 220px, 0 220px, 0 220px, 0 220px}}
 @keyframes snowfallSlow{from{background-position:0 0, 0 0, 0 0, 0 0}to{background-position:0 320px, 0 320px, 0 320px, 0 320px}}
 .ta-container{max-width:1100px;margin:0 auto;padding:24px}
-.ta-mobile-nav{display:none}
-@media (min-width:769px){
-  body.ta-body{padding-bottom:0}
-  .ta-mobile-nav{display:none}
-}
 .ta-header{background:rgba(0,0,0,0.4);backdrop-filter:saturate(120%) blur(6px);position:sticky;top:0;z-index:10;border-bottom:1px solid rgba(255,255,255,0.08)}
 .ta-header-inner{display:flex;align-items:center;justify-content:space-between;gap:16px;max-width:1100px;margin:0 auto;padding:12px 24px}
 .ta-brand{display:flex;align-items:center;gap:12px}
@@ -104,13 +99,7 @@ body.ta-body{margin:0;background:linear-gradient(180deg,var(--blue-top) 0%, var(
 .ta-recap-summary__label{display:block;font-size:12px;text-transform:uppercase;letter-spacing:0.6px;opacity:0.6;margin-bottom:6px}
 .ta-recap-summary__value{font-weight:700;font-size:16px}
 .ta-recap-summary__score{font-weight:800;font-size:24px;color:var(--gold)}
-.ta-mobile-nav{position:fixed;bottom:0;left:0;right:0;display:flex;justify-content:space-around;align-items:center;background:rgba(0,0,0,0.9);backdrop-filter:blur(12px);padding:10px 12px;border-top:1px solid rgba(255,255,255,0.12);z-index:9}
-.ta-mobile-nav-item{flex:1;text-align:center;color:rgba(255,255,255,0.85);text-decoration:none;font-weight:600;padding:8px 6px;border-radius:8px}
-.ta-mobile-nav-item:hover{color:var(--gold)}
-.ta-mobile-nav-menu{background:none;border:none;font:inherit;color:inherit;cursor:pointer}
-.ta-mobile-nav-menu:focus{outline:2px solid var(--gold)}
 .ta-table caption{caption-side:top;text-align:left;padding:12px;font-weight:600;color:rgba(255,255,255,0.8)}
-body.ta-body{padding-bottom:72px}
 .ta-page-title{margin:0 0 8px 0;font-family:"Bebas Neue", Inter, system-ui, sans-serif;color:var(--gold);letter-spacing:0.5px}
 .ta-lead{opacity:.9}
 .ta-actions{display:flex;gap:12px;margin:16px 0}
@@ -233,8 +222,6 @@ body.ta-body{padding-bottom:72px}
 
 /* Additional mobile optimizations */
 @media (max-width: 768px){
-  .ta-mobile-nav{display:flex}
-  body.ta-body{padding-bottom:88px}
   /* Improve touch targets */
   a, button, input[type="button"], input[type="submit"], .ta-btn{min-height:44px;display:inline-flex;align-items:center;justify-content:center}
   

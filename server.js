@@ -596,13 +596,6 @@ function renderFooter(req) {
         <div class="ta-footer-copy">© Trivia Advent‑ure</div>
       </div>
     </footer>
-    <nav class="ta-mobile-nav">
-      <a href="${homeHref}" class="ta-mobile-nav-item">Home</a>
-      <a href="/calendar" class="ta-mobile-nav-item">Calendar</a>
-      <a href="/leaderboard" class="ta-mobile-nav-item">Leaderboard</a>
-      ${email ? '<a href="/account" class="ta-mobile-nav-item">Account</a>' : '<a href="/login" class="ta-mobile-nav-item">Login</a>'}
-      <button class="ta-mobile-nav-item ta-mobile-nav-menu" data-nav-toggle>Menu</button>
-    </nav>
   `;
 }
 
