@@ -1989,7 +1989,7 @@ app.get('/login', async (req, res) => {
               <header class="login-head">
                 <span class="login-pill">Trivia Advent-ure</span>
                 <h1 class="login-title">${loggedIn ? 'You&rsquo;re signed in' : 'Sign in to play'}</h1>
-                <p class="login-lead">${loggedIn ? 'Jump back into the calendar and keep your streak alive.' : 'Unlock December&rsquo;s daily trivia doors and track your streak.'}</p>
+                <p class="login-lead">${loggedIn ? 'Jump back into the calendar and keep your streak alive.' : 'Sign in to play along with the Trivia Advent‑ure community.'}</p>
               </header>
               ${loggedIn ? `
                 <div class="login-card login-card--success">
