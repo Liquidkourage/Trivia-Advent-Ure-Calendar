@@ -900,6 +900,17 @@ app.post('/webhooks/kofi', async (req, res) => {
   }
 });
 
+// --- Health check ---
+app.get('/health', async (_req, res) => {
+  try {
+    // Quick DB check
+    await pool.query('SELECT 1');
+    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  } catch (e) {
+    res.status(503).json({ status: 'error', error: e.message });
+  }
+});
+
 // --- Basic pages ---
 app.get('/', (req, res) => {
   const adminEmail = getAdminEmail();
@@ -1016,7 +1027,52 @@ app.get('/player', requireAuth, async (req, res) => {
     needsPassword = pr.rows.length && !pr.rows[0].password_set_at;
     displayName = (pr.rows.length && pr.rows[0].username) ? pr.rows[0].username : email;
   } catch {}
+  
+  // Get player stats
+  let stats = { totalQuizzes: 0, totalQuestions: 0, correctAnswers: 0, totalPoints: 0, recentQuizzes: [] };
+  try {
+    const statsResult = await pool.query(`
+      SELECT 
+        COUNT(DISTINCT r.quiz_id) as total_quizzes,
+        COUNT(DISTINCT r.question_id) as total_questions,
+        SUM(CASE WHEN r.override_correct = true OR (r.override_correct IS NULL AND LOWER(TRIM(r.response_text)) = LOWER(TRIM(qq.answer))) THEN 1 ELSE 0 END) as correct_answers,
+        COALESCE(SUM(r.points), 0) as total_points
+      FROM responses r
+      JOIN questions qq ON qq.id = r.question_id
+      WHERE r.user_email = $1
+    `, [email]);
+    if (statsResult.rows.length) {
+      stats.totalQuizzes = parseInt(statsResult.rows[0].total_quizzes) || 0;
+      stats.totalQuestions = parseInt(statsResult.rows[0].total_questions) || 0;
+      stats.correctAnswers = parseInt(statsResult.rows[0].correct_answers) || 0;
+      stats.totalPoints = parseFloat(statsResult.rows[0].total_points) || 0;
+    }
+    
+    // Get recent quiz attempts
+    const recentResult = await pool.query(`
+      SELECT DISTINCT
+        q.id,
+        q.title,
+        q.unlock_at,
+        COUNT(DISTINCT r.question_id) as questions_answered,
+        COUNT(DISTINCT qq.id) as total_questions,
+        SUM(CASE WHEN r.override_correct = true OR (r.override_correct IS NULL AND LOWER(TRIM(r.response_text)) = LOWER(TRIM(qq.answer))) THEN 1 ELSE 0 END) as correct_count,
+        SUM(r.points) as points
+      FROM quizzes q
+      LEFT JOIN questions qq ON qq.quiz_id = q.id
+      LEFT JOIN responses r ON r.quiz_id = q.id AND r.user_email = $1 AND r.question_id = qq.id
+      WHERE EXISTS (SELECT 1 FROM responses r2 WHERE r2.quiz_id = q.id AND r2.user_email = $1)
+      GROUP BY q.id, q.title, q.unlock_at
+      ORDER BY q.unlock_at DESC
+      LIMIT 5
+    `, [email]);
+    stats.recentQuizzes = recentResult.rows;
+  } catch (e) {
+    console.error('Error fetching player stats:', e);
+  }
+  
   const header = await renderHeader(req);
+  const avgScore = stats.totalQuestions > 0 ? Math.round((stats.correctAnswers / stats.totalQuestions) * 100) : 0;
   res.type('html').send(`
     <html><head><title>Player • Trivia Advent-ure</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
     <body class="ta-body">
@@ -1024,8 +1080,58 @@ app.get('/player', requireAuth, async (req, res) => {
       <main class="ta-main ta-container">
         ${needsPassword ? `<div style="margin:12px 0;padding:10px;border:1px solid #ffecb5;border-radius:6px;background:#fff8e1;color:#6b4f00;">Welcome! For cross-device login, please <a href="/account/security">set your password</a>.</div>` : ''}
         <h1 class="ta-page-title">Welcome, ${displayName}</h1>
-        <p class="ta-lead">Head to the calendar to play unlocked quizzes.</p>
-        <div class="ta-actions"><a class="ta-btn ta-btn-primary" href="/calendar">Open Calendar</a></div>
+        
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin:24px 0;">
+          <div style="background:#1a1a1a;padding:16px;border-radius:8px;border:1px solid #333;">
+            <div style="font-size:14px;opacity:0.7;margin-bottom:4px;">Quizzes Played</div>
+            <div style="font-size:32px;font-weight:bold;color:#ffd700;">${stats.totalQuizzes}</div>
+          </div>
+          <div style="background:#1a1a1a;padding:16px;border-radius:8px;border:1px solid #333;">
+            <div style="font-size:14px;opacity:0.7;margin-bottom:4px;">Questions Answered</div>
+            <div style="font-size:32px;font-weight:bold;color:#ffd700;">${stats.totalQuestions}</div>
+          </div>
+          <div style="background:#1a1a1a;padding:16px;border-radius:8px;border:1px solid #333;">
+            <div style="font-size:14px;opacity:0.7;margin-bottom:4px;">Correct Answers</div>
+            <div style="font-size:32px;font-weight:bold;color:#ffd700;">${stats.correctAnswers}</div>
+          </div>
+          <div style="background:#1a1a1a;padding:16px;border-radius:8px;border:1px solid #333;">
+            <div style="font-size:14px;opacity:0.7;margin-bottom:4px;">Average Score</div>
+            <div style="font-size:32px;font-weight:bold;color:#ffd700;">${avgScore}%</div>
+          </div>
+          <div style="background:#1a1a1a;padding:16px;border-radius:8px;border:1px solid #333;">
+            <div style="font-size:14px;opacity:0.7;margin-bottom:4px;">Total Points</div>
+            <div style="font-size:32px;font-weight:bold;color:#ffd700;">${Math.round(stats.totalPoints)}</div>
+          </div>
+        </div>
+        
+        ${stats.recentQuizzes.length > 0 ? `
+        <div style="margin:24px 0;">
+          <h2 style="margin-bottom:16px;">Recent Quizzes</h2>
+          <div style="display:flex;flex-direction:column;gap:12px;">
+            ${stats.recentQuizzes.map(q => {
+              const score = q.total_questions > 0 ? Math.round((q.correct_count / q.total_questions) * 100) : 0;
+              const unlockDate = q.unlock_at ? new Date(q.unlock_at).toLocaleDateString() : '';
+              return `
+                <div style="background:#1a1a1a;padding:16px;border-radius:8px;border:1px solid #333;display:flex;justify-content:space-between;align-items:center;">
+                  <div>
+                    <div style="font-weight:bold;margin-bottom:4px;">${q.title || 'Untitled Quiz'}</div>
+                    <div style="font-size:14px;opacity:0.7;">${unlockDate} • ${q.questions_answered}/${q.total_questions} questions</div>
+                  </div>
+                  <div style="text-align:right;">
+                    <div style="font-size:24px;font-weight:bold;color:#ffd700;">${score}%</div>
+                    <div style="font-size:12px;opacity:0.7;">${q.points || 0} pts</div>
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        </div>
+        ` : ''}
+        
+        <div class="ta-actions" style="margin-top:32px;">
+          <a class="ta-btn ta-btn-primary" href="/calendar">Open Calendar</a>
+          <a class="ta-btn" href="/account/credentials" style="margin-left:8px;">Account Settings</a>
+        </div>
       </main>
       <footer class="ta-footer"><div class="ta-container">© Trivia Advent‑ure</div></footer>
     </body></html>
@@ -1035,12 +1141,86 @@ app.get('/player', requireAuth, async (req, res) => {
 // Admin dashboard
 app.get('/admin', requireAdmin, async (req, res) => {
   const header = await renderHeader(req);
+  
+  // Get analytics
+  let stats = {
+    totalQuizzes: 0,
+    totalPlayers: 0,
+    totalSubmissions: 0,
+    activeInvites: 0,
+    recentQuizzes: []
+  };
+  
+  try {
+    const quizCount = await pool.query('SELECT COUNT(*) as count FROM quizzes');
+    stats.totalQuizzes = parseInt(quizCount.rows[0]?.count || 0);
+    
+    const playerCount = await pool.query('SELECT COUNT(*) as count FROM players');
+    stats.totalPlayers = parseInt(playerCount.rows[0]?.count || 0);
+    
+    const submissionCount = await pool.query('SELECT COUNT(*) as count FROM writer_submissions');
+    stats.totalSubmissions = parseInt(submissionCount.rows[0]?.count || 0);
+    
+    const activeInvitesCount = await pool.query('SELECT COUNT(*) as count FROM writer_invites WHERE active=true AND (expires_at IS NULL OR expires_at > NOW())');
+    stats.activeInvites = parseInt(activeInvitesCount.rows[0]?.count || 0);
+    
+    const recentQuizzes = await pool.query(`
+      SELECT id, title, unlock_at, author, 
+        (SELECT COUNT(*) FROM responses WHERE quiz_id = quizzes.id) as response_count
+      FROM quizzes 
+      ORDER BY unlock_at DESC 
+      LIMIT 5
+    `);
+    stats.recentQuizzes = recentQuizzes.rows;
+  } catch (e) {
+    console.error('Error fetching admin stats:', e);
+  }
+  
   res.type('html').send(`
     <html><head><title>Admin • Trivia Advent-ure</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
     <body class="ta-body">
       ${header}
       <main class="ta-main ta-container">
         <h1 class="ta-page-title">Admin Dashboard</h1>
+        
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin:24px 0;">
+          <div style="background:#1a1a1a;padding:16px;border-radius:8px;border:1px solid #333;">
+            <div style="font-size:14px;opacity:0.7;margin-bottom:4px;">Total Quizzes</div>
+            <div style="font-size:32px;font-weight:bold;color:#ffd700;">${stats.totalQuizzes}</div>
+          </div>
+          <div style="background:#1a1a1a;padding:16px;border-radius:8px;border:1px solid #333;">
+            <div style="font-size:14px;opacity:0.7;margin-bottom:4px;">Total Players</div>
+            <div style="font-size:32px;font-weight:bold;color:#ffd700;">${stats.totalPlayers}</div>
+          </div>
+          <div style="background:#1a1a1a;padding:16px;border-radius:8px;border:1px solid #333;">
+            <div style="font-size:14px;opacity:0.7;margin-bottom:4px;">Submissions</div>
+            <div style="font-size:32px;font-weight:bold;color:#ffd700;">${stats.totalSubmissions}</div>
+          </div>
+          <div style="background:#1a1a1a;padding:16px;border-radius:8px;border:1px solid #333;">
+            <div style="font-size:14px;opacity:0.7;margin-bottom:4px;">Active Invites</div>
+            <div style="font-size:32px;font-weight:bold;color:#ffd700;">${stats.activeInvites}</div>
+          </div>
+        </div>
+        
+        ${stats.recentQuizzes.length > 0 ? `
+        <div style="margin:24px 0;">
+          <h2 style="margin-bottom:16px;color:#ffd700;">Recent Quizzes</h2>
+          <div style="display:flex;flex-direction:column;gap:12px;">
+            ${stats.recentQuizzes.map(q => {
+              const unlockDate = q.unlock_at ? new Date(q.unlock_at).toLocaleDateString() : '';
+              return `
+                <div style="background:#1a1a1a;padding:16px;border-radius:8px;border:1px solid #333;display:flex;justify-content:space-between;align-items:center;">
+                  <div>
+                    <div style="font-weight:bold;margin-bottom:4px;"><a href="/admin/quizzes/${q.id}" style="color:#ffd700;">${q.title || 'Untitled Quiz'}</a></div>
+                    <div style="font-size:14px;opacity:0.7;">${unlockDate} • ${q.author || 'Unknown'} • ${q.response_count || 0} responses</div>
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        </div>
+        ` : ''}
+        
         <section style="margin-bottom:32px;">
           <h2 style="margin-bottom:12px;color:#ffd700;">Quizzes</h2>
           <div class="ta-card-grid">
@@ -1567,8 +1747,38 @@ app.get('/writer/:token', async (req, res) => {
       </body></html>
     `);
   } catch (e) {
-    console.error(e);
-    res.status(500).send('Failed to load page');
+    console.error('Error loading writer form:', e);
+    res.status(500).send(`
+      <html><head><title>Error</title><link rel="stylesheet" href="/style.css"></head>
+      <body class="ta-body" style="padding:24px;">
+        <h1>Unable to Load Form</h1>
+        <p>We encountered an error loading the quiz submission form. Please try again later.</p>
+        <p><a href="/">Return home</a></p>
+      </body></html>
+    `);
+  }
+});
+
+// Autosave endpoint for writer forms
+app.post('/writer/:token/autosave', express.json(), async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT token, author FROM writer_invites WHERE token=$1 AND active=true AND (expires_at IS NULL OR expires_at > NOW())',
+      [req.params.token]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Invalid or expired link' });
+    const invite = rows[0];
+    const payload = req.body;
+    const existing = await pool.query('SELECT id FROM writer_submissions WHERE token=$1 ORDER BY id DESC LIMIT 1', [invite.token]);
+    if (existing.rows.length) {
+      await pool.query('UPDATE writer_submissions SET data=$2, updated_at=NOW() WHERE id=$1', [existing.rows[0].id, JSON.stringify(payload)]);
+    } else {
+      await pool.query('INSERT INTO writer_submissions(token, author, data) VALUES($1,$2,$3)', [invite.token, invite.author, JSON.stringify(payload)]);
+    }
+    res.json({ success: true });
+  } catch (e) {
+    console.error('Autosave error:', e);
+    res.status(500).json({ error: 'Failed to save' });
   }
 });
 
@@ -1611,8 +1821,18 @@ app.post('/writer/:token', express.urlencoded({ extended: true }), async (req, r
       </body></html>
     `);
   } catch (e) {
-    console.error(e);
-    res.status(500).send('Failed to submit quiz');
+    console.error('Error submitting quiz:', e);
+    const header = await renderHeader(req);
+    res.status(500).send(`
+      <html><head><title>Submission Error</title><link rel="stylesheet" href="/style.css"></head>
+      <body class="ta-body" style="padding:24px;">
+      ${header}
+        <h1>Submission Failed</h1>
+        <p>We encountered an error while saving your quiz. Please check your connection and try again.</p>
+        <p>If the problem persists, please contact support.</p>
+        <p><a href="javascript:history.back()">Go back</a> | <a href="/">Return home</a></p>
+      </body></html>
+    `);
   }
 });
 
@@ -3683,42 +3903,47 @@ app.get('/onboarding', requireAuth, async (req, res) => {
     const r = await pool.query('SELECT onboarding_complete FROM players WHERE email = $1', [email]);
     const done = r.rows[0] && r.rows[0].onboarding_complete === true;
     if (done) return res.redirect('/');
+    const header = await renderHeader(req);
     res.type('html').send(`
-      <html><head><title>Welcome • Trivia Advent-ure</title><link rel="stylesheet" href="/style.css"></head>
-      <body class="ta-body" style="padding:24px; max-width:860px; margin:0 auto;">
-        <h1>Welcome!</h1>
-        <p>Choose how to apply your donation:</p>
+      <html><head><title>Welcome • Trivia Advent-ure</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
+      <body class="ta-body">
+        ${header}
+        <main class="ta-main ta-container" style="max-width:800px;">
+          <h1 class="ta-page-title">Welcome to Trivia Advent-ure!</h1>
+          <p class="ta-lead" style="margin-bottom:32px;">Thank you for your support! Choose how you'd like to apply your donation:</p>
 
-        <section style="border:1px solid #ddd; padding:12px; border-radius:8px; margin-bottom:12px;">
-          <h3>1) For me only</h3>
-          <p>You keep access under <strong>${req.session.user.email}</strong>.</p>
-          <form method="post" action="/onboarding/self">
-            <button type="submit">Continue as me</button>
-          </form>
-        </section>
+          <div style="display:flex;flex-direction:column;gap:20px;">
+            <section style="background:#1a1a1a;border:2px solid #d4af37;padding:24px;border-radius:12px;transition:transform 0.2s,box-shadow 0.2s;" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 4px 12px rgba(212,175,55,0.2)'" onmouseout="this.style.transform='';this.style.boxShadow=''">
+              <h3 style="color:#ffd700;margin-top:0;margin-bottom:12px;font-size:20px;">1) For me only</h3>
+              <p style="margin-bottom:16px;opacity:0.9;">You keep access under <strong style="color:#ffd700;">${req.session.user.email}</strong>.</p>
+              <form method="post" action="/onboarding/self">
+                <button type="submit" class="ta-btn ta-btn-primary">Continue as me</button>
+              </form>
+            </section>
 
-        <section style="border:1px solid #ddd; padding:12px; border-radius:8px; margin-bottom:12px;">
-          <h3>2) As a gift only</h3>
-          <p>Give access to someone else. You will <em>not</em> keep access.</p>
-          <form method="post" action="/onboarding/gift">
-            <label>Recipient email(s) (comma-separated)<br/>
-              <input name="recipients" style="width: 100%;" required />
-            </label>
-            <input type="hidden" name="gift_only" value="1" />
-            <div style="margin-top:8px;"><button type="submit">Send gift only</button></div>
-          </form>
-        </section>
+            <section style="background:#1a1a1a;border:2px solid #444;padding:24px;border-radius:12px;transition:transform 0.2s,box-shadow 0.2s;" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 4px 12px rgba(255,255,255,0.1)'" onmouseout="this.style.transform='';this.style.boxShadow=''">
+              <h3 style="color:#ffd700;margin-top:0;margin-bottom:12px;font-size:20px;">2) As a gift only</h3>
+              <p style="margin-bottom:16px;opacity:0.9;">Give access to someone else. You will <em>not</em> keep access.</p>
+              <form method="post" action="/onboarding/gift">
+                <label style="display:block;margin-bottom:8px;font-weight:600;">Recipient email(s) (comma-separated)</label>
+                <input name="recipients" style="width:100%;padding:10px;border:1px solid #555;border-radius:6px;background:#0a0a0a;color:#ffd700;font-size:16px;margin-bottom:12px;" required placeholder="friend@example.com, another@example.com" />
+                <input type="hidden" name="gift_only" value="1" />
+                <button type="submit" class="ta-btn ta-btn-primary">Send gift only</button>
+              </form>
+            </section>
 
-        <section style="border:1px solid #ddd; padding:12px; border-radius:8px;">
-          <h3>3) For me <em>and</em> as a gift</h3>
-          <p>You keep access, and also gift access to someone else.</p>
-          <form method="post" action="/onboarding/gift">
-            <label>Recipient email(s) (comma-separated)<br/>
-              <input name="recipients" style="width: 100%;" required />
-            </label>
-            <div style="margin-top:8px;"><button type="submit">Keep mine & send gift</button></div>
-          </form>
-        </section>
+            <section style="background:#1a1a1a;border:2px solid #444;padding:24px;border-radius:12px;transition:transform 0.2s,box-shadow 0.2s;" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 4px 12px rgba(255,255,255,0.1)'" onmouseout="this.style.transform='';this.style.boxShadow=''">
+              <h3 style="color:#ffd700;margin-top:0;margin-bottom:12px;font-size:20px;">3) For me <em>and</em> as a gift</h3>
+              <p style="margin-bottom:16px;opacity:0.9;">You keep access, and also gift access to someone else.</p>
+              <form method="post" action="/onboarding/gift">
+                <label style="display:block;margin-bottom:8px;font-weight:600;">Recipient email(s) (comma-separated)</label>
+                <input name="recipients" style="width:100%;padding:10px;border:1px solid #555;border-radius:6px;background:#0a0a0a;color:#ffd700;font-size:16px;margin-bottom:12px;" required placeholder="friend@example.com, another@example.com" />
+                <button type="submit" class="ta-btn ta-btn-primary">Keep mine & send gift</button>
+              </form>
+            </section>
+          </div>
+        </main>
+        <footer class="ta-footer"><div class="ta-container">© Trivia Advent‑ure</div></footer>
       </body></html>
     `);
   } catch (e) {
