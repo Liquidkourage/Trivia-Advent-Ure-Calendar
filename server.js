@@ -242,6 +242,21 @@ async function initDb() {
     DO $$ BEGIN
       ALTER TABLE players ADD COLUMN IF NOT EXISTS email_notifications_enabled BOOLEAN NOT NULL DEFAULT TRUE;
     EXCEPTION WHEN others THEN NULL; END $$;
+    DO $$ BEGIN
+      ALTER TABLE players ADD COLUMN IF NOT EXISTS email_quiz_unlocks BOOLEAN NOT NULL DEFAULT TRUE;
+    EXCEPTION WHEN others THEN NULL; END $$;
+    DO $$ BEGIN
+      ALTER TABLE players ADD COLUMN IF NOT EXISTS email_results BOOLEAN NOT NULL DEFAULT TRUE;
+    EXCEPTION WHEN others THEN NULL; END $$;
+    DO $$ BEGIN
+      ALTER TABLE players ADD COLUMN IF NOT EXISTS email_recaps BOOLEAN NOT NULL DEFAULT TRUE;
+    EXCEPTION WHEN others THEN NULL; END $$;
+    DO $$ BEGIN
+      ALTER TABLE players ADD COLUMN IF NOT EXISTS email_summaries BOOLEAN NOT NULL DEFAULT TRUE;
+    EXCEPTION WHEN others THEN NULL; END $$;
+    DO $$ BEGIN
+      ALTER TABLE players ADD COLUMN IF NOT EXISTS email_announcements BOOLEAN NOT NULL DEFAULT TRUE;
+    EXCEPTION WHEN others THEN NULL; END $$;
     -- Optimistic locking fields for manual grading
     DO $$ BEGIN
       ALTER TABLE responses ADD COLUMN IF NOT EXISTS override_version INTEGER NOT NULL DEFAULT 0;
@@ -1153,8 +1168,13 @@ app.get('/account/export', requireAuth, async (req, res) => {
 app.get('/account/preferences', requireAuth, async (req, res) => {
   try {
     const email = (req.session.user.email || '').toLowerCase();
-    const player = (await pool.query('SELECT email_notifications_enabled FROM players WHERE email=$1', [email])).rows[0];
+    const player = (await pool.query('SELECT email_notifications_enabled, email_quiz_unlocks, email_results, email_recaps, email_summaries, email_announcements FROM players WHERE email=$1', [email])).rows[0];
     const notificationsEnabled = player ? (player.email_notifications_enabled !== false) : true;
+    const quizUnlocks = player ? (player.email_quiz_unlocks !== false) : true;
+    const results = player ? (player.email_results !== false) : true;
+    const recaps = player ? (player.email_recaps !== false) : true;
+    const summaries = player ? (player.email_summaries !== false) : true;
+    const announcements = player ? (player.email_announcements !== false) : true;
     
     const header = await renderHeader(req);
     res.type('html').send(`
@@ -1166,19 +1186,64 @@ app.get('/account/preferences', requireAuth, async (req, res) => {
           <p style="margin-bottom:24px;"><a href="/account" class="ta-btn ta-btn-outline">← Back to Account</a></p>
           
           <form method="post" action="/account/preferences" style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:24px;">
-            <div style="margin-bottom:20px;">
-              <label style="display:flex;align-items:center;gap:12px;cursor:pointer;">
+            <div style="margin-bottom:24px;">
+              <label style="display:flex;align-items:center;gap:12px;cursor:pointer;padding:12px;border-radius:6px;background:rgba(255,255,255,0.02);">
                 <input type="checkbox" name="email_notifications_enabled" value="1" ${notificationsEnabled ? 'checked' : ''} style="width:20px;height:20px;cursor:pointer;" />
                 <div>
-                  <div style="font-weight:bold;margin-bottom:4px;">Email Notifications</div>
-                  <div style="font-size:14px;opacity:0.7;">Receive email notifications about new quizzes and important updates</div>
+                  <div style="font-weight:bold;margin-bottom:4px;">Enable All Email Notifications</div>
+                  <div style="font-size:14px;opacity:0.7;">Master toggle for all email notifications</div>
                 </div>
               </label>
             </div>
             
+            <div style="margin-top:32px;padding-top:24px;border-top:1px solid #333;">
+              <h3 style="margin:0 0 16px 0;color:#ffd700;font-size:18px;">Notification Types</h3>
+              <div style="display:flex;flex-direction:column;gap:16px;">
+                <label style="display:flex;align-items:center;gap:12px;cursor:pointer;padding:12px;border-radius:6px;background:rgba(255,255,255,0.02);">
+                  <input type="checkbox" name="email_quiz_unlocks" value="1" ${quizUnlocks ? 'checked' : ''} style="width:20px;height:20px;cursor:pointer;" />
+                  <div>
+                    <div style="font-weight:bold;margin-bottom:4px;">Quiz Unlock Notifications</div>
+                    <div style="font-size:14px;opacity:0.7;">Get notified when new quizzes unlock</div>
+                  </div>
+                </label>
+                
+                <label style="display:flex;align-items:center;gap:12px;cursor:pointer;padding:12px;border-radius:6px;background:rgba(255,255,255,0.02);">
+                  <input type="checkbox" name="email_results" value="1" ${results ? 'checked' : ''} style="width:20px;height:20px;cursor:pointer;" />
+                  <div>
+                    <div style="font-weight:bold;margin-bottom:4px;">Results Emails</div>
+                    <div style="font-size:14px;opacity:0.7;">Receive your quiz results and scores</div>
+                  </div>
+                </label>
+                
+                <label style="display:flex;align-items:center;gap:12px;cursor:pointer;padding:12px;border-radius:6px;background:rgba(255,255,255,0.02);">
+                  <input type="checkbox" name="email_recaps" value="1" ${recaps ? 'checked' : ''} style="width:20px;height:20px;cursor:pointer;" />
+                  <div>
+                    <div style="font-weight:bold;margin-bottom:4px;">Quiz Recaps</div>
+                    <div style="font-size:14px;opacity:0.7;">Receive quiz recaps with answers and highlights</div>
+                  </div>
+                </label>
+                
+                <label style="display:flex;align-items:center;gap:12px;cursor:pointer;padding:12px;border-radius:6px;background:rgba(255,255,255,0.02);">
+                  <input type="checkbox" name="email_summaries" value="1" ${summaries ? 'checked' : ''} style="width:20px;height:20px;cursor:pointer;" />
+                  <div>
+                    <div style="font-weight:bold;margin-bottom:4px;">Weekly Summaries</div>
+                    <div style="font-size:14px;opacity:0.7;">Receive weekly summaries of your activity</div>
+                  </div>
+                </label>
+                
+                <label style="display:flex;align-items:center;gap:12px;cursor:pointer;padding:12px;border-radius:6px;background:rgba(255,255,255,0.02);">
+                  <input type="checkbox" name="email_announcements" value="1" ${announcements ? 'checked' : ''} style="width:20px;height:20px;cursor:pointer;" />
+                  <div>
+                    <div style="font-weight:bold;margin-bottom:4px;">Announcements</div>
+                    <div style="font-size:14px;opacity:0.7;">Receive important announcements and updates</div>
+                  </div>
+                </label>
+              </div>
+            </div>
+            
             <div style="margin-top:24px;">
               <button type="submit" class="ta-btn ta-btn-primary">Save Preferences</button>
-              <a href="/account" class="ta-btn" style="margin-left:8px;">Cancel</a>
+              <a href="/account" class="ta-btn ta-btn-outline" style="margin-left:8px;">Cancel</a>
             </div>
           </form>
         </main>
@@ -1195,7 +1260,15 @@ app.post('/account/preferences', requireAuth, express.urlencoded({ extended: tru
   try {
     const email = (req.session.user.email || '').toLowerCase();
     const enabled = req.body.email_notifications_enabled === '1';
-    await pool.query('UPDATE players SET email_notifications_enabled=$1 WHERE email=$2', [enabled, email]);
+    const quizUnlocks = req.body.email_quiz_unlocks === '1';
+    const results = req.body.email_results === '1';
+    const recaps = req.body.email_recaps === '1';
+    const summaries = req.body.email_summaries === '1';
+    const announcements = req.body.email_announcements === '1';
+    await pool.query(
+      'UPDATE players SET email_notifications_enabled=$1, email_quiz_unlocks=$2, email_results=$3, email_recaps=$4, email_summaries=$5, email_announcements=$6 WHERE email=$7',
+      [enabled, quizUnlocks, results, recaps, summaries, announcements, email]
+    );
     res.redirect('/account?msg=Preferences saved');
   } catch (e) {
     console.error('Error saving preferences:', e);
@@ -2669,6 +2742,41 @@ app.post('/admin/writer-invites/:token/deactivate', requireAdmin, async (req, re
   }
 }); */
 
+// --- Quiz autosave ---
+app.post('/quiz/:id/autosave', requireAuth, express.json(), async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const email = (req.session.user.email || '').toLowerCase();
+    const { locked, answers } = req.body;
+    
+    // Save answers
+    for (const [qNum, answerText] of Object.entries(answers || {})) {
+      const { rows: qRows } = await pool.query('SELECT id FROM questions WHERE quiz_id=$1 AND number=$2', [id, Number(qNum)]);
+      if (qRows.length > 0) {
+        const questionId = qRows[0].id;
+        await pool.query(
+          'INSERT INTO responses (quiz_id, question_id, user_email, response_text, locked) VALUES ($1, $2, $3, $4, false) ON CONFLICT (user_email, question_id) DO UPDATE SET response_text=$4, created_at=NOW()',
+          [id, questionId, email, String(answerText || '')]
+        );
+      }
+    }
+    
+    // Update locked question
+    if (locked) {
+      const lockedId = Number(locked);
+      // Unlock all questions for this user/quiz
+      await pool.query('UPDATE responses SET locked=false WHERE quiz_id=$1 AND user_email=$2', [id, email]);
+      // Lock the selected question
+      await pool.query('UPDATE responses SET locked=true WHERE quiz_id=$1 AND question_id=$2 AND user_email=$3', [id, lockedId, email]);
+    }
+    
+    res.json({ success: true });
+  } catch (e) {
+    console.error('Autosave error:', e);
+    res.status(500).json({ error: 'Failed to save' });
+  }
+});
+
 // --- Play quiz ---
 app.get('/quiz/:id', async (req, res) => {
   try {
@@ -2735,16 +2843,48 @@ app.get('/quiz/:id', async (req, res) => {
 
     const form = locked ? '<p>This quiz is locked until unlock time (ET).</p>' : (loggedIn ? `
       ${existingMap.size > 0 ? `<div style="padding:8px 10px;border:1px solid #ddd;border-radius:6px;background:#fafafa;margin-bottom:10px;">You've started this quiz. <a href="/quiz/${id}?recap=1">View recap</a>.</div>` : ''}
-      <form method="post" action="/quiz/${id}/submit">
-        ${qs.map(q=>{
+      <div id="quiz-progress" style="margin-bottom:20px;padding:12px;background:#1a1a1a;border:1px solid #333;border-radius:8px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+          <span style="font-weight:bold;color:#ffd700;">Progress: <span id="progress-text">0 / ${qs.length}</span></span>
+          <span id="autosave-status" style="font-size:14px;opacity:0.7;"></span>
+        </div>
+        <div style="width:100%;height:8px;background:#333;border-radius:4px;overflow:hidden;">
+          <div id="progress-bar" style="height:100%;background:linear-gradient(90deg,var(--gold) 0%,var(--gold-2) 100%);width:0%;transition:width 0.3s ease;"></div>
+        </div>
+      </div>
+      <form id="quiz-form" method="post" action="/quiz/${id}/submit" data-quiz-id="${id}">
+        ${qs.map((q, idx)=>{
           const val = existingMap.get(q.id) || '';
           const checked = existingLockedId === q.id ? 'checked' : '';
           const disable = nowUtc >= freezeUtc ? 'disabled' : '';
           const required = (q.number === 1 && !(nowUtc >= freezeUtc)) ? 'required' : '';
           return `
-          <div class=\"quiz-card\">\n            <div class=\"quiz-qhead\"><div class=\"quiz-left\"><div class=\"quiz-qnum\">Q${q.number}</div><span class=\"quiz-cat\">${q.category || 'General'}</span></div> <label class=\"quiz-lock\"><input type=\"radio\" name=\"locked\" value=\"${q.id}\" ${checked} ${disable} ${required}/> Lock this question</label></div>\n            <div class=\"quiz-text\">${q.text}</div>\n            <div class=\"quiz-answer\"><label>Your answer <input name=\"q${q.number}\" value=\"${val.replace(/\"/g,'&quot;')}\" ${disable}/></label></div>\n          </div>`;
+          <div class=\"quiz-card\" data-question-num=\"${q.number}\" data-question-id=\"${q.id}\">
+            <div class=\"quiz-qhead\">
+              <div class=\"quiz-left\">
+                <div class=\"quiz-qnum\">Q${q.number} <span style=\"font-size:14px;opacity:0.7;\">(${idx + 1} of ${qs.length})</span></div>
+                <span class=\"quiz-cat\">${q.category || 'General'}</span>
+              </div>
+              <label class=\"quiz-lock\"><input type=\"radio\" name=\"locked\" value=\"${q.id}\" ${checked} ${disable} ${required}/> Lock this question</label>
+            </div>
+            <div class=\"quiz-text\">${q.text}</div>
+            <div class=\"quiz-answer\">
+              <label>Your answer <input name=\"q${q.number}\" data-question-id=\"${q.id}\" value=\"${val.replace(/\"/g,'&quot;')}\" ${disable} autocomplete=\"off\"/></label>
+            </div>
+          </div>`;
         }).join('')}
-        <div class=\"quiz-actions\"><button class=\"quiz-submit\" type=\"submit\" ${nowUtc >= freezeUtc ? 'disabled' : ''}>Submit</button></div>
+        <div class=\"quiz-actions\">
+          <button type=\"button\" id=\"review-btn\" class=\"ta-btn ta-btn-outline\" style=\"margin-right:8px;\" ${nowUtc >= freezeUtc ? 'disabled' : ''}>Review Answers</button>
+          <button class=\"quiz-submit ta-btn ta-btn-primary\" type=\"submit\" id=\"submit-btn\" ${nowUtc >= freezeUtc ? 'disabled' : ''}>Submit Quiz</button>
+        </div>
+        <div id="review-panel" style="display:none;margin-top:24px;padding:20px;background:#1a1a1a;border:2px solid #ffd700;border-radius:8px;">
+          <h3 style="margin:0 0 16px 0;color:#ffd700;">Review Your Answers</h3>
+          <div id="review-content"></div>
+          <div style="margin-top:16px;">
+            <button type="button" id="edit-btn" class="ta-btn ta-btn-outline" style="margin-right:8px;">Edit Answers</button>
+            <button type="submit" class="ta-btn ta-btn-primary">Confirm & Submit</button>
+          </div>
+        </div>
       </form>
     ` : '<p>Please sign in to play.</p>');
     const et = utcToEtParts(unlockUtc);
@@ -2777,6 +2917,7 @@ app.get('/quiz/:id', async (req, res) => {
           ${form}
           <p style="margin-top:16px;"><a href="/calendar" class="ta-btn ta-btn-outline">Back to Calendar</a></p>
         </main>
+        <script src="/js/quiz-enhancements.js"></script>
       </body></html>
     `);
   } catch (e) {
