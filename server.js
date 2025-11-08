@@ -775,6 +775,41 @@ app.get('/auth/magic', async (req, res) => {
   }
 });
 
+// Shared function to process Ko-fi donation webhook
+async function processKofiDonation(body, skipSecretCheck = false) {
+  // Support a few possible shapes
+  const type = (body.type || body.data?.type || '').toLowerCase();
+  const email = (body.email || body.data?.email || '').trim();
+  const createdAtStr = body.created_at || body.timestamp || body.data?.created_at || body.data?.timestamp;
+  
+  if (!email) {
+    return { success: false, error: 'No email' };
+  }
+  if (type !== 'donation') {
+    return { success: false, error: 'Ignored', ignored: true };
+  }
+
+  const createdAt = createdAtStr ? new Date(createdAtStr) : new Date();
+  // Prefer UTC cutoff env if provided
+  const cutoffUtcEnv = process.env.KOFI_CUTOFF_UTC || '';
+  const cutoffDate = cutoffUtcEnv ? new Date(cutoffUtcEnv) : new Date('2025-11-01T04:00:00Z');
+  if (!(createdAt >= cutoffDate)) {
+    return { success: false, error: 'Before cutoff', beforeCutoff: true };
+  }
+
+  await pool.query('INSERT INTO players(email, access_granted_at) VALUES($1, NOW()) ON CONFLICT (email) DO NOTHING', [email]);
+
+  // Optionally auto-send magic link
+  const token = crypto.randomBytes(24).toString('base64url');
+  const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
+  await pool.query('INSERT INTO magic_tokens(token,email,expires_at,used) VALUES($1,$2,$3,false)', [token, email, expiresAt]);
+  
+  const linkUrl = `${process.env.PUBLIC_BASE_URL || ''}/auth/magic?token=${encodeURIComponent(token)}`;
+  await sendMagicLink(email, token, linkUrl).catch(err => console.warn('Send mail failed:', err.message));
+
+  return { success: true, email, token, linkUrl };
+}
+
 // --- Ko-fi webhook ---
 app.post('/webhooks/kofi', async (req, res) => {
   try {
@@ -783,29 +818,14 @@ app.post('/webhooks/kofi', async (req, res) => {
       if (provided !== WEBHOOK_SHARED_SECRET) return res.status(401).send('Bad secret');
     }
     const body = req.body || {};
-    // Support a few possible shapes
-    const type = (body.type || body.data?.type || '').toLowerCase();
-    const email = (body.email || body.data?.email || '').trim();
-    const createdAtStr = body.created_at || body.timestamp || body.data?.created_at || body.data?.timestamp;
-    if (!email) return res.status(400).send('No email');
-    if (type !== 'donation') return res.status(204).send('Ignored');
-
-  const createdAt = createdAtStr ? new Date(createdAtStr) : new Date();
-  // Prefer UTC cutoff env if provided
-  const cutoffUtcEnv = process.env.KOFI_CUTOFF_UTC || '';
-  const cutoffDate = cutoffUtcEnv ? new Date(cutoffUtcEnv) : new Date('2025-11-01T04:00:00Z');
-  if (!(createdAt >= cutoffDate)) {
-      return res.status(204).send('Before cutoff');
+    const result = await processKofiDonation(body);
+    
+    if (!result.success) {
+      if (result.ignored) return res.status(204).send('Ignored');
+      if (result.beforeCutoff) return res.status(204).send('Before cutoff');
+      return res.status(400).send(result.error);
     }
-
-    await pool.query('INSERT INTO players(email, access_granted_at) VALUES($1, NOW()) ON CONFLICT (email) DO NOTHING', [email]);
-
-    // Optionally auto-send magic link
-    const token = crypto.randomBytes(24).toString('base64url');
-    const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
-    await pool.query('INSERT INTO magic_tokens(token,email,expires_at,used) VALUES($1,$2,$3,false)', [token, email, expiresAt]);
-    await sendMagicLink(email, token).catch(err => console.warn('Send mail failed:', err.message));
-
+    
     res.status(200).send('OK');
   } catch (e) {
     console.error('Webhook error:', e);
@@ -2945,49 +2965,24 @@ app.post('/admin/test-kofi', requireAdmin, express.urlencoded({ extended: true }
       createdAt = localDate;
     }
     
-    // Simulate Ko-fi webhook payload
+    // Simulate Ko-fi webhook payload (same format as real webhook)
     const webhookBody = {
       type: 'donation',
       email: email,
       created_at: createdAt.toISOString()
     };
     
-    // Call the webhook handler logic directly
-    const type = (webhookBody.type || '').toLowerCase();
-    const webhookEmail = (webhookBody.email || '').trim();
-    const createdAtStr = webhookBody.created_at;
+    // Use the actual webhook processing function
+    const result = await processKofiDonation(webhookBody, true);
     
-    if (!webhookEmail) {
-      return res.status(400).send('No email in webhook body');
-    }
-    if (type !== 'donation') {
-      return res.status(400).send('Type must be donation');
+    if (!result.success) {
+      if (result.beforeCutoff) {
+        return res.redirect('/admin/access?msg=Donation date is before cutoff date');
+      }
+      return res.status(400).send(result.error || 'Failed to process webhook');
     }
     
-    const webhookCreatedAt = createdAtStr ? new Date(createdAtStr) : new Date();
-    const cutoffUtcEnv = process.env.KOFI_CUTOFF_UTC || '';
-    const cutoffDate = cutoffUtcEnv ? new Date(cutoffUtcEnv) : new Date('2025-11-01T04:00:00Z');
-    
-    if (!(webhookCreatedAt >= cutoffDate)) {
-      return res.redirect('/admin/access?msg=Donation date is before cutoff date');
-    }
-    
-    // Create player record
-    await pool.query('INSERT INTO players(email, access_granted_at) VALUES($1, NOW()) ON CONFLICT (email) DO NOTHING', [webhookEmail]);
-    
-    // Create and send magic link
-    const token = crypto.randomBytes(24).toString('base64url');
-    const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
-    await pool.query('INSERT INTO magic_tokens(token,email,expires_at,used) VALUES($1,$2,$3,false)', [token, webhookEmail, expiresAt]);
-    
-    const linkUrl = `${req.protocol}://${req.get('host')}/auth/magic?token=${encodeURIComponent(token)}`;
-    try {
-      await sendMagicLink(webhookEmail, token, linkUrl);
-      res.redirect(`/admin/access?msg=Ko-fi webhook simulated successfully. Magic link sent to ${webhookEmail}`);
-    } catch (mailErr) {
-      console.warn('Send mail failed:', mailErr?.message || mailErr);
-      res.redirect(`/admin/access?msg=Player created but email failed: ${mailErr?.message || 'Unknown error'}. Magic link: ${linkUrl}`);
-    }
+    res.redirect(`/admin/access?msg=Ko-fi webhook simulated successfully. Magic link sent to ${result.email}`);
   } catch (e) {
     console.error('Test Ko-fi webhook error:', e);
     res.status(500).send(`Failed to simulate webhook: ${e.message}`);
