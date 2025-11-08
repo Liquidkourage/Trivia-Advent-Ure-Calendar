@@ -1548,24 +1548,103 @@ app.get('/', (req, res) => {
 
 // Public landing (logged-out)
 app.get('/public', async (req, res) => {
+  // Get some stats to make it more enticing
+  let stats = { totalQuizzes: 0, totalPlayers: 0 };
+  try {
+    const quizCount = await pool.query('SELECT COUNT(*) as count FROM quizzes');
+    stats.totalQuizzes = parseInt(quizCount.rows[0]?.count || 0);
+    const playerCount = await pool.query('SELECT COUNT(*) as count FROM players');
+    stats.totalPlayers = parseInt(playerCount.rows[0]?.count || 0);
+  } catch (e) {
+    console.error('Error fetching stats:', e);
+  }
+  
   const header = await renderHeader(req);
   res.type('html').send(`
     <html><head><title>Trivia Advent-ure</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
     <body class="ta-body">
       ${header}
-      <main class="ta-main ta-container">
-      <h1 class="ta-page-title">Trivia Advent-ure Calendar</h1>
-      <p>48 quizzes unlock at midnight and noon ET from Dec 1–24. Play anytime; per-quiz leaderboards finalize after 24 hours. Overall standings keep updating.</p>
-      <div class="ta-actions">
-        <a class="ta-btn ta-btn-primary" href="/calendar">View Calendar</a>
-        <a class="ta-btn ta-btn-outline" href="/login">Login</a>
-      </div>
-      <h3 class="ta-section-title">How it works</h3>
-      <ul class="ta-list">
-        <li>10 questions per quiz, immediate recap on submit</li>
-        <li>Per‑quiz leaderboard freezes at +24h</li>
-        <li>Overall board keeps updating with late plays</li>
-      </ul>
+      <main class="ta-main ta-container" style="max-width:900px;">
+        <div style="text-align:center;margin:32px 0 48px 0;">
+          <h1 class="ta-page-title" style="font-size:48px;margin-bottom:16px;background:linear-gradient(90deg, #FFA726 0%, #FFC46B 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">Trivia Advent-ure Calendar</h1>
+          <p style="font-size:20px;line-height:1.6;opacity:0.9;max-width:700px;margin:0 auto 24px auto;">
+            Join the ultimate December trivia challenge! 48 quizzes unlock twice daily from December 1–24. 
+            Test your knowledge, compete on leaderboards, and have fun with friends.
+          </p>
+          ${stats.totalPlayers > 0 ? `
+          <div style="display:flex;gap:32px;justify-content:center;margin:24px 0;flex-wrap:wrap;">
+            <div style="text-align:center;">
+              <div style="font-size:32px;font-weight:bold;color:#ffd700;">${stats.totalQuizzes}</div>
+              <div style="font-size:14px;opacity:0.7;">Quizzes Available</div>
+            </div>
+            <div style="text-align:center;">
+              <div style="font-size:32px;font-weight:bold;color:#ffd700;">${stats.totalPlayers}</div>
+              <div style="font-size:14px;opacity:0.7;">Players</div>
+            </div>
+          </div>
+          ` : ''}
+        </div>
+        
+        <div style="display:flex;gap:16px;justify-content:center;margin:32px 0;flex-wrap:wrap;">
+          <a class="ta-btn ta-btn-primary" href="/calendar" style="font-size:18px;padding:14px 28px;">View Calendar</a>
+          <a class="ta-btn ta-btn-outline" href="/login" style="font-size:18px;padding:14px 28px;">Login to Play</a>
+        </div>
+        
+        <div style="background:linear-gradient(135deg, rgba(255,167,38,0.1) 0%, rgba(255,196,107,0.05) 100%);border:1px solid rgba(255,167,38,0.3);border-radius:12px;padding:32px;margin:48px 0;">
+          <h2 style="color:#ffd700;margin:0 0 20px 0;font-size:24px;text-align:center;">Why Join Trivia Advent-ure?</h2>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:24px;margin-top:24px;">
+            <div style="text-align:center;">
+              <div style="font-size:36px;margin-bottom:8px;">🎯</div>
+              <h3 style="color:#ffd700;margin:0 0 8px 0;font-size:18px;">Daily Challenges</h3>
+              <p style="margin:0;opacity:0.8;line-height:1.5;">48 unique quizzes unlock at midnight and noon ET. Play at your own pace!</p>
+            </div>
+            <div style="text-align:center;">
+              <div style="font-size:36px;margin-bottom:8px;">🏆</div>
+              <h3 style="color:#ffd700;margin:0 0 8px 0;font-size:18px;">Compete & Climb</h3>
+              <p style="margin:0;opacity:0.8;line-height:1.5;">Per-quiz leaderboards freeze after 24 hours. Overall standings update continuously.</p>
+            </div>
+            <div style="text-align:center;">
+              <div style="font-size:36px;margin-bottom:8px;">📊</div>
+              <h3 style="color:#ffd700;margin:0 0 8px 0;font-size:18px;">Instant Feedback</h3>
+              <p style="margin:0;opacity:0.8;line-height:1.5;">Get immediate recaps with answers, points, and detailed breakdowns after each quiz.</p>
+            </div>
+            <div style="text-align:center;">
+              <div style="font-size:36px;margin-bottom:8px;">👥</div>
+              <h3 style="color:#ffd700;margin:0 0 8px 0;font-size:18px;">Join the Community</h3>
+              <p style="margin:0;opacity:0.8;line-height:1.5;">Play alongside friends and trivia enthusiasts. See how you stack up!</p>
+            </div>
+          </div>
+        </div>
+        
+        <div style="background:#1a1a1a;border:1px solid #333;border-radius:12px;padding:32px;margin:32px 0;">
+          <h3 class="ta-section-title" style="margin-top:0;">How It Works</h3>
+          <ul class="ta-list" style="font-size:16px;line-height:1.8;">
+            <li><strong>10 questions per quiz</strong> covering a variety of topics and difficulty levels</li>
+            <li><strong>Immediate recap</strong> on submit with answers, points, and explanations</li>
+            <li><strong>Per-quiz leaderboard</strong> freezes 24 hours after unlock for fair competition</li>
+            <li><strong>Overall standings</strong> keep updating as players complete quizzes throughout December</li>
+            <li><strong>Play anytime</strong> during the 24-hour window for each quiz slot</li>
+          </ul>
+        </div>
+        
+        <div style="text-align:center;margin:48px 0;padding:32px;background:rgba(255,167,38,0.1);border-radius:12px;border:2px solid rgba(255,167,38,0.3);">
+          <h3 style="color:#ffd700;margin:0 0 16px 0;font-size:22px;">Support Trivia Advent-ure</h3>
+          <p style="margin:0 0 24px 0;opacity:0.9;font-size:16px;line-height:1.6;">
+            Love what we're doing? Help keep Trivia Advent-ure running and growing!<br/>
+            Your support helps us create more quizzes, improve features, and maintain the platform.
+          </p>
+          <a href="https://ko-fi.com/triviaadvent" target="_blank" rel="noopener noreferrer" 
+             class="ta-btn ta-btn-primary" 
+             style="font-size:18px;padding:14px 32px;display:inline-flex;align-items:center;gap:8px;text-decoration:none;">
+            <span style="font-size:24px;">☕</span>
+            <span>Support on Ko-fi</span>
+          </a>
+        </div>
+        
+        <div style="text-align:center;margin-top:48px;">
+          <a class="ta-btn ta-btn-primary" href="/calendar" style="font-size:18px;padding:14px 32px;margin-right:12px;">Explore the Calendar</a>
+          <a class="ta-btn ta-btn-outline" href="/login" style="font-size:18px;padding:14px 32px;">Get Started</a>
+        </div>
       </main>
       <footer class="ta-footer"><div class="ta-container">© Trivia Advent‑ure</div></footer>
     </body></html>
