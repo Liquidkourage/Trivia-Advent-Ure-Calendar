@@ -1859,6 +1859,7 @@ app.get('/admin', requireAdmin, async (req, res) => {
             <a class="ta-card" href="/admin/writer-invite"><strong>Writer Invite</strong><span>Create token link for guest authors</span></a>
             <a class="ta-card" href="/admin/writer-invites"><strong>Writer Invites (CSV)</strong><span>Prepare CSV and bulk-generate links</span></a>
             <a class="ta-card" href="/admin/writer-invites/list"><strong>Writer Invites (List)</strong><span>Status, resend, deactivate, copy</span></a>
+            <a class="ta-card" href="/admin/writer-invites/my"><strong>My Writer Invites</strong><span>View and access your own quiz writing links</span></a>
           </div>
         </section>
         <section style="margin-bottom:32px;">
@@ -2711,6 +2712,102 @@ app.post('/admin/writer-invites/:token/deactivate', requireAdmin, async (req, re
   } catch (e) {
     console.error(e);
     res.status(500).send('Failed to deactivate');
+  }
+});
+
+// --- Admin: My Writer Invites (shows invites for logged-in admin) ---
+app.get('/admin/writer-invites/my', requireAdmin, async (req, res) => {
+  try {
+    const adminEmail = getAdminEmail();
+    const baseUrl = process.env.PUBLIC_BASE_URL || '';
+    const { rows } = await pool.query(
+      `SELECT token, author, email, slot_date, slot_half, send_at, sent_at, clicked_at, submitted_at, published_at, active, created_at
+       FROM writer_invites
+       WHERE email = $1
+       ORDER BY slot_date NULLS LAST, slot_half NULLS LAST, created_at DESC
+       LIMIT 100`,
+      [adminEmail]
+    );
+    
+    if (rows.length === 0) {
+      const header = await renderHeader(req);
+      res.type('html').send(`
+        <html><head><title>My Writer Invites • Admin</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
+        <body class="ta-body">
+          ${header}
+          <main class="ta-main ta-container" style="max-width:900px;">
+            <h1 class="ta-page-title">My Writer Invites</h1>
+            <p style="margin-bottom:24px;"><a href="/admin" class="ta-btn ta-btn-outline">← Back to Admin</a></p>
+            <div style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:24px;text-align:center;">
+              <p style="font-size:18px;margin:0;">You don't have any writer invites yet.</p>
+              <p style="margin-top:16px;"><a href="/admin/writer-invite" class="ta-btn ta-btn-primary">Create Writer Invite</a></p>
+            </div>
+          </main>
+          <footer class="ta-footer"><div class="ta-container">© Trivia Advent‑ure</div></footer>
+        </body></html>
+      `);
+      return;
+    }
+    
+    const fmt = (d) => d ? fmtEt(d) : '';
+    const list = rows.map(r => {
+      const link = `${baseUrl}/writer/${r.token}`;
+      const slotStr = r.slot_date ? (typeof r.slot_date === 'string' ? r.slot_date : new Date(r.slot_date).toISOString().slice(0,10)) : '';
+      const status = [
+        r.active ? 'active' : 'inactive',
+        r.sent_at ? 'sent' : 'not sent',
+        r.clicked_at ? 'clicked' : '',
+        r.submitted_at ? 'submitted' : '',
+        r.published_at ? 'published' : ''
+      ].filter(Boolean).join(' · ');
+      return `
+        <tr>
+          <td style="padding:8px;">${slotStr} ${r.slot_half || ''}</td>
+          <td style="padding:8px;">${(r.author || '').replace(/</g,'&lt;')}</td>
+          <td style="padding:8px;">${status}</td>
+          <td style="padding:8px;"><a href="${link}" target="_blank" class="ta-btn ta-btn-small">Open Quiz Form</a></td>
+          <td style="padding:8px;white-space:nowrap;">${fmt(r.submitted_at)}</td>
+          <td style="padding:8px;white-space:nowrap;">${fmt(r.published_at)}</td>
+        </tr>
+      `;
+    }).join('');
+    
+    const header = await renderHeader(req);
+    res.type('html').send(`
+      <html><head><title>My Writer Invites • Admin</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
+      <body class="ta-body">
+        ${header}
+        <main class="ta-main ta-container" style="max-width:900px;">
+          <h1 class="ta-page-title">My Writer Invites</h1>
+          <p style="margin-bottom:24px;">
+            <a href="/admin" class="ta-btn ta-btn-outline">← Back to Admin</a>
+            <a href="/admin/writer-invite" class="ta-btn ta-btn-primary" style="margin-left:8px;">Create New Invite</a>
+          </p>
+          
+          <div style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:16px;margin-bottom:24px;">
+            <p style="margin:0;opacity:0.9;">These are your writer invites. Click "Open Quiz Form" to access your quiz writing interface.</p>
+          </div>
+          
+          <table style="width:100%;border-collapse:collapse;background:#1a1a1a;border:1px solid #333;border-radius:8px;overflow:hidden;">
+            <thead>
+              <tr style="text-align:left;border-bottom:1px solid #444;background:#2a2a2a;">
+                <th style="padding:12px 8px;">Slot</th>
+                <th style="padding:12px 8px;">Author</th>
+                <th style="padding:12px 8px;">Status</th>
+                <th style="padding:12px 8px;">Link</th>
+                <th style="padding:12px 8px;">Submitted</th>
+                <th style="padding:12px 8px;">Published</th>
+              </tr>
+            </thead>
+            <tbody>${list || ''}</tbody>
+          </table>
+        </main>
+        <footer class="ta-footer"><div class="ta-container">© Trivia Advent‑ure</div></footer>
+      </body></html>
+    `);
+  } catch (e) {
+    console.error('Error loading my writer invites:', e);
+    res.status(500).send('Failed to load invites');
   }
 });
 
