@@ -34,7 +34,7 @@ app.get('/admin/writer-submissions/:id', requireAdmin, async (req, res) => {
     const header = await renderHeader(req);
     res.type('html').send(`
       ${renderHead(`Preview Submission #${id}`, false)}
-      <body class="ta-body" style="padding:24px;">
+      <body class="ta-body">
       ${header}
         <h1>Submission #${id} Preview</h1>
         <div>Author: <strong>${esc(row.author||'')}</strong></div>
@@ -536,11 +536,120 @@ async function renderHeader(req) {
     }
   }
   
+  const homeHref = email ? '/player' : '/public';
   const navLinks = email 
-    ? `<span class="ta-user" style="margin-right:12px;opacity:.9;">${displayName}</span> <a href="/calendar">Calendar</a> <a href="/leaderboard">Leaderboard</a> <a href="/account">Account</a>${isAdmin ? ' <a href="/admin">Admin</a>' : ''} <a href="/logout">Logout</a>`
-    : `<a href="/leaderboard">Leaderboard</a> <a href="/login">Login</a>`;
+    ? `<span class="ta-user" style="margin-right:12px;opacity:.9;">${displayName}</span>
+       <a href="${homeHref}">Home</a>
+       <a href="/calendar">Calendar</a>
+       <a href="/leaderboard">Leaderboard</a>
+       <a href="/account">Account</a>
+       ${isAdmin ? '<a href="/admin">Admin</a>' : ''}
+       <a href="https://ko-fi.com/triviaadvent" target="_blank" rel="noopener noreferrer">Donate</a>
+       <a href="/logout">Logout</a>`
+    : `<a href="/public">Home</a>
+       <a href="/leaderboard">Leaderboard</a>
+       <a href="https://ko-fi.com/triviaadvent" target="_blank" rel="noopener noreferrer">Donate</a>
+       <a href="/login">Login</a>`;
   
   return `<header class="ta-header"><div class="ta-header-inner"><div class="ta-brand"><img class="ta-logo" src="/logo.svg"/><span class="ta-title">Trivia Advent‑ure</span></div><button class="ta-menu-toggle" aria-label="Toggle menu" aria-expanded="false"><span></span><span></span><span></span></button><nav class="ta-nav">${navLinks}</nav></div></header><script src="/js/common-enhancements.js"></script>`;
+}
+
+function renderFooter(req) {
+  const email = (req.session?.user?.email || '').toLowerCase() || null;
+  const isAdmin = req.session?.isAdmin === true;
+  const homeHref = email ? '/player' : '/public';
+  const accountLink = email ? '<a href="/account">Account</a>' : '<a href="/login">Account</a>';
+  return `
+    <footer class="ta-footer">
+      <div class="ta-container ta-footer-inner">
+        <div class="ta-footer-brand">
+          <img src="/logo.svg" alt="Trivia Advent-ure logo"/>
+          <div>
+            <div class="ta-footer-title">Trivia Advent‑ure</div>
+            <div class="ta-footer-subtitle">Daily trivia for a good cause</div>
+          </div>
+        </div>
+        <div class="ta-footer-links">
+          <div>
+            <h4>Explore</h4>
+            <a href="${homeHref}">Home</a>
+            <a href="/calendar">Calendar</a>
+            <a href="/leaderboard">Leaderboard</a>
+          </div>
+          <div>
+            <h4>Account</h4>
+            ${accountLink}
+            ${email ? '<a href="/logout">Logout</a>' : '<a href="/login">Login</a>'}
+            ${isAdmin ? '<a href="/admin">Admin</a>' : ''}
+          </div>
+          <div>
+            <h4>Support</h4>
+            <a href="https://ko-fi.com/triviaadvent" target="_blank" rel="noopener noreferrer">Donate on Ko-fi</a>
+            <a href="/public#faq">FAQ</a>
+          </div>
+        </div>
+        <div class="ta-footer-charities">
+          <span>Benefiting:</span>
+          <a href="https://translifeline.org" target="_blank" rel="noopener noreferrer"><img src="/img/TL-logo_purple_transparent.png" alt="Trans Lifeline"/></a>
+          <a href="https://wck.org" target="_blank" rel="noopener noreferrer"><img src="/img/download.png" alt="World Central Kitchen"/></a>
+        </div>
+        <div class="ta-footer-copy">© Trivia Advent‑ure</div>
+      </div>
+    </footer>
+    <nav class="ta-mobile-nav">
+      <a href="${homeHref}" class="ta-mobile-nav-item">Home</a>
+      <a href="/calendar" class="ta-mobile-nav-item">Calendar</a>
+      <a href="/leaderboard" class="ta-mobile-nav-item">Leaderboard</a>
+      ${email ? '<a href="/account" class="ta-mobile-nav-item">Account</a>' : '<a href="/login" class="ta-mobile-nav-item">Login</a>'}
+      <button class="ta-mobile-nav-item ta-mobile-nav-menu" data-nav-toggle>Menu</button>
+    </nav>
+  `;
+}
+
+function renderBreadcrumb(trail = []) {
+  if (!Array.isArray(trail) || trail.length === 0) return '';
+  const items = trail.map((item, idx) => {
+    if (idx === trail.length - 1 || !item.href) {
+      return `<span>${item.label}</span>`;
+    }
+    return `<a href="${item.href}">${item.label}</a>`;
+  }).join('<span class="ta-breadcrumbs-sep">›</span>');
+  return `<nav class="ta-breadcrumbs">${items}</nav>`;
+}
+
+const ADMIN_CRUMB = { label: 'Admin', href: '/admin' };
+
+const ADMIN_NAV_LINKS = [
+  { id: 'dashboard', label: 'Dashboard', href: '/admin' },
+  { id: 'quizzes', label: 'Quizzes', href: '/admin/quizzes' },
+  { id: 'calendar', label: 'Calendar', href: '/admin/calendar' },
+  { id: 'authors', label: 'Author Assignments', href: '/admin/author-slots' },
+  { id: 'writers', label: 'Writer Invites', href: '/admin/writer-invites' },
+  { id: 'players', label: 'Players', href: '/admin/players' },
+  { id: 'access', label: 'Access & Links', href: '/admin/access' },
+  { id: 'announcements', label: 'Announcements', href: '/admin/announcements' }
+];
+
+function renderAdminNav(activeId) {
+  const items = ADMIN_NAV_LINKS.map(link => `
+    <a class="ta-admin-nav__link${link.id === activeId ? ' is-active' : ''}" href="${link.href}">${link.label}</a>
+  `).join('');
+  return `<nav class="ta-admin-nav">${items}</nav>`;
+}
+
+function renderQuizSubnav(quizId, activeId, options = {}) {
+  const { allowRecap = false } = options || {};
+  const baseLinks = [
+    { id: 'quiz', label: 'Quiz', href: `/quiz/${quizId}` },
+    { id: 'leaderboard', label: 'Leaderboard', href: `/quiz/${quizId}/leaderboard` }
+  ];
+  if (allowRecap) {
+    baseLinks.push({ id: 'recap', label: 'My Recap', href: `/quiz/${quizId}?recap=1` });
+  }
+  const items = baseLinks.map(link => `
+    <a class="ta-subnav__link${link.id === activeId ? ' is-active' : ''}" href="${link.href}">${link.label}</a>
+  `).join('');
+  return `<nav class="ta-subnav">${items}</nav>`;
 }
 
 // Helper function for user-friendly error pages
@@ -570,7 +679,7 @@ async function renderErrorPage(req, statusCode, title, message, suggestions = []
           <a href="javascript:history.back()" class="ta-btn ta-btn-outline" style="margin-left:8px;">Go Back</a>
         </div>
       </main>
-      <footer class="ta-footer"><div class="ta-container">© Trivia Advent‑ure</div></footer>
+      ${renderFooter(req)}
     </body></html>
   `;
 }
@@ -971,7 +1080,7 @@ app.get('/account', requireAuth, async (req, res) => {
             </div>
           </section>
         </main>
-        <footer class="ta-footer"><div class="ta-container">© Trivia Advent‑ure</div></footer>
+        ${renderFooter(req)}
       </body></html>
     `);
   } catch (e) {
@@ -1116,7 +1225,7 @@ app.get('/account/history', requireAuth, async (req, res) => {
             </div>
           `}
         </main>
-        <footer class="ta-footer"><div class="ta-container">© Trivia Advent‑ure</div></footer>
+        ${renderFooter(req)}
       </body></html>
     `);
   } catch (e) {
@@ -1165,7 +1274,7 @@ app.get('/account/export', requireAuth, async (req, res) => {
               </div>
             </div>
           </main>
-          <footer class="ta-footer"><div class="ta-container">© Trivia Advent‑ure</div></footer>
+          ${renderFooter(req)}
         </body></html>
       `);
       return;
@@ -1319,7 +1428,7 @@ app.get('/account/preferences', requireAuth, async (req, res) => {
             </div>
           </form>
         </main>
-        <footer class="ta-footer"><div class="ta-container">© Trivia Advent‑ure</div></footer>
+        ${renderFooter(req)}
       </body></html>
     `);
   } catch (e) {
@@ -1376,7 +1485,7 @@ app.get('/account/delete', requireAuth, async (req, res) => {
           </form>
         </div>
       </main>
-      <footer class="ta-footer"><div class="ta-container">© Trivia Advent‑ure</div></footer>
+      ${renderFooter(req)}
     </body></html>
   `);
 });
@@ -1704,7 +1813,7 @@ app.get('/public', async (req, res) => {
           <a class="ta-btn ta-btn-outline" href="/login" style="font-size:18px;padding:14px 32px;">Get Started</a>
         </div>
       </main>
-      <footer class="ta-footer"><div class="ta-container">© Trivia Advent‑ure</div></footer>
+    ${renderFooter(req)}
     </body></html>
   `);
 });
@@ -1758,15 +1867,28 @@ app.get('/admin/calendar', requireAdmin, async (req, res) => {
       </tr>`).join('');
     const header = await renderHeader(req);
     res.type('html').send(`
-      ${renderHead('Admin Calendar', false)}
-      <body class=\"ta-body\" style=\"padding:24px;\">
+      ${renderHead('Admin Calendar', true)}
+      <body class="ta-body">
       ${header}
-        <h1>Calendar (Admin)</h1>
-        <p><a href=\"/admin\" class=\"ta-btn ta-btn-outline\">Back</a></p>
-        <table style=\"width:100%;border-collapse:collapse;\">
-          <thead><tr><th style=\"text-align:left;padding:6px 4px;\">Day</th><th style=\"text-align:left;padding:6px 4px;\">AM</th><th style=\"text-align:left;padding:6px 4px;\">PM</th></tr></thead>
-          <tbody>${htmlRows}</tbody>
-        </table>
+        <main class="ta-main ta-container">
+          ${renderBreadcrumb([ADMIN_CRUMB, { label: 'Calendar' }])}
+          ${renderAdminNav('calendar')}
+          <h1 class="ta-page-title">Calendar Overview</h1>
+          <p style="margin:0 0 16px 0;opacity:0.85;">Review daily AM/PM slots, identify conflicts, and jump into quiz details.</p>
+          <div style="background:#0e0e0e;border:1px solid rgba(255,255,255,0.08);border-radius:12px;overflow:hidden;">
+            <table style="width:100%;border-collapse:collapse;">
+              <thead style="background:rgba(255,255,255,0.05);">
+                <tr>
+                  <th style="padding:10px 12px;text-align:left;">Day</th>
+                  <th style="padding:10px 12px;text-align:left;">AM Slot</th>
+                  <th style="padding:10px 12px;text-align:left;">PM Slot</th>
+                </tr>
+              </thead>
+              <tbody>${htmlRows}</tbody>
+            </table>
+          </div>
+        </main>
+        ${renderFooter(req)}
       </body></html>
     `);
   } catch (e) {
@@ -1815,8 +1937,9 @@ app.get('/admin/author-slots', requireAdmin, async (req, res) => {
       <body class="ta-body">
         ${header}
         <main class="ta-main ta-container" style="max-width:1100px;">
+          ${renderBreadcrumb([ADMIN_CRUMB, { label: 'Author Assignments' }])}
+          ${renderAdminNav('authors')}
           <h1 class="ta-page-title">Author Assignments</h1>
-          <p style="margin-bottom:24px;"><a href="/admin" class="ta-btn ta-btn-outline">← Back to Admin</a></p>
           ${msg ? `<div style="margin-bottom:20px;padding:12px;border:1px solid #2e7d32;border-radius:6px;background:rgba(46,125,50,0.15);color:#81c784;">${esc(msg)}</div>` : ''}
           <div style="background:#1a1a1a;border:1px solid #333;border-radius:10px;overflow-x:auto;">
             <table style="width:100%;border-collapse:collapse;min-width:720px;">
@@ -1837,7 +1960,7 @@ app.get('/admin/author-slots', requireAdmin, async (req, res) => {
           </div>
           <p style="margin-top:24px;font-size:14px;opacity:0.75;">Overrides replace the automatic average and immediately reflect on leaderboards.</p>
         </main>
-        <footer class="ta-footer"><div class="ta-container">© Trivia Advent‑ure</div></footer>
+        ${renderFooter(req)}
       </body></html>
     `);
   } catch (e) {
@@ -2027,7 +2150,7 @@ app.get('/player', requireAuth, async (req, res) => {
           <a class="ta-btn ta-btn-outline" href="/account/credentials">Account Settings</a>
         </div>
       </main>
-      <footer class="ta-footer"><div class="ta-container">© Trivia Advent‑ure</div></footer>
+      ${renderFooter(req)}
     </body></html>
   `);
 });
@@ -2075,6 +2198,8 @@ app.get('/admin', requireAdmin, async (req, res) => {
     <body class="ta-body">
       ${header}
       <main class="ta-main ta-container">
+        ${renderBreadcrumb([{ label: 'Admin' }])}
+        ${renderAdminNav('dashboard')}
         <h1 class="ta-page-title">Admin Dashboard</h1>
         
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin:24px 0;">
@@ -2154,7 +2279,7 @@ app.get('/admin', requireAdmin, async (req, res) => {
           </div>
         </section>
       </main>
-      <footer class="ta-footer"><div class="ta-container">© Trivia Advent‑ure</div></footer>
+      ${renderFooter(req)}
     </body></html>
   `);
 });
@@ -2245,9 +2370,7 @@ app.get('/login', async (req, res) => {
           </div>
         </div>
       </main>
-      <footer class="ta-footer">
-        <div class="ta-container">© Trivia Advent‑ure</div>
-      </footer>
+      ${renderFooter(req)}
     </body></html>
   `);
 });
@@ -2387,7 +2510,7 @@ app.get('/calendar', async (req, res) => {
           <h1 class="ta-page-title">Advent Calendar</h1>
           <div class="ta-calendar-grid">${grid}</div>
         </main>
-        <footer class="ta-footer"><div class="ta-container">© Trivia Advent‑ure</div></footer>
+        ${renderFooter(req)}
         <script>
           (function(){
             function setupDoors(){
@@ -2418,33 +2541,43 @@ app.get('/calendar', async (req, res) => {
 app.get('/admin/upload-quiz', requireAdmin, async (req, res) => {
   const header = await renderHeader(req);
   res.type('html').send(`
-    ${renderHead('Upload Quiz', false)}
-    <body class="ta-body" style="padding: 24px;">
+    ${renderHead('Upload Quiz', true)}
+    <body class="ta-body">
     ${header}
-      <h1>Upload Quiz</h1>
-      <form method="post" action="/admin/upload-quiz">
-        <div><label>Title <input name="title" required /></label></div>
-        <div style="margin-top:8px;"><label>Author <input name="author" /></label></div>
-        <div style="margin-top:8px;"><label>Author email <input name="author_email" type="email" /></label></div>
-        <div style="margin-top:8px;"><label>Author blurb <input name="author_blurb" /></label></div>
-        <div style="margin-top:8px;"><label>Description<br/><textarea name="description" rows="3" style="width: 100%;"></textarea></label></div>
-        <div style="margin-top:8px;"><label>Unlock (ET) <input name="unlock_at" type="datetime-local" required /></label></div>
-        <fieldset style="margin-top:12px;">
-          <legend>Questions (10)</legend>
-          ${Array.from({length:10}, (_,i)=>{
-            const n=i+1;
-            return `<div style=\"border:1px solid #ddd;padding:8px;margin:6px 0;border-radius:6px;\">
-              <div><strong>Q${n}</strong></div>
-              <div><label>Text <input name=\"q${n}_text\" required style=\"width:90%\"/></label></div>
-              <div><label>Answer <input name=\"q${n}_answer\" required style=\"width:90%\"/></label></div>
-              <div><label>Category <input name=\"q${n}_category\" value=\"General\"/></label>
-              <label style=\"margin-left:12px;\">Ask <input name=\"q${n}_ask\"/></label></div>
-            </div>`
-          }).join('')}
-        </fieldset>
-        <div style="margin-top:12px;"><button type="submit">Create Quiz</button></div>
-      </form>
-      <p style="margin-top:16px;"><a href="/" class="ta-btn ta-btn-outline">Home</a></p>
+      <main class="ta-main ta-container" style="max-width:900px;">
+        ${renderBreadcrumb([ADMIN_CRUMB, { label: 'Quizzes', href: '/admin/quizzes' }, { label: 'Upload Quiz' }])}
+        ${renderAdminNav('quizzes')}
+        <h1 class="ta-page-title">Upload Quiz</h1>
+        <p style="margin:0 0 16px 0;opacity:0.8;">Provide the core quiz details and we’ll create the entry. You can tweak timings, copy, and assignments afterward.</p>
+        <form method="post" action="/admin/upload-quiz" class="ta-form-stack">
+          <label class="ta-form-field">Title <input name="title" required /></label>
+          <label class="ta-form-field">Author <input name="author" /></label>
+          <label class="ta-form-field">Author email <input name="author_email" type="email" /></label>
+          <label class="ta-form-field">Author blurb <input name="author_blurb" /></label>
+          <label class="ta-form-field">Description<textarea name="description" rows="3"></textarea></label>
+          <label class="ta-form-field">Unlock (ET) <input name="unlock_at" type="datetime-local" required /></label>
+          <fieldset class="ta-fieldset">
+            <legend>Questions (10)</legend>
+            ${Array.from({length:10}, (_,i)=>{
+              const n=i+1;
+              return `<div class="ta-question-block">
+                <div class="ta-question-header"><strong>Question ${n}</strong></div>
+                <label class="ta-form-field">Text <input name="q${n}_text" required /></label>
+                <label class="ta-form-field">Answer <input name="q${n}_answer" required /></label>
+                <div class="ta-question-row">
+                  <label>Category <input name="q${n}_category" value="General"/></label>
+                  <label>Ask <input name="q${n}_ask"/></label>
+                </div>
+              </div>`;
+            }).join('')}
+          </fieldset>
+          <div class="ta-form-actions">
+            <button type="submit" class="ta-btn ta-btn-primary">Create Quiz</button>
+            <a href="/admin/quizzes" class="ta-btn ta-btn-outline">Cancel</a>
+          </div>
+        </form>
+      </main>
+      ${renderFooter(req)}
     </body></html>
   `);
 });
@@ -3112,7 +3245,7 @@ app.get('/admin/writer-invites/my', requireAdmin, async (req, res) => {
               <p style="margin-top:16px;"><a href="/admin/writer-invite" class="ta-btn ta-btn-primary">Create Writer Invite</a></p>
             </div>
           </main>
-          <footer class="ta-footer"><div class="ta-container">© Trivia Advent‑ure</div></footer>
+          ${renderFooter(req)}
         </body></html>
       `);
       return;
@@ -3171,7 +3304,7 @@ app.get('/admin/writer-invites/my', requireAdmin, async (req, res) => {
             <tbody>${list || ''}</tbody>
           </table>
         </main>
-        <footer class="ta-footer"><div class="ta-container">© Trivia Advent‑ure</div></footer>
+        ${renderFooter(req)}
       </body></html>
     `);
   } catch (e) {
@@ -3310,6 +3443,7 @@ app.get('/quiz/:id', async (req, res) => {
       });
     }
     const recap = String(req.query.recap || '') === '1';
+    const allowRecapLink = loggedIn && !isAuthor;
     if (recap && loggedIn && !isAuthor) {
       const { rows: gr } = await pool.query(
         'SELECT q.id AS qid, q.number, q.text, q.answer, r.response_text, r.points, r.locked, COALESCE(r.flagged,false) AS flagged FROM questions q LEFT JOIN responses r ON r.question_id=q.id AND r.user_email=$1 WHERE q.quiz_id=$2 ORDER BY q.number ASC',
@@ -3333,18 +3467,38 @@ app.get('/quiz/:id', async (req, res) => {
           </td>
         </tr>`).join('');
       const header = await renderHeader(req);
+      const subnav = renderQuizSubnav(id, 'recap', { allowRecap: true });
       return res.type('html').send(`
         ${renderHead(`Quiz ${id} Recap`, false)}
-        <body class="ta-body" style="padding: 24px;">
+        <body class="ta-body">
           ${header}
-          <h1>${quiz.title} (Quiz #${id})</h1>
-          <div>Status: ${status}</div>
-          <h3>Score: ${total}</h3>
-          <table class="recap-table" cellspacing="0" cellpadding="6">
-            <tr><th>#</th><th>Question</th><th>Your answer</th><th>Correct answer</th><th>Points</th><th>Actions</th></tr>
-            ${rowsHtml}
-          </table>
-          <p style="margin-top:16px;"><a href="/calendar" class="ta-btn ta-btn-outline">Back to Calendar</a></p>
+          <main class="ta-main ta-container" style="max-width:900px;">
+            ${renderBreadcrumb([{ label: 'Calendar', href: '/calendar' }, { label: quiz.title || `Quiz #${id}` }, { label: 'Recap' }])}
+            ${subnav}
+            <h1 class="ta-page-title">${quiz.title} (Quiz #${id})</h1>
+            <div class="ta-recap-summary">
+              <div class="ta-recap-summary__item">
+                <span class="ta-recap-summary__label">Status</span>
+                <span class="ta-recap-summary__value">${status}</span>
+              </div>
+              <div class="ta-recap-summary__item">
+                <span class="ta-recap-summary__label">Score</span>
+                <span class="ta-recap-summary__score">${total}</span>
+              </div>
+            </div>
+            <div class="ta-table-wrapper">
+              <table class="ta-table">
+                <thead>
+                  <tr><th>#</th><th>Question</th><th>Your answer</th><th>Correct answer</th><th>Points</th><th>Actions</th></tr>
+                </thead>
+                <tbody>
+                  ${rowsHtml}
+                </tbody>
+              </table>
+            </div>
+            <p style="margin-top:16px;"><a href="/calendar" class="ta-btn ta-btn-outline">Back to Calendar</a></p>
+          </main>
+          ${renderFooter(req)}
         </body></html>
       `);
     }
@@ -3429,6 +3583,7 @@ app.get('/quiz/:id', async (req, res) => {
     const slot = et.h === 0 ? 'AM' : 'PM';
     const dateStr = `${et.y}-${String(et.m).padStart(2,'0')}-${String(et.d).padStart(2,'0')}`;
     const header = await renderHeader(req);
+    const subnav = renderQuizSubnav(id, 'quiz', { allowRecap: allowRecapLink });
     res.type('html').send(`
       ${renderHead(`Quiz ${id}`, false)}
       <body class="ta-body">
@@ -3444,6 +3599,7 @@ app.get('/quiz/:id', async (req, res) => {
               ${quiz.description ? `<div class=\"desc-panel\"><h4 style=\"margin:0 0 8px 0;color:var(--gold);\">About this quiz</h4>${quiz.description}</div>` : ''}
             </div>
           </div>
+          ${subnav}
           <section class="rules-panel">
             <h4>How scoring works</h4>
             <ul class="rules-list">
@@ -3455,6 +3611,7 @@ app.get('/quiz/:id', async (req, res) => {
           ${form}
           <p style="margin-top:16px;"><a href="/calendar" class="ta-btn ta-btn-outline">Back to Calendar</a></p>
         </main>
+        ${renderFooter(req)}
         <script src="/js/common-enhancements.js"></script>
         <script src="/js/quiz-enhancements.js"></script>
       </body></html>
@@ -3581,11 +3738,15 @@ app.get('/quiz/:id/leaderboard', async (req, res) => {
       ? '<p style="margin-top:12px;font-size:13px;opacity:0.75;">Entries labelled “avg” represent the quiz author. They receive either the automatic player average or a manual override.</p>'
       : '';
     const header = await renderHeader(req);
+    const allowRecapLink = !!(req.session?.user);
+    const subnav = renderQuizSubnav(id, 'leaderboard', { allowRecap: allowRecapLink });
     res.type('html').send(`
       ${renderHead(`Leaderboard • Quiz ${id}`, false)}
       <body class="ta-body" style="padding:24px;">
       ${header}
         <main class="ta-container" style="max-width:960px;">
+          ${renderBreadcrumb([{ label: 'Calendar', href: '/calendar' }, { label: qr[0].title || `Quiz #${id}` }, { label: 'Leaderboard' }])}
+          ${subnav}
           <h1 class="ta-page-title">Leaderboard — ${qr[0].title}</h1>
           <section style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin:20px 0;">
             <div style="background:#1a1a1a;border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:16px;">
@@ -3628,6 +3789,7 @@ app.get('/quiz/:id/leaderboard', async (req, res) => {
           </section>
           <p style="margin-top:16px;"><a href="/quiz/${id}" class="ta-btn ta-btn-outline">Back to Quiz</a> <a href="/calendar" class="ta-btn ta-btn-outline" style="margin-left:8px;">Calendar</a></p>
         </main>
+        ${renderFooter(req)}
       </body></html>
     `);
   } catch (e) {
@@ -3774,10 +3936,13 @@ app.get('/leaderboard', async (_req, res) => {
         </tr>
       `;
     }).join('');
+    const header = await renderHeader(req);
     res.type('html').send(`
       ${renderHead('Overall Leaderboard', false)}
       <body class="ta-body">
+        ${header}
         <main class="ta-container" style="max-width:960px;padding:24px;">
+          ${renderBreadcrumb([{ label: 'Leaderboard' }])}
           <h1 class="ta-page-title">Overall Leaderboard</h1>
           <section style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin:20px 0;">
             <div style="background:#1a1a1a;border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:16px;">
@@ -3820,6 +3985,7 @@ app.get('/leaderboard', async (_req, res) => {
           </section>
           <p style="margin-top:16px;"><a href="/calendar" class="ta-btn ta-btn-outline">Back to Calendar</a></p>
         </main>
+        ${renderFooter(req)}
       </body></html>
     `);
   } catch (e) {
@@ -3949,48 +4115,54 @@ app.get('/admin/quizzes', requireAdmin, async (req, res) => {
     
     const header = await renderHeader(req);
     res.type('html').send(`
-      ${renderHead('Quizzes', true)}
-      <body class="ta-body" style="padding:24px;">
-      <script src="/js/common-enhancements.js"></script>
+      ${renderHead('Quizzes • Admin', true)}
+      <body class="ta-body">
       ${header}
-        <h1>Quizzes</h1>
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:12px;">
-          <p style="margin:0;opacity:0.8;">Total: <span id="total-count">${rows.length}</span> quiz${rows.length !== 1 ? 'zes' : ''}</p>
-          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-            <input type="text" id="quiz-search" placeholder="Search by title or ID..." style="padding:8px 12px;border-radius:6px;border:1px solid #444;background:#1a1a1a;color:#fff;min-width:200px;" />
-            <select id="status-filter" style="padding:8px 12px;border-radius:6px;border:1px solid #444;background:#1a1a1a;color:#fff;">
-              <option value="">All Statuses</option>
-              <option value="locked">Locked</option>
-              <option value="active">Active</option>
-              <option value="finalized">Finalized</option>
-            </select>
-            <button onclick="clearFilters()" class="ta-btn ta-btn-outline" style="padding:8px 16px;">Clear</button>
+        <main class="ta-main ta-container">
+          ${renderBreadcrumb([ADMIN_CRUMB, { label: 'Quizzes' }])}
+          ${renderAdminNav('quizzes')}
+          <h1 class="ta-page-title">Quizzes</h1>
+          <div class="ta-admin-toolbar">
+            <p class="ta-admin-toolbar__count">Total: <span id="total-count">${rows.length}</span> quiz${rows.length !== 1 ? 'zes' : ''}</p>
+            <div class="ta-admin-toolbar__filters">
+              <input type="text" id="quiz-search" class="ta-input" placeholder="Search by title or ID…" />
+              <select id="status-filter" class="ta-input">
+                <option value="">All Statuses</option>
+                <option value="locked">Locked</option>
+                <option value="active">Active</option>
+                <option value="finalized">Finalized</option>
+              </select>
+              <button onclick="clearFilters()" class="ta-btn ta-btn-outline">Clear</button>
+            </div>
           </div>
-        </div>
-        <div id="bulk-quiz-actions" style="display:none;margin-bottom:16px;padding:12px;background:#1a1a1a;border-radius:6px;">
-          <div style="margin-bottom:8px;"><strong>Bulk Actions (<span id="selected-quiz-count">0</span> selected):</strong></div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;">
-            <button onclick="bulkQuizAction('delete')" class="ta-btn" style="background:#d32f2f;color:#fff;border-color:#d32f2f;padding:6px 12px;">Delete Selected</button>
-            <button onclick="bulkQuizAction('export')" class="ta-btn" style="background:#4caf50;color:#fff;border-color:#4caf50;padding:6px 12px;">Export Selected</button>
+          <div id="bulk-quiz-actions" class="ta-admin-bulk" style="display:none;">
+            <div class="ta-admin-bulk__header"><strong>Bulk actions (<span id="selected-quiz-count">0</span> selected)</strong></div>
+            <div class="ta-admin-bulk__buttons">
+              <button onclick="bulkQuizAction('delete')" class="ta-btn ta-btn-danger">Delete Selected</button>
+              <button onclick="bulkQuizAction('export')" class="ta-btn ta-btn-success">Export Selected</button>
+            </div>
           </div>
-        </div>
-        <table border="1" cellspacing="0" cellpadding="8" style="border-collapse:collapse;width:100%;">
-          <thead>
-            <tr style="background:#1a1a1a;">
-              <th style="padding:8px;text-align:left;"><input type="checkbox" id="select-all-quizzes" onchange="toggleAllQuizzes(this)" /></th>
-              <th style="padding:8px;text-align:left;">ID</th>
-              <th style="padding:8px;text-align:left;">Title</th>
-              <th style="padding:8px;text-align:left;">Unlock</th>
-              <th style="padding:8px;text-align:left;">Freeze</th>
-              <th style="padding:8px;text-align:left;">Last Graded</th>
-              <th style="padding:8px;text-align:left;">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${items || '<tr><td colspan="7">No quizzes</td></tr>'}
-          </tbody>
-        </table>
-        <p style="margin-top:16px;"><a href="/admin" class="ta-btn ta-btn-outline">Back</a></p>
+          <div class="ta-table-wrapper">
+            <table class="ta-table" id="quiz-table">
+              <thead>
+                <tr>
+                  <th><input type="checkbox" id="select-all-quizzes" onchange="toggleAllQuizzes(this)" /></th>
+                  <th>ID</th>
+                  <th>Title</th>
+                  <th>Unlock</th>
+                  <th>Freeze</th>
+                  <th>Last graded</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${items || '<tr><td colspan="7">No quizzes</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+        </main>
+        ${renderFooter(req)}
+        <script src="/js/common-enhancements.js"></script>
         <script>
           function filterQuizzes() {
             const searchTerm = document.getElementById('quiz-search').value.toLowerCase().trim();
@@ -4084,34 +4256,47 @@ app.get('/admin/quiz/:id', requireAdmin, async (req, res) => {
     const list = qs.rows.map(q => `<li><strong>Q${q.number}</strong> ${q.text} <em>(Ans: ${q.answer})</em></li>`).join('');
     const header = await renderHeader(req);
   res.type('html').send(`
-    ${renderHead(`Edit Quiz #${id}`, false)}
-    <body class="ta-body" style="padding:24px;">
+    ${renderHead(`Edit Quiz #${id}`, true)}
+    <body class="ta-body">
     ${header}
-        <h1>Edit Quiz #${id}</h1>
-        <form method="post" action="/admin/quiz/${id}">
-          <div><label>Title <input name="title" value="${quiz.title}" required /></label></div>
-          <div style="margin-top:8px;"><label>Unlock (ET) <input name="unlock_at" type="datetime-local" /></label> <small>Leave blank to keep</small></div>
-          <div style="margin-top:8px;"><button type="submit">Save</button></div>
+      <main class="ta-main ta-container" style="max-width:900px;">
+        ${renderBreadcrumb([ADMIN_CRUMB, { label: 'Quizzes', href: '/admin/quizzes' }, { label: `Quiz #${id}` }])}
+        ${renderAdminNav('quizzes')}
+        <h1 class="ta-page-title">Edit Quiz #${id}</h1>
+        <form method="post" action="/admin/quiz/${id}" class="ta-form-stack">
+          <label class="ta-form-field">Title <input name="title" value="${quiz.title}" required /></label>
+          <label class="ta-form-field">Unlock (ET) <input name="unlock_at" type="datetime-local" /> <small style="opacity:0.7;">Leave blank to keep existing time.</small></label>
+          <div class="ta-form-actions">
+            <button type="submit" class="ta-btn ta-btn-primary">Save Changes</button>
+            <a href="/admin/quizzes" class="ta-btn ta-btn-outline">Back to list</a>
+          </div>
         </form>
-        <h3 style="margin-top:16px;">Questions</h3>
-        <ul>${list || '<li>No questions</li>'}</ul>
-        <h3>Bulk replace questions</h3>
-        <form method="post" action="/admin/quiz/${id}/questions">
-          <textarea name="json" rows="12" cols="100" placeholder='[
+        <section style="margin-top:32px;">
+          <h2 style="margin-bottom:12px;color:#ffd700;">Questions</h2>
+          <ul>${list || '<li>No questions</li>'}</ul>
+        </section>
+        <section style="margin-top:24px;">
+          <h2 style="margin-bottom:12px;color:#ffd700;">Bulk replace questions</h2>
+          <form method="post" action="/admin/quiz/${id}/questions" class="ta-form-stack">
+            <textarea name="json" rows="12" placeholder='[
   {"number":1, "text":"...", "answer":"...", "category":"General", "ask":"..."},
   ... 10 items total ...
 ]'></textarea>
-          <div style="margin-top:8px;"><button type="submit">Replace Questions</button></div>
-        </form>
-        <div style="margin-top:16px;">
-          <a href="/admin/quiz/${id}/analytics" class="ta-btn" style="background:#4caf50;color:#fff;border-color:#4caf50;margin-right:8px;">Analytics</a>
-          <a href="/admin/quiz/${id}/grade" class="ta-btn" style="background:#2196f3;color:#fff;border-color:#2196f3;margin-right:8px;">Grade Responses</a>
-          <form method="post" action="/admin/quiz/${id}/clone" style="display:inline-block;"><button type="submit">Clone Quiz</button></form>
-          <form method="post" action="/admin/quiz/${id}/delete" style="display:inline-block; margin-left:8px;" onsubmit="return confirm('Delete this quiz? This cannot be undone.');"><button type="submit">Delete Quiz</button></form>
-        </div>
-        <p style="margin-top:16px;"><a href="/admin/quizzes" class="ta-btn ta-btn-outline">Back</a></p>
-      </body></html>
-    `);
+            <div class="ta-form-actions">
+              <button type="submit" class="ta-btn ta-btn-outline">Replace Questions</button>
+            </div>
+          </form>
+        </section>
+        <section style="margin-top:24px;display:flex;flex-wrap:wrap;gap:12px;">
+          <a href="/admin/quiz/${id}/analytics" class="ta-btn ta-btn-success">Analytics</a>
+          <a href="/admin/quiz/${id}/grade" class="ta-btn" style="background:#2196f3;color:#fff;border-color:#2196f3;">Grade Responses</a>
+          <form method="post" action="/admin/quiz/${id}/clone"><button type="submit" class="ta-btn">Clone Quiz</button></form>
+          <form method="post" action="/admin/quiz/${id}/delete" onsubmit="return confirm('Delete this quiz? This cannot be undone.');"><button type="submit" class="ta-btn ta-btn-danger">Delete Quiz</button></form>
+        </section>
+      </main>
+      ${renderFooter(req)}
+    </body></html>
+  `);
   } catch (e) {
     console.error(e);
     res.status(500).send('Failed to load quiz');
@@ -4690,7 +4875,7 @@ app.get('/admin/quiz/:id/analytics', requireAdmin, async (req, res) => {
             <a href="/admin/quizzes" class="ta-btn ta-btn-outline" style="margin-left:8px;">← Back to Quizzes</a>
           </p>
         </main>
-        <footer class="ta-footer"><div class="ta-container">© Trivia Advent‑ure</div></footer>
+        ${renderFooter(req)}
       </body></html>
     `);
   } catch (e) {
@@ -4979,7 +5164,7 @@ app.get('/admin/players', requireAdmin, async (req, res) => {
           </script>
           <p style="margin-top:16px;"><a href="/admin">Back to Admin</a></p>
         </main>
-        <footer class="ta-footer"><div class="ta-container">© Trivia Advent‑ure</div></footer>
+        ${renderFooter(req)}
       </body></html>
     `);
   } catch (e) {
@@ -5347,7 +5532,7 @@ app.get('/admin/players/:email', requireAdmin, async (req, res) => {
           
           <p style="margin-top:24px;"><a href="/admin/players" class="ta-btn ta-btn-outline">← Back to Players</a></p>
         </main>
-        <footer class="ta-footer"><div class="ta-container">© Trivia Advent‑ure</div></footer>
+        ${renderFooter(req)}
       </body></html>
     `);
   } catch (e) {
@@ -5487,7 +5672,7 @@ app.get('/admin/announcements', requireAdmin, async (req, res) => {
             </div>
           </form>
         </main>
-        <footer class="ta-footer"><div class="ta-container">© Trivia Advent‑ure</div></footer>
+        ${renderFooter(req)}
         <script src="/js/common-enhancements.js"></script>
       </body></html>
     `);
@@ -5587,7 +5772,7 @@ app.post('/admin/announcements', requireAdmin, express.urlencoded({ extended: tr
             <a href="/admin" class="ta-btn ta-btn-outline" style="margin-left:8px;">Back to Admin</a>
           </div>
         </main>
-        <footer class="ta-footer"><div class="ta-container">© Trivia Advent‑ure</div></footer>
+        ${renderFooter(req)}
       </body></html>
     `);
   } catch (e) {
@@ -5643,7 +5828,7 @@ app.get('/onboarding', requireAuth, async (req, res) => {
             </section>
           </div>
         </main>
-        <footer class="ta-footer"><div class="ta-container">© Trivia Advent‑ure</div></footer>
+        ${renderFooter(req)}
       </body></html>
     `);
   } catch (e) {

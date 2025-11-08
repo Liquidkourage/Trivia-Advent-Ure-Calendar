@@ -142,6 +142,16 @@
           nav.setAttribute('aria-expanded', 'false');
         }
       });
+
+      const mobileToggles = document.querySelectorAll('[data-nav-toggle]');
+      mobileToggles.forEach(btn => {
+        btn.addEventListener('click', function() {
+          const isExpanded = menuToggle.getAttribute('aria-expanded') === 'true';
+          const nextState = !isExpanded;
+          menuToggle.setAttribute('aria-expanded', nextState);
+          nav.setAttribute('aria-expanded', nextState);
+        });
+      });
     }
   })();
 })();
