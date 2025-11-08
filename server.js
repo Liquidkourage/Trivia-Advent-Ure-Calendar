@@ -2917,6 +2917,7 @@ app.get('/quiz/:id', async (req, res) => {
           ${form}
           <p style="margin-top:16px;"><a href="/calendar" class="ta-btn ta-btn-outline">Back to Calendar</a></p>
         </main>
+        <script src="/js/common-enhancements.js"></script>
         <script src="/js/quiz-enhancements.js"></script>
       </body></html>
     `);
@@ -3199,6 +3200,7 @@ app.get('/admin/quizzes', requireAdmin, async (req, res) => {
     res.type('html').send(`
       <html><head><title>Quizzes</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
       <body class="ta-body" style="padding:24px;">
+      <script src="/js/common-enhancements.js"></script>
       ${header}
         <h1>Quizzes</h1>
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:12px;">
