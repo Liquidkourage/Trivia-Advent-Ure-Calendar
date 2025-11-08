@@ -228,6 +228,9 @@ async function initDb() {
       ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS description TEXT;
     EXCEPTION WHEN others THEN NULL; END $$;
     DO $$ BEGIN
+      ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS author_email CITEXT;
+    EXCEPTION WHEN others THEN NULL; END $$;
+    DO $$ BEGIN
       ALTER TABLE players ADD COLUMN IF NOT EXISTS password_hash TEXT;
     EXCEPTION WHEN others THEN NULL; END $$;
     DO $$ BEGIN
@@ -641,6 +644,26 @@ async function gradeQuiz(pool, quizId, userEmail) {
     graded.push({ questionId: q.id, number: q.number, locked: false, correct, points: correct ? streak : 0, given: r ? r.response_text : '', answer: q.answer });
   }
   return { total, graded };
+}
+
+async function computeAuthorAveragePoints(pool, quizId, authorEmailRaw) {
+  if (!authorEmailRaw) return { average: 0, count: 0 };
+  const authorEmail = String(authorEmailRaw).toLowerCase();
+  const { rows } = await pool.query(
+    'SELECT user_email, SUM(points) AS total_points FROM responses WHERE quiz_id=$1 GROUP BY user_email',
+    [quizId]
+  );
+  const others = rows.filter(r => (r.user_email || '').toLowerCase() !== authorEmail);
+  if (!others.length) return { average: 0, count: 0 };
+  const sum = others.reduce((acc, r) => acc + Number(r.total_points || 0), 0);
+  return { average: sum / others.length, count: others.length };
+}
+
+function formatPoints(val) {
+  const num = Number(val);
+  if (!Number.isFinite(num)) return '0';
+  if (Math.abs(num - Math.round(num)) < 1e-6) return String(Math.round(num));
+  return num.toFixed(2);
 }
 
 function getAdminEmail() {
@@ -2257,6 +2280,7 @@ app.get('/admin/upload-quiz', requireAdmin, async (req, res) => {
       <form method="post" action="/admin/upload-quiz">
         <div><label>Title <input name="title" required /></label></div>
         <div style="margin-top:8px;"><label>Author <input name="author" /></label></div>
+        <div style="margin-top:8px;"><label>Author email <input name="author_email" type="email" /></label></div>
         <div style="margin-top:8px;"><label>Author blurb <input name="author_blurb" /></label></div>
         <div style="margin-top:8px;"><label>Description<br/><textarea name="description" rows="3" style="width: 100%;"></textarea></label></div>
         <div style="margin-top:8px;"><label>Unlock (ET) <input name="unlock_at" type="datetime-local" required /></label></div>
@@ -2284,13 +2308,15 @@ app.post('/admin/upload-quiz', requireAdmin, async (req, res) => {
   try {
     const title = String(req.body.title || '').trim();
     const author = String(req.body.author || '').trim() || null;
+    const authorEmailRaw = String(req.body.author_email || '').trim().toLowerCase();
+    const authorEmail = authorEmailRaw ? authorEmailRaw : null;
     const authorBlurb = String(req.body.author_blurb || '').trim() || null;
     const description = String(req.body.description || '').trim() || null;
     const unlockInput = String(req.body.unlock_at || '').trim();
     if (!title || !unlockInput) return res.status(400).send('Missing title or unlock time');
     const unlockUtc = etToUtc(unlockInput);
     const freezeUtc = new Date(unlockUtc.getTime() + 24*60*60*1000);
-    const qInsert = await pool.query('INSERT INTO quizzes(title, unlock_at, freeze_at, author, author_blurb, description) VALUES($1,$2,$3,$4,$5,$6) RETURNING id', [title, unlockUtc, freezeUtc, author, authorBlurb, description]);
+    const qInsert = await pool.query('INSERT INTO quizzes(title, unlock_at, freeze_at, author, author_blurb, description, author_email) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id', [title, unlockUtc, freezeUtc, author, authorBlurb, description, authorEmail]);
     const quizId = qInsert.rows[0].id;
     for (let i=1;i<=10;i++) {
       const qt = String(req.body[`q${i}_text`] || '').trim();
@@ -2750,9 +2776,17 @@ app.post('/admin/writer-submissions/:id/publish', requireAdmin, express.urlencod
     const freezeUtc = new Date(unlockUtc.getTime() + 24*60*60*1000);
     const authorBlurb = (data && typeof data.author_blurb !== 'undefined') ? (String(data.author_blurb || '').trim() || null) : null;
     const description = (data && typeof data.description !== 'undefined') ? (String(data.description || '').trim() || null) : null;
+    const tok = sres.rows[0] && sres.rows[0].token;
+    let authorEmail = null;
+    if (tok) {
+      try {
+        const { rows: inviteRows } = await pool.query('SELECT email FROM writer_invites WHERE token=$1', [tok]);
+        if (inviteRows.length) authorEmail = (inviteRows[0].email || '').toLowerCase();
+      } catch {}
+    }
     const qInsert = await pool.query(
-      'INSERT INTO quizzes(title, unlock_at, freeze_at, author, author_blurb, description) VALUES($1,$2,$3,$4,$5,$6) RETURNING id',
-      [title, unlockUtc, freezeUtc, sres.rows[0].author || null, authorBlurb, description]
+      'INSERT INTO quizzes(title, unlock_at, freeze_at, author, author_blurb, description, author_email) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id',
+      [title, unlockUtc, freezeUtc, sres.rows[0].author || null, authorBlurb, description, authorEmail]
     );
     const quizId = qInsert.rows[0].id;
     for (let i=0;i<Math.min(10, questions.length);i++) {
@@ -2769,7 +2803,6 @@ app.post('/admin/writer-submissions/:id/publish', requireAdmin, express.urlencod
     }
     // mark published and deactivate token
     try {
-      const tok = sres.rows[0] && sres.rows[0].token;
       if (tok) await pool.query('UPDATE writer_invites SET published_at = NOW(), active = FALSE WHERE token=$1', [tok]);
     } catch {}
     res.redirect(`/quiz/${quizId}`);
@@ -3069,6 +3102,12 @@ app.post('/quiz/:id/autosave', requireAuth, express.json(), async (req, res) => 
   try {
     const id = Number(req.params.id);
     const email = (req.session.user.email || '').toLowerCase();
+    const { rows: qMeta } = await pool.query('SELECT author_email FROM quizzes WHERE id=$1', [id]);
+    if (!qMeta.length) return res.status(404).json({ error: 'Quiz not found' });
+    const authorEmail = (qMeta[0].author_email || '').toLowerCase();
+    if (authorEmail && authorEmail === email) {
+      return res.status(403).json({ error: 'Quiz authors cannot submit answers for their own quiz.' });
+    }
     const { locked, answers } = req.body;
     
     // Save answers
@@ -3113,10 +3152,12 @@ app.get('/quiz/:id', async (req, res) => {
     const locked = nowUtc < unlockUtc;
     const status = locked ? 'Locked' : (nowUtc >= freezeUtc ? 'Finalized' : 'Unlocked');
     const loggedIn = !!req.session.user || req.session.isAdmin === true;
-    const email = req.session.user ? (req.session.user.email || '') : (req.session.isAdmin === true ? getAdminEmail() : '');
+    const email = String(req.session.user ? (req.session.user.email || '') : (req.session.isAdmin === true ? getAdminEmail() : '')).toLowerCase();
     let existingMap = new Map();
     let existingLockedId = null;
-    if (loggedIn) {
+    const quizAuthorEmail = (quiz.author_email || '').toLowerCase();
+    const isAuthor = !!quizAuthorEmail && !!email && quizAuthorEmail === email;
+    if (loggedIn && !isAuthor) {
       const erows = await pool.query('SELECT question_id, response_text, locked FROM responses WHERE quiz_id=$1 AND user_email=$2', [id, email]);
       erows.rows.forEach(r => {
         existingMap.set(r.question_id, r.response_text);
@@ -3124,7 +3165,7 @@ app.get('/quiz/:id', async (req, res) => {
       });
     }
     const recap = String(req.query.recap || '') === '1';
-    if (recap && loggedIn) {
+    if (recap && loggedIn && !isAuthor) {
       const { rows: gr } = await pool.query(
         'SELECT q.id AS qid, q.number, q.text, q.answer, r.response_text, r.points, r.locked, COALESCE(r.flagged,false) AS flagged FROM questions q LEFT JOIN responses r ON r.question_id=q.id AND r.user_email=$1 WHERE q.quiz_id=$2 ORDER BY q.number ASC',
         [email, id]
@@ -3163,7 +3204,29 @@ app.get('/quiz/:id', async (req, res) => {
       `);
     }
 
-    const form = locked ? '<p>This quiz is locked until unlock time (ET).</p>' : (loggedIn ? `
+    let authorAverageInfo = null;
+    if (isAuthor) {
+      authorAverageInfo = await computeAuthorAveragePoints(pool, id, quizAuthorEmail);
+    }
+    const averagePoints = authorAverageInfo ? authorAverageInfo.average : 0;
+    const averageCount = authorAverageInfo ? authorAverageInfo.count : 0;
+    const authorMessage = isAuthor ? `
+      <div style="margin:16px 0;padding:18px;border-radius:10px;border:1px solid rgba(255,255,255,0.18);background:rgba(0,0,0,0.35);">
+        <h3 style="margin:0 0 8px 0;color:#ffd700;">Author participation</h3>
+        <p style="margin:0;line-height:1.6;">
+          As the author of this quiz, you won’t submit answers. We’ll automatically award you the current player average:
+          <strong>${formatPoints(averagePoints)}</strong> points${averageCount ? ` across ${averageCount} player${averageCount === 1 ? '' : 's'}` : ''}.
+          ${averageCount ? 'This will update as more players finish.' : 'Once players begin submitting, your score will update automatically.'}
+        </p>
+      </div>
+    ` : '';
+
+    let form;
+    if (locked) {
+      form = '<p>This quiz is locked until unlock time (ET).</p>';
+      if (isAuthor) form += authorMessage;
+    } else if (loggedIn && !isAuthor) {
+      form = `
       ${existingMap.size > 0 ? `<div style="padding:8px 10px;border:1px solid #ddd;border-radius:6px;background:#fafafa;margin-bottom:10px;">You've started this quiz. <a href="/quiz/${id}?recap=1">View recap</a>.</div>` : ''}
       <div id="quiz-progress" style="margin-bottom:20px;padding:12px;background:#1a1a1a;border:1px solid #333;border-radius:8px;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
@@ -3207,8 +3270,12 @@ app.get('/quiz/:id', async (req, res) => {
             <button type="submit" class="ta-btn ta-btn-primary">Confirm & Submit</button>
           </div>
         </div>
-      </form>
-    ` : '<p>Please sign in to play.</p>');
+      </form>`;
+    } else if (isAuthor) {
+      form = authorMessage;
+    } else {
+      form = '<p>Please sign in to play.</p>';
+    }
     const et = utcToEtParts(unlockUtc);
     const slot = et.h === 0 ? 'AM' : 'PM';
     const dateStr = `${et.y}-${String(et.m).padStart(2,'0')}-${String(et.d).padStart(2,'0')}`;
@@ -3272,19 +3339,61 @@ app.post('/quiz/:id/flag', requireAuth, async (req, res) => {
 app.get('/quiz/:id/leaderboard', async (req, res) => {
   try {
     const id = Number(req.params.id);
-    const { rows: qr } = await pool.query('SELECT id, title, freeze_at FROM quizzes WHERE id = $1', [id]);
+    const { rows: qr } = await pool.query('SELECT id, title, freeze_at, author_email FROM quizzes WHERE id = $1', [id]);
     if (qr.length === 0) return res.status(404).send('Quiz not found');
     const freezeUtc = new Date(qr[0].freeze_at);
     const { rows } = await pool.query(
-      `SELECT COALESCE(p.username, r.user_email) AS handle, SUM(r.points) AS points, MIN(r.created_at) AS first_time
+      `SELECT r.user_email, COALESCE(p.username, r.user_email) AS handle, SUM(r.points) AS points, MIN(r.created_at) AS first_time
        FROM responses r
        LEFT JOIN players p ON p.email = r.user_email
        WHERE r.quiz_id = $1 AND r.created_at <= $2
-       GROUP BY COALESCE(p.username, r.user_email)
-       ORDER BY points DESC, first_time ASC`,
+       GROUP BY r.user_email, handle`,
       [id, freezeUtc]
     );
-    const items = rows.map(r => `<tr><td>${r.handle}</td><td>${r.points}</td><td>${fmtEt(r.first_time)}</td></tr>`).join('');
+    const normalized = rows.map(r => ({
+      user_email: (r.user_email || '').toLowerCase(),
+      handle: r.handle,
+      points: Number(r.points || 0),
+      first_time: r.first_time ? new Date(r.first_time) : null,
+      synthetic: false,
+      player_count: null
+    }));
+    const authorEmail = (qr[0].author_email || '').toLowerCase();
+    if (authorEmail) {
+      const avgInfo = await computeAuthorAveragePoints(pool, id, authorEmail);
+      const existingIdx = normalized.findIndex(r => r.user_email === authorEmail);
+      const { rows: authorPlayer } = await pool.query('SELECT username FROM players WHERE email=$1', [authorEmail]);
+      const handle = authorPlayer.length && authorPlayer[0].username ? authorPlayer[0].username : authorEmail;
+      if (existingIdx >= 0) {
+        normalized[existingIdx].points = avgInfo.average;
+        normalized[existingIdx].first_time = null;
+        normalized[existingIdx].synthetic = true;
+        normalized[existingIdx].player_count = avgInfo.count;
+        normalized[existingIdx].handle = handle;
+      } else {
+        normalized.push({
+          user_email: authorEmail,
+          handle,
+          points: avgInfo.average,
+          first_time: null,
+          synthetic: true,
+          player_count: avgInfo.count
+        });
+      }
+    }
+    const sorted = normalized.sort((a, b) => {
+      if (b.points !== a.points) return b.points - a.points;
+      const aTime = a.first_time ? a.first_time.getTime() : Number.POSITIVE_INFINITY;
+      const bTime = b.first_time ? b.first_time.getTime() : Number.POSITIVE_INFINITY;
+      return aTime - bTime;
+    });
+    const items = sorted.map(r => {
+      const label = r.synthetic ? `${r.handle} (avg)` : r.handle;
+      const detail = r.synthetic
+        ? (r.player_count ? `${r.player_count} player${r.player_count === 1 ? '' : 's'}` : '—')
+        : (r.first_time ? fmtEt(r.first_time) : '');
+      return `<tr><td>${label}</td><td>${formatPoints(r.points)}</td><td>${detail}</td></tr>`;
+    }).join('');
     const header = await renderHeader(req);
     res.type('html').send(`
       ${renderHead(`Leaderboard • Quiz ${id}`, false)}
@@ -3379,13 +3488,35 @@ app.get('/archive/:id', async (req, res) => {
 app.get('/leaderboard', async (_req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT COALESCE(p.username, r.user_email) AS handle, SUM(r.points) AS points
+      `SELECT r.user_email, COALESCE(p.username, r.user_email) AS handle, SUM(r.points) AS points
        FROM responses r
        LEFT JOIN players p ON p.email = r.user_email
-       GROUP BY COALESCE(p.username, r.user_email)
-       ORDER BY points DESC`
+       GROUP BY r.user_email, handle`
     );
-    const items = rows.map(r => `<tr><td>${r.handle}</td><td>${r.points}</td></tr>`).join('');
+    const totals = new Map();
+    rows.forEach(r => {
+      const email = (r.user_email || '').toLowerCase();
+      const points = Number(r.points || 0);
+      const existing = totals.get(email) || { handle: r.handle, points: 0 };
+      existing.handle = r.handle || existing.handle;
+      existing.points += points;
+      totals.set(email, existing);
+    });
+    const { rows: quizAuthors } = await pool.query('SELECT id, author_email FROM quizzes WHERE author_email IS NOT NULL AND author_email <> \'\'');
+    for (const qa of quizAuthors) {
+      const authorEmail = (qa.author_email || '').toLowerCase();
+      if (!authorEmail) continue;
+      const avgInfo = await computeAuthorAveragePoints(pool, qa.id, authorEmail);
+      let entry = totals.get(authorEmail);
+      if (!entry) {
+        const { rows: playerRows } = await pool.query('SELECT username FROM players WHERE email=$1', [authorEmail]);
+        entry = { handle: (playerRows.length && playerRows[0].username) ? playerRows[0].username : authorEmail, points: 0 };
+      }
+      entry.points += avgInfo.average;
+      totals.set(authorEmail, entry);
+    }
+    const sorted = Array.from(totals.values()).sort((a, b) => b.points - a.points);
+    const items = sorted.map(r => `<tr><td>${r.handle}</td><td>${formatPoints(r.points)}</td></tr>`).join('');
     res.type('html').send(`
       ${renderHead('Overall Leaderboard', false)}
       <body class="ta-body" style="padding:24px;">
@@ -3406,14 +3537,17 @@ app.post('/quiz/:id/submit', requireAuthOrAdmin, async (req, res) => {
   try {
     const id = Number(req.params.id);
     // Prevent changes after freeze
-    const qinfo = await pool.query('SELECT freeze_at FROM quizzes WHERE id=$1', [id]);
-    if (qinfo.rows.length) {
-      const freezeUtc = new Date(qinfo.rows[0].freeze_at);
-      if (new Date() >= freezeUtc) {
-        return res.redirect(`/quiz/${id}?recap=1`);
-      }
+    const qinfo = await pool.query('SELECT freeze_at, author_email FROM quizzes WHERE id=$1', [id]);
+    if (!qinfo.rows.length) return res.status(404).send('Quiz not found');
+    const freezeUtc = new Date(qinfo.rows[0].freeze_at);
+    if (new Date() >= freezeUtc) {
+      return res.redirect(`/quiz/${id}?recap=1`);
     }
+    const authorEmail = (qinfo.rows[0].author_email || '').toLowerCase();
     const email = (req.session.user && req.session.user.email ? req.session.user.email : getAdminEmail()).toLowerCase();
+    if (authorEmail && authorEmail === email) {
+      return res.status(403).send('Quiz authors cannot submit this quiz.');
+    }
     const { rows: qs } = await pool.query('SELECT id, number FROM questions WHERE quiz_id = $1 ORDER BY number ASC', [id]);
     const lockedSelected = Number(req.body.locked || 0) || null;
     // Enforce: must have one locked question on submit
