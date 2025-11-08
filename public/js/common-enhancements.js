@@ -114,5 +114,36 @@
     const spinner = element.querySelector('.loading-spinner');
     if (spinner) spinner.remove();
   };
+
+  // Hamburger menu toggle
+  (function() {
+    const menuToggle = document.querySelector('.ta-menu-toggle');
+    const nav = document.querySelector('.ta-nav');
+    
+    if (menuToggle && nav) {
+      menuToggle.addEventListener('click', function() {
+        const isExpanded = menuToggle.getAttribute('aria-expanded') === 'true';
+        menuToggle.setAttribute('aria-expanded', !isExpanded);
+        nav.setAttribute('aria-expanded', !isExpanded);
+      });
+      
+      // Close menu when clicking outside
+      document.addEventListener('click', function(e) {
+        if (!nav.contains(e.target) && !menuToggle.contains(e.target)) {
+          menuToggle.setAttribute('aria-expanded', 'false');
+          nav.setAttribute('aria-expanded', 'false');
+        }
+      });
+      
+      // Close menu when clicking a nav link (mobile)
+      nav.addEventListener('click', function(e) {
+        if (e.target.tagName === 'A' && window.innerWidth <= 768) {
+          menuToggle.setAttribute('aria-expanded', 'false');
+          nav.setAttribute('aria-expanded', 'false');
+        }
+      });
+    }
+  })();
 })();
+
 

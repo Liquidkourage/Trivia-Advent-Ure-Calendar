@@ -33,7 +33,7 @@ app.get('/admin/writer-submissions/:id', requireAdmin, async (req, res) => {
     const warnHtml = warn.length ? `<div style="background:#fff3cd;color:#664d03;border:1px solid #ffecb5;padding:8px;border-radius:6px;margin:8px 0;">${warn.map(esc).join('<br/>')}</div>` : '';
     const header = await renderHeader(req);
     res.type('html').send(`
-      <html><head><title>Preview Submission #${id}</title><link rel="stylesheet" href="/style.css"></head>
+      ${renderHead(`Preview Submission #${id}`, false)}
       <body class="ta-body" style="padding:24px;">
       ${header}
         <h1>Submission #${id} Preview</h1>
@@ -534,7 +534,7 @@ async function renderHeader(req) {
     ? `<span class="ta-user" style="margin-right:12px;opacity:.9;">${displayName}</span> <a href="/calendar">Calendar</a> <a href="/account">Account</a>${isAdmin ? ' <a href="/admin">Admin</a>' : ''} <a href="/logout">Logout</a>`
     : `<a href="/login">Login</a>`;
   
-  return `<header class="ta-header"><div class="ta-header-inner"><div class="ta-brand"><img class="ta-logo" src="/logo.svg"/><span class="ta-title">Trivia Advent‑ure</span></div><nav class="ta-nav">${navLinks}</nav></div></header>`;
+  return `<header class="ta-header"><div class="ta-header-inner"><div class="ta-brand"><img class="ta-logo" src="/logo.svg"/><span class="ta-title">Trivia Advent‑ure</span></div><button class="ta-menu-toggle" aria-label="Toggle menu" aria-expanded="false"><span></span><span></span><span></span></button><nav class="ta-nav">${navLinks}</nav></div></header><script src="/js/common-enhancements.js"></script>`;
 }
 
 // Helper function for user-friendly error pages
@@ -550,7 +550,7 @@ async function renderErrorPage(req, statusCode, title, message, suggestions = []
     : '';
   
   return `
-    <html><head><title>${title} • Trivia Advent-ure</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
+    ${renderHead(`${title} • Trivia Advent-ure`, true)}
     <body class="ta-body">
       ${header}
       <main class="ta-main ta-container" style="max-width:720px;">
@@ -739,7 +739,7 @@ app.post('/auth/login-password', express.urlencoded({ extended: true }), async (
 app.get('/account/security', requireAuth, async (req, res) => {
   const header = await renderHeader(req);
   res.type('html').send(`
-    <html><head><title>Security</title><link rel="stylesheet" href="/style.css"></head>
+    ${renderHead('Security', false)}
     <body class="ta-body" style="padding:24px;">
     ${header}
       <h1>Account Security</h1>
@@ -809,7 +809,7 @@ app.get('/account', requireAuth, async (req, res) => {
     
     const header = await renderHeader(req);
     res.type('html').send(`
-      <html><head><title>Account • Trivia Advent-ure</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
+      ${renderHead('Account • Trivia Advent-ure', true)}
       <body class="ta-body">
         ${header}
         <main class="ta-main ta-container" style="max-width:800px;">
@@ -955,7 +955,7 @@ app.get('/account/credentials', requireAuth, async (req, res) => {
     const uname = r.rows.length ? (r.rows[0].username || '') : '';
     const header = await renderHeader(req);
     res.type('html').send(`
-      <html><head><title>Set your account</title><link rel="stylesheet" href="/style.css"></head>
+      ${renderHead('Set your account', false)}
       <body class="ta-body">
       ${header}
       <main class="ta-main ta-container" style="max-width:720px; margin:0 auto; padding:24px;">
@@ -1036,7 +1036,7 @@ app.get('/account/history', requireAuth, async (req, res) => {
     
     const header = await renderHeader(req);
     res.type('html').send(`
-      <html><head><title>Quiz History • Trivia Advent-ure</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
+      ${renderHead('Quiz History • Trivia Advent-ure', true)}
       <body class="ta-body">
         ${header}
         <main class="ta-main ta-container" style="max-width:900px;">
@@ -1101,7 +1101,7 @@ app.get('/account/export', requireAuth, async (req, res) => {
     if (!format || (format !== 'csv' && format !== 'json')) {
       const header = await renderHeader(req);
       res.type('html').send(`
-        <html><head><title>Export Data • Trivia Advent-ure</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
+        ${renderHead('Export Data • Trivia Advent-ure', true)}
         <body class="ta-body">
           ${header}
           <main class="ta-main ta-container" style="max-width:720px;">
@@ -1248,7 +1248,7 @@ app.get('/account/preferences', requireAuth, async (req, res) => {
     
     const header = await renderHeader(req);
     res.type('html').send(`
-      <html><head><title>Email Preferences • Trivia Advent-ure</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
+      ${renderHead('Email Preferences • Trivia Advent-ure', true)}
       <body class="ta-body">
         ${header}
         <main class="ta-main ta-container" style="max-width:720px;">
@@ -1314,7 +1314,7 @@ app.post('/account/preferences', requireAuth, express.urlencoded({ extended: tru
 app.get('/account/delete', requireAuth, async (req, res) => {
   const header = await renderHeader(req);
   res.type('html').send(`
-    <html><head><title>Delete Account • Trivia Advent-ure</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
+    ${renderHead('Delete Account • Trivia Advent-ure', true)}
     <body class="ta-body">
       ${header}
       <main class="ta-main ta-container" style="max-width:720px;">
@@ -1706,7 +1706,7 @@ app.get('/admin/calendar', requireAdmin, async (req, res) => {
       </tr>`).join('');
     const header = await renderHeader(req);
     res.type('html').send(`
-      <html><head><title>Admin Calendar</title><link rel=\"stylesheet\" href=\"/style.css\"></head>
+      ${renderHead('Admin Calendar', false)}
       <body class=\"ta-body\" style=\"padding:24px;\">
       ${header}
         <h1>Calendar (Admin)</h1>
@@ -1783,7 +1783,7 @@ app.get('/player', requireAuth, async (req, res) => {
   const header = await renderHeader(req);
   const avgScore = stats.totalQuestions > 0 ? Math.round((stats.correctAnswers / stats.totalQuestions) * 100) : 0;
   res.type('html').send(`
-    <html><head><title>Player • Trivia Advent-ure</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
+    ${renderHead('Player • Trivia Advent-ure', true)}
     <body class="ta-body">
       ${header}
       <main class="ta-main ta-container">
@@ -1886,7 +1886,7 @@ app.get('/admin', requireAdmin, async (req, res) => {
   }
   
   res.type('html').send(`
-    <html><head><title>Admin • Trivia Advent-ure</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
+    ${renderHead('Admin • Trivia Advent-ure', true)}
     <body class="ta-body">
       ${header}
       <main class="ta-main ta-container">
@@ -1979,7 +1979,7 @@ app.get('/login', async (req, res) => {
   const showMagic = String(process.env.SHOW_MAGIC_LINK_FORM || '').toLowerCase() === 'true' || String(req.query.magic||'') === '1';
   const header = await renderHeader(req);
   res.type('html').send(`
-    <html><head><title>Login • Trivia Advent-ure</title><link rel=\"stylesheet\" href=\"/style.css\"></head>
+    ${renderHead('Login • Trivia Advent-ure', false)}
     <body class=\"ta-body\" style=\"padding: 24px;\">
     ${header}
       <h1>Login</h1>
@@ -2017,7 +2017,7 @@ app.get('/admin/pin', async (req, res) => {
   if (!ADMIN_PIN_ENABLED) return res.status(404).send('Not found');
   const header = await renderHeader(req);
   res.type('html').send(`
-    <html><head><title>Admin PIN • Trivia Advent-ure</title><link rel="stylesheet" href="/style.css"></head>
+    ${renderHead('Admin PIN • Trivia Advent-ure', false)}
     <body class="ta-body" style="padding: 24px;">
     ${header}
       <h1>Admin PIN</h1>
@@ -2132,7 +2132,7 @@ app.get('/calendar', async (req, res) => {
     }).join('\n');
     const header = await renderHeader(req);
     res.type('html').send(`
-      <html><head><title>Calendar</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
+      ${renderHead('Calendar', true)}
       <body class="ta-body">
       ${header}
         <main class="ta-main ta-container ta-calendar">
@@ -2171,7 +2171,7 @@ app.get('/calendar', async (req, res) => {
 app.get('/admin/upload-quiz', requireAdmin, async (req, res) => {
   const header = await renderHeader(req);
   res.type('html').send(`
-    <html><head><title>Upload Quiz</title><link rel="stylesheet" href="/style.css"></head>
+    ${renderHead('Upload Quiz', false)}
     <body class="ta-body" style="padding: 24px;">
     ${header}
       <h1>Upload Quiz</h1>
@@ -2269,7 +2269,7 @@ app.post('/admin/writer-invite', requireAdmin, express.urlencoded({ extended: tr
 app.get('/admin/writer-invite', requireAdmin, async (req, res) => {
   const header = await renderHeader(req);
   res.type('html').send(`
-    <html><head><title>Create Writer Invite</title><link rel="stylesheet" href="/style.css"></head>
+    ${renderHead('Create Writer Invite', false)}
     <body class="ta-body" style="padding:24px;">
     ${header}
       <h1>Create Writer Invite</h1>
@@ -2335,7 +2335,7 @@ app.get('/admin/writer-invites', requireAdmin, async (req, res) => {
   const preRows = preRowsArr.join('');
   const header = await renderHeader(req);
   res.type('html').send(`
-    <html><head><title>Writer Invites (CSV)</title><link rel="stylesheet" href="/style.css"></head>
+    ${renderHead('Writer Invites (CSV)', false)}
     <body class="ta-body" style="padding:24px;">
     ${header}
       <style>
@@ -2408,7 +2408,7 @@ app.get('/writer/:token', async (req, res) => {
     const esc = (v)=>String(v||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
     const header = await renderHeader(req);
     res.type('html').send(`
-      <html><head><title>Submit Quiz</title><link rel="stylesheet" href="/style.css"></head>
+      ${renderHead('Submit Quiz', false)}
       <body class="ta-body" style="padding:24px;font-size:18px;line-height:1.5;">
       ${header}
         <div style="max-width: 820px; margin: 0 auto;">
@@ -2464,7 +2464,7 @@ app.get('/writer/:token', async (req, res) => {
   } catch (e) {
     console.error('Error loading writer form:', e);
     res.status(500).send(`
-      <html><head><title>Error</title><link rel="stylesheet" href="/style.css"></head>
+      ${renderHead('Error', false)}
       <body class="ta-body" style="padding:24px;">
         <h1>Unable to Load Form</h1>
         <p>We encountered an error loading the quiz submission form. Please try again later.</p>
@@ -2527,7 +2527,7 @@ app.post('/writer/:token', express.urlencoded({ extended: true }), async (req, r
     try { await pool.query('UPDATE writer_invites SET submitted_at = COALESCE(submitted_at, NOW()) WHERE token=$1', [invite.token]); } catch {}
     const header = await renderHeader(req);
     res.type('html').send(`
-      <html><head><title>Submitted</title><link rel="stylesheet" href="/style.css"></head>
+      ${renderHead('Submitted', false)}
       <body class="ta-body" style="padding:24px;">
       ${header}
         <h1>Thanks, ${invite.author}!</h1>
@@ -2539,7 +2539,7 @@ app.post('/writer/:token', express.urlencoded({ extended: true }), async (req, r
     console.error('Error submitting quiz:', e);
     const header = await renderHeader(req);
     res.status(500).send(`
-      <html><head><title>Submission Error</title><link rel="stylesheet" href="/style.css"></head>
+      ${renderHead('Submission Error', false)}
       <body class="ta-body" style="padding:24px;">
       ${header}
         <h1>Submission Failed</h1>
@@ -2578,7 +2578,7 @@ app.get('/admin/writer-submissions', requireAdmin, async (req, res) => {
     }).join('');
     const header = await renderHeader(req);
     res.type('html').send(`
-      <html><head><title>Writer Submissions</title><link rel="stylesheet" href="/style.css"></head>
+      ${renderHead('Writer Submissions', false)}
       <body class="ta-body" style="padding:24px;">
       ${header}
         <h1>Writer Submissions</h1>
@@ -2628,7 +2628,7 @@ app.get('/admin/writer-submissions/:id', requireAdmin, async (req, res) => {
     const warnHtml = warn.length ? `<div style="background:#fff3cd;color:#664d03;border:1px solid #ffecb5;padding:8px;border-radius:6px;margin:8px 0;">${warn.map(esc).join('<br/>')}</div>` : '';
     const header = await renderHeader(req);
     res.type('html').send(`
-      <html><head><title>Preview Submission #${id}</title><link rel="stylesheet" href="/style.css"></head>
+      ${renderHead(`Preview Submission #${id}`, false)}
       <body class="ta-body" style="padding:24px;">
       ${header}
         <h1>Submission #${id} Preview</h1>
@@ -2745,7 +2745,7 @@ app.get('/admin/writer-invites/list', requireAdmin, async (req, res) => {
     const header = await renderHeader(req);
     const adminEmail = getAdminEmail();
     res.type('html').send(`
-      <html><head><title>Writer Invites</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
+      ${renderHead('Writer Invites', true)}
       <body class="ta-body" style="padding:24px;">
       ${header}
         <h1>Writer Invites</h1>
@@ -2844,7 +2844,7 @@ app.get('/admin/writer-invites/my', requireAdmin, async (req, res) => {
     if (rows.length === 0) {
       const header = await renderHeader(req);
       res.type('html').send(`
-        <html><head><title>My Writer Invites • Admin</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
+        ${renderHead('My Writer Invites • Admin', true)}
         <body class="ta-body">
           ${header}
           <main class="ta-main ta-container" style="max-width:900px;">
@@ -2886,7 +2886,7 @@ app.get('/admin/writer-invites/my', requireAdmin, async (req, res) => {
     
     const header = await renderHeader(req);
     res.type('html').send(`
-      <html><head><title>My Writer Invites • Admin</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
+      ${renderHead('My Writer Invites • Admin', true)}
       <body class="ta-body">
         ${header}
         <main class="ta-main ta-container" style="max-width:900px;">
@@ -2926,7 +2926,7 @@ app.get('/admin/writer-invites/my', requireAdmin, async (req, res) => {
 // --- Writer: public submit quiz (same fields/flow as admin upload) ---
 /* app.get('/writer/quiz/new', (req, res) => {
   res.type('html').send(`
-    <html><head><title>Submit Quiz</title><link rel="stylesheet" href="/style.css"></head>
+    ${renderHead('Submit Quiz', false)}
     <body class="ta-body" style="padding: 24px;">
       <h1>Submit a New Quiz</h1>
       <form method="post" action="/writer/quiz/new">
@@ -3069,7 +3069,7 @@ app.get('/quiz/:id', async (req, res) => {
         </tr>`).join('');
       const header = await renderHeader(req);
       return res.type('html').send(`
-        <html><head><title>Quiz ${id} Recap</title><link rel="stylesheet" href="/style.css"></head>
+        ${renderHead(`Quiz ${id} Recap`, false)}
         <body class="ta-body" style="padding: 24px;">
           ${header}
           <h1>${quiz.title} (Quiz #${id})</h1>
@@ -3135,7 +3135,7 @@ app.get('/quiz/:id', async (req, res) => {
     const dateStr = `${et.y}-${String(et.m).padStart(2,'0')}-${String(et.d).padStart(2,'0')}`;
     const header = await renderHeader(req);
     res.type('html').send(`
-      <html><head><title>Quiz ${id}</title><link rel="stylesheet" href="/style.css"></head>
+      ${renderHead(`Quiz ${id}`, false)}
       <body class="ta-body">
         ${header}
         <main class="ta-container-wide">
@@ -3208,7 +3208,7 @@ app.get('/quiz/:id/leaderboard', async (req, res) => {
     const items = rows.map(r => `<tr><td>${r.handle}</td><td>${r.points}</td><td>${fmtEt(r.first_time)}</td></tr>`).join('');
     const header = await renderHeader(req);
     res.type('html').send(`
-      <html><head><title>Leaderboard • Quiz ${id}</title><link rel="stylesheet" href="/style.css"></head>
+      ${renderHead(`Leaderboard • Quiz ${id}`, false)}
       <body class="ta-body" style="padding:24px;">
       ${header}
         <h1>Leaderboard • ${qr[0].title}</h1>
@@ -3237,7 +3237,7 @@ app.get('/archive', async (_req, res) => {
     }).join('');
     const header = await renderHeader(req);
     res.type('html').send(`
-      <html><head><title>Archive</title><link rel=\"stylesheet\" href=\"/style.css\"></head>
+      ${renderHead('Archive', false)}
       <body class=\"ta-body\" style=\"padding:24px;\">
       ${header}
         <h1>Past Quizzes</h1>
@@ -3280,7 +3280,7 @@ app.get('/archive/:id', async (req, res) => {
       </div>`;
     }).join('');
     res.type('html').send(`
-      <html><head><title>${esc(quiz.title)} • Archive</title><link rel=\"stylesheet\" href=\"/style.css\"></head>
+      ${renderHead(`${esc(quiz.title)} • Archive`, false)}
       <body class=\"ta-body\" style=\"padding:24px;\">
         <h1>${esc(quiz.title)}</h1>
         <div>${day} ${half}</div>
@@ -3308,7 +3308,7 @@ app.get('/leaderboard', async (_req, res) => {
     );
     const items = rows.map(r => `<tr><td>${r.handle}</td><td>${r.points}</td></tr>`).join('');
     res.type('html').send(`
-      <html><head><title>Overall Leaderboard</title><link rel="stylesheet" href="/style.css"></head>
+      ${renderHead('Overall Leaderboard', false)}
       <body class="ta-body" style="padding:24px;">
         <h1>Overall Leaderboard</h1>
         <table border="1" cellspacing="0" cellpadding="6">
@@ -3442,7 +3442,7 @@ app.get('/admin/quizzes', requireAdmin, async (req, res) => {
     
     const header = await renderHeader(req);
     res.type('html').send(`
-      <html><head><title>Quizzes</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
+      ${renderHead('Quizzes', true)}
       <body class="ta-body" style="padding:24px;">
       <script src="/js/common-enhancements.js"></script>
       ${header}
@@ -3577,7 +3577,7 @@ app.get('/admin/quiz/:id', requireAdmin, async (req, res) => {
     const list = qs.rows.map(q => `<li><strong>Q${q.number}</strong> ${q.text} <em>(Ans: ${q.answer})</em></li>`).join('');
     const header = await renderHeader(req);
   res.type('html').send(`
-    <html><head><title>Edit Quiz #${id}</title><link rel="stylesheet" href="/style.css"></head>
+    ${renderHead(`Edit Quiz #${id}`, false)}
     <body class="ta-body" style="padding:24px;">
     ${header}
         <h1>Edit Quiz #${id}</h1>
@@ -3936,7 +3936,7 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
     const isStale = String(req.query.stale || '') === '1';
     const header = await renderHeader(req);
     res.type('html').send(`
-      <html><head><title>Grade • ${quiz.title}</title><link rel=\"stylesheet\" href=\"/style.css\"></head>
+      ${renderHead(`Grade • ${quiz.title}`, false)}
       <body class=\"ta-body\">
       ${header}
         <main class=\"grader-container\">
@@ -4156,7 +4156,7 @@ app.get('/admin/quiz/:id/analytics', requireAdmin, async (req, res) => {
     
     const header = await renderHeader(req);
     res.type('html').send(`
-      <html><head><title>Analytics: ${quiz.title} • Admin</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
+      ${renderHead(`Analytics: ${quiz.title} • Admin`, true)}
       <body class="ta-body">
         ${header}
         <main class="ta-main ta-container">
@@ -4196,7 +4196,7 @@ app.get('/admin/quiz/:id/analytics', requireAdmin, async (req, res) => {
 app.get('/admin/access', requireAdmin, async (req, res) => {
   const header = await renderHeader(req);
   res.type('html').send(`
-    <html><head><title>Access & Links</title><link rel="stylesheet" href="/style.css"></head>
+    ${renderHead('Access & Links', false)}
     <body class="ta-body" style="padding:24px;">
     ${header}
       <h1>Access & Links</h1>
@@ -4356,7 +4356,7 @@ app.get('/admin/players', requireAdmin, async (req, res) => {
     }).join('');
     const header = await renderHeader(req);
     res.type('html').send(`
-      <html><head><title>Players • Admin</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
+      ${renderHead('Players • Admin', true)}
       <body class="ta-body">
         ${header}
         <main class="ta-main ta-container">
@@ -4814,7 +4814,7 @@ app.get('/admin/players/:email', requireAdmin, async (req, res) => {
     
     const header = await renderHeader(req);
     res.type('html').send(`
-      <html><head><title>Player: ${player.username || player.email} • Admin</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
+      ${renderHead(`Player: ${player.username || player.email} • Admin`, true)}
       <body class="ta-body">
         ${header}
         <main class="ta-main ta-container">
@@ -4861,7 +4861,7 @@ app.get('/admin/admins', requireAdmin, async (_req, res) => {
     </td></tr>`).join('');
     const header = await renderHeader(_req);
     res.type('html').send(`
-      <html><head><title>Admins</title><link rel="stylesheet" href="/style.css"></head>
+      ${renderHead('Admins', false)}
       <body class="ta-body" style="padding:24px;">
       ${header}
       <h1>Admins</h1>
@@ -4951,7 +4951,7 @@ app.get('/admin/announcements', requireAdmin, async (req, res) => {
     
     const header = await renderHeader(req);
     res.type('html').send(`
-      <html><head><title>Send Announcement • Admin</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
+      ${renderHead('Send Announcement • Admin', true)}
       <body class="ta-body">
         ${header}
         <main class="ta-main ta-container" style="max-width:800px;">
@@ -5056,7 +5056,7 @@ app.post('/admin/announcements', requireAdmin, express.urlencoded({ extended: tr
     
     const header = await renderHeader(req);
     res.type('html').send(`
-      <html><head><title>Announcement Sent • Admin</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
+      ${renderHead('Announcement Sent • Admin', true)}
       <body class="ta-body">
         ${header}
         <main class="ta-main ta-container" style="max-width:800px;">
@@ -5098,7 +5098,7 @@ app.get('/onboarding', requireAuth, async (req, res) => {
     if (done) return res.redirect('/');
     const header = await renderHeader(req);
     res.type('html').send(`
-      <html><head><title>Welcome • Trivia Advent-ure</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
+      ${renderHead('Welcome • Trivia Advent-ure', true)}
       <body class="ta-body">
         ${header}
         <main class="ta-main ta-container" style="max-width:800px;">
