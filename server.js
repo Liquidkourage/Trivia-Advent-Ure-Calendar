@@ -2931,6 +2931,68 @@ app.post('/admin/send-link', requireAdmin, async (req, res) => {
   }
 });
 
+// Test Ko-fi webhook
+app.post('/admin/test-kofi', requireAdmin, express.urlencoded({ extended: true }), async (req, res) => {
+  try {
+    const email = String(req.body.email || '').trim().toLowerCase();
+    if (!email) return res.status(400).send('Email required');
+    
+    // Parse donation date if provided
+    let createdAt = new Date();
+    if (req.body.created_at) {
+      const localDate = new Date(req.body.created_at);
+      createdAt = localDate;
+    }
+    
+    // Simulate Ko-fi webhook payload
+    const webhookBody = {
+      type: 'donation',
+      email: email,
+      created_at: createdAt.toISOString()
+    };
+    
+    // Call the webhook handler logic directly
+    const type = (webhookBody.type || '').toLowerCase();
+    const webhookEmail = (webhookBody.email || '').trim();
+    const createdAtStr = webhookBody.created_at;
+    
+    if (!webhookEmail) {
+      return res.status(400).send('No email in webhook body');
+    }
+    if (type !== 'donation') {
+      return res.status(400).send('Type must be donation');
+    }
+    
+    const webhookCreatedAt = createdAtStr ? new Date(createdAtStr) : new Date();
+    const cutoffUtcEnv = process.env.KOFI_CUTOFF_UTC || '';
+    const cutoffDate = cutoffUtcEnv ? new Date(cutoffUtcEnv) : new Date('2025-11-01T04:00:00Z');
+    
+    if (!(webhookCreatedAt >= cutoffDate)) {
+      return res.redirect('/admin/access?msg=Donation date is before cutoff date');
+    }
+    
+    // Create player record
+    await pool.query('INSERT INTO players(email, access_granted_at) VALUES($1, NOW()) ON CONFLICT (email) DO NOTHING', [webhookEmail]);
+    
+    // Create and send magic link
+    const token = crypto.randomBytes(24).toString('base64url');
+    const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
+    await pool.query('INSERT INTO magic_tokens(token,email,expires_at,used) VALUES($1,$2,$3,false)', [token, webhookEmail, expiresAt]);
+    
+    const linkUrl = `${req.protocol}://${req.get('host')}/auth/magic?token=${encodeURIComponent(token)}`;
+    try {
+      await sendMagicLink(webhookEmail, token, linkUrl);
+      res.redirect(`/admin/access?msg=Ko-fi webhook simulated successfully. Magic link sent to ${webhookEmail}`);
+    } catch (mailErr) {
+      console.warn('Send mail failed:', mailErr?.message || mailErr);
+      res.redirect(`/admin/access?msg=Player created but email failed: ${mailErr?.message || 'Unknown error'}. Magic link: ${linkUrl}`);
+    }
+  } catch (e) {
+    console.error('Test Ko-fi webhook error:', e);
+    res.status(500).send(`Failed to simulate webhook: ${e.message}`);
+  }
+});
+
 // --- Players management ---
 app.get('/admin/players', requireAdmin, async (req, res) => {
   try {
