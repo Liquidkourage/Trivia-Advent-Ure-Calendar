@@ -9,16 +9,15 @@
   --blue-top:#0f1d5a;
   --blue-mid:#15124a;
   --blue-bottom:#0b1338;
-  --header-height:72px;
-  --footer-height:200px;
-  --door-gap-y:24px;
+  --layout-gutter:5vw;
+  --section-gap:32px;
 }
 @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800&family=Cinzel+Decorative:wght@700&display=swap');
 html{background:linear-gradient(180deg,var(--blue-top) 0%, var(--blue-mid) 60%, var(--blue-bottom) 100%);min-height:100%;background-color:#0b1338}
 body{background:linear-gradient(180deg,var(--blue-top) 0%, var(--blue-mid) 60%, var(--blue-bottom) 100%);background-color:#0b1338}
 *{box-sizing:border-box}
-body.ta-body{margin:0;background:linear-gradient(180deg,var(--blue-top) 0%, var(--blue-mid) 60%, var(--blue-bottom) 100%);color:var(--snow);font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;position:relative;overflow:hidden;min-height:100vh;background-color:#0b1338;display:grid;grid-template-rows:auto 1fr auto}
-.ta-body>main,.ta-body>.ta-main{flex:0 0 auto}
+body.ta-body{margin:0;background:linear-gradient(180deg,var(--blue-top) 0%, var(--blue-mid) 60%, var(--blue-bottom) 100%);color:var(--snow);font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;position:relative;overflow-x:hidden;min-height:100vh;background-color:#0b1338;display:flex;flex-direction:column}
+.ta-body>main,.ta-body>.ta-main{flex:1 0 auto}
 .ta-body:before{content:"";position:fixed;inset:0;pointer-events:none;opacity:.32;z-index:2;background-image:radial-gradient(1.8px 1.8px at 20px 30px, #fff 50%, rgba(255,255,255,0) 51%),radial-gradient(1.8px 1.8px at 80px 120px, #fff 50%, rgba(255,255,255,0) 51%),radial-gradient(1.8px 1.8px at 200px 50px, #fff 50%, rgba(255,255,255,0) 51%),radial-gradient(1.8px 1.8px at 320px 80px, #fff 50%, rgba(255,255,255,0) 51%);
   background-size: 420px 220px;animation:snowfall 18s linear infinite}
 .ta-body:after{content:"";position:fixed;inset:0;pointer-events:none;opacity:.18;z-index:2;background-image:radial-gradient(2.6px 2.6px at 60px 40px, #fff 50%, rgba(255,255,255,0) 51%),radial-gradient(2.6px 2.6px at 220px 160px, #fff 50%, rgba(255,255,255,0) 51%),radial-gradient(2.6px 2.6px at 360px 120px, #fff 50%, rgba(255,255,255,0) 51%),radial-gradient(2.6px 2.6px at 480px 200px, #fff 50%, rgba(255,255,255,0) 51%);
@@ -26,9 +25,9 @@ body.ta-body{margin:0;background:linear-gradient(180deg,var(--blue-top) 0%, var(
 .ta-header,.ta-main,.ta-footer{position:relative;z-index:1}
 @keyframes snowfall{from{background-position:0 0, 0 0, 0 0, 0 0}to{background-position:0 220px, 0 220px, 0 220px, 0 220px}}
 @keyframes snowfallSlow{from{background-position:0 0, 0 0, 0 0, 0 0}to{background-position:0 320px, 0 320px, 0 320px, 0 320px}}
-.ta-container{width:100%;margin:0 auto;padding:24px 3vw}
+.ta-container{width:100%;margin:0 auto;padding:24px var(--layout-gutter)}
 .ta-header{background:rgba(0,0,0,0.4);backdrop-filter:saturate(120%) blur(6px);position:sticky;top:0;z-index:40;border-bottom:1px solid rgba(255,255,255,0.08)}
-.ta-header-inner{display:flex;align-items:center;justify-content:space-between;gap:16px;width:100%;margin:0 auto;padding:12px 3vw}
+.ta-header-inner{display:flex;align-items:center;justify-content:space-between;gap:16px;width:100%;margin:0 auto;padding:12px var(--layout-gutter)}
 .ta-brand{display:flex;align-items:center;gap:12px}
 .ta-logo{width:44px;height:44px;border-radius:6px;object-fit:cover;box-shadow:0 2px 10px rgba(0,0,0,0.3)}
 .ta-title{font-family:"Bebas Neue", Inter, system-ui, sans-serif;font-size:28px;letter-spacing:1px;color:var(--gold)}
@@ -41,9 +40,9 @@ body.ta-body{margin:0;background:linear-gradient(180deg,var(--blue-top) 0%, var(
 .ta-menu-toggle[aria-expanded="true"] span:nth-child(1){transform:rotate(45deg) translate(8px,8px)}
 .ta-menu-toggle[aria-expanded="true"] span:nth-child(2){opacity:0}
 .ta-menu-toggle[aria-expanded="true"] span:nth-child(3){transform:rotate(-45deg) translate(8px,-8px)}
-.ta-main{overflow:auto;padding:calc(var(--door-gap-y)) 3vw calc(var(--footer-height) - 40px) 3vw;display:flex;flex-direction:column;align-items:center}
-.ta-footer{border-top:1px solid rgba(255,255,255,0.08);background:rgba(0,0,0,0.35);margin-top:0;position:sticky;bottom:0;z-index:30}
-.ta-footer-inner{display:flex;flex-wrap:wrap;gap:32px;align-items:flex-start;padding:28px 3vw;justify-content:space-between}
+.ta-main{width:100%;padding:32px var(--layout-gutter) 64px var(--layout-gutter)}
+.ta-footer{border-top:1px solid rgba(255,255,255,0.08);background:rgba(0,0,0,0.35);margin-top:auto;position:relative;z-index:30}
+.ta-footer-inner{display:flex;flex-wrap:wrap;gap:32px;align-items:flex-start;padding:28px var(--layout-gutter);justify-content:space-between}
 .ta-footer-brand{display:flex;align-items:center;gap:12px;flex:0 0 auto;min-width:220px}
 .ta-footer-brand img{width:44px;height:44px;border-radius:8px;object-fit:cover;box-shadow:0 2px 10px rgba(0,0,0,0.3)}
 .ta-footer-title{font-weight:700;font-size:18px;color:var(--gold)}
@@ -126,23 +125,53 @@ body.ta-body{margin:0;background:linear-gradient(180deg,var(--blue-top) 0%, var(
 .ta-card{display:flex;flex-direction:column;gap:4px;padding:14px;border:1px solid rgba(255,255,255,0.12);border-radius:10px;background:rgba(0,0,0,0.25);text-decoration:none;color:var(--snow)}
 .ta-card:hover{border-color:var(--gold)}
 
+.ta-content{width:100%;max-width:1200px;margin:0 auto}
+.ta-content--medium{max-width:960px}
+.ta-content--narrow{max-width:720px}
+
+.account-page{width:100%;max-width:1280px;margin:0 auto;display:flex;flex-direction:column;gap:var(--section-gap)}
+.account-header{display:flex;flex-direction:column;gap:12px}
+.account-layout{display:grid;grid-template-columns:minmax(280px,1fr) minmax(320px,2fr);gap:var(--section-gap);align-items:flex-start}
+.account-stack{display:grid;gap:var(--section-gap)}
+.account-card{background:rgba(0,0,0,0.45);border:1px solid rgba(255,255,255,0.12);border-radius:16px;padding:24px;box-shadow:0 20px 40px rgba(0,0,0,0.25)}
+.account-card h2{margin-top:0;margin-bottom:12px;font-size:20px;color:var(--gold)}
+.account-card p{margin:8px 0}
+.account-summary dl{margin:0;display:grid;grid-template-columns:repeat(2,minmax(120px,1fr));gap:12px 16px}
+.account-summary dt{font-weight:600;opacity:0.75}
+.account-summary dd{margin:0;font-weight:700}
+.account-links{display:grid;gap:12px}
+.account-link{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-radius:12px;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.08);text-decoration:none;color:var(--snow);transition:transform 0.2s ease, border-color 0.2s ease}
+.account-link:hover{transform:translateY(-2px);border-color:var(--gold)}
+.account-link small{opacity:0.7}
+.account-link--danger{justify-content:center;background:rgba(211,47,47,0.18);border-color:#d32f2f;color:#ffd7d7}
+.account-link--danger:hover{border-color:#ff7676}
+.account-alert{padding:12px 16px;border-radius:10px;border:1px solid rgba(76,175,80,0.35);background:rgba(76,175,80,0.18);color:#c8f7cf;font-weight:600;max-width:480px}
+
+@media (max-width: 1100px){
+  .account-layout{grid-template-columns:1fr}
+}
+
+@media (max-width: 720px){
+  .account-summary dl{grid-template-columns:1fr}
+}
+
 /* Calendar tiles (simple baseline styles applied via inline HTML already) */
 .ta-calendar{margin-top:12px}
 .ta-calendar-grid{
   display:grid;
   grid-template-columns:repeat(6,minmax(0,1fr));
-  gap:var(--door-gap-y) 32px;
-  width:min(1200px,100%);
-  justify-content:center;
-  padding:20px 24px 56px 24px;
+  gap:28px;
+  width:100%;
+  max-width:1400px;
+  margin:0 auto;
 }
-.ta-door-slot{position:relative;display:flex;flex-direction:column;align-items:center;gap:10px;width:100%}
+.ta-door-slot{position:relative;display:flex;flex-direction:column;align-items:center;gap:12px;width:100%}
 .ta-door{
   position:relative;
   width:100%;
+  max-width:240px;
+  min-width:160px;
   aspect-ratio:4/3;
-  max-width:220px;
-  height:min(210px, calc((100vh - var(--header-height) - var(--footer-height) - (5 * var(--door-gap-y)) - 80px)/4));
   perspective:1000px;
   border-radius:16px;
   overflow:hidden;
@@ -199,7 +228,6 @@ body.ta-body{margin:0;background:linear-gradient(180deg,var(--blue-top) 0%, var(
 .slot-btn.locked{background:rgba(255,255,255,.15);color:rgba(255,255,255,.8);box-shadow:inset 0 0 0 1px rgba(255,255,255,.12);cursor:default}
 .slot-btn.unlocked:hover{filter:brightness(1.05)}
 @media (max-width: 768px){
-  .ta-body{grid-template-rows:auto 1fr auto}
   .ta-header-inner{flex-direction:row;align-items:center;gap:12px;padding:12px 16px;position:relative}
   .ta-menu-toggle{display:flex}
   .ta-nav{display:none;position:absolute;top:100%;left:0;right:0;background:rgba(0,0,0,0.95);backdrop-filter:blur(10px);flex-direction:column;padding:16px;gap:0;width:100%;border-top:1px solid rgba(255,255,255,0.1);box-shadow:0 4px 12px rgba(0,0,0,0.3)}
