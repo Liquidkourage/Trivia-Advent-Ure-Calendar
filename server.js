@@ -1638,13 +1638,19 @@ app.get('/public', async (req, res) => {
           <p style="margin:0 0 16px 0;opacity:0.9;font-size:16px;line-height:1.6;">
             Trivia Advent-ure is a charitable project. 100% of player contributions are donated to mission-driven partners:
           </p>
-          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;text-align:left;margin:24px 0;">
-            <div style="background:rgba(0,0,0,0.35);border:1px solid rgba(255,255,255,0.15);border-radius:12px;padding:16px;">
-              <h4 style="margin:0 0 8px 0;color:#ffd700;">Trans Lifeline</h4>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:18px;text-align:left;margin:24px 0;">
+            <div style="background:rgba(0,0,0,0.35);border:1px solid rgba(255,255,255,0.15);border-radius:12px;padding:18px;display:flex;flex-direction:column;gap:12px;">
+              <a href="https://translifeline.org" target="_blank" rel="noopener noreferrer" style="display:inline-flex;">
+                <img src="/img/trans-lifeline-logo.svg" alt="Trans Lifeline logo" style="width:160px;height:auto;">
+              </a>
+              <h4 style="margin:0;color:#ffd700;">Trans Lifeline</h4>
               <p style="margin:0;opacity:0.9;line-height:1.5;">A peer-support and microgrants organization serving trans people through community-led care.</p>
             </div>
-            <div style="background:rgba(0,0,0,0.35);border:1px solid rgba(255,255,255,0.15);border-radius:12px;padding:16px;">
-              <h4 style="margin:0 0 8px 0;color:#ffd700;">World Central Kitchen</h4>
+            <div style="background:rgba(0,0,0,0.35);border:1px solid rgba(255,255,255,0.15);border-radius:12px;padding:18px;display:flex;flex-direction:column;gap:12px;">
+              <a href="https://wck.org" target="_blank" rel="noopener noreferrer" style="display:inline-flex;">
+                <img src="/img/world-central-kitchen-logo.svg" alt="World Central Kitchen logo" style="width:160px;height:auto;">
+              </a>
+              <h4 style="margin:0;color:#ffd700;">World Central Kitchen</h4>
               <p style="margin:0;opacity:0.9;line-height:1.5;">Providing nourishing meals to communities impacted by disasters around the globe.</p>
             </div>
           </div>
@@ -2055,6 +2061,14 @@ app.get('/login', async (req, res) => {
               <div class="login-card login-card--donate">
                 <h2 class="login-card__title">Support the adventure</h2>
                 <p class="login-card__text">Trivia Advent-ure is a charitable project. Every contribution on Ko-fi benefits <strong>Trans Lifeline</strong> and <strong>World Central Kitchen</strong>.</p>
+                <div class="login-partner-logos">
+                  <a href="https://translifeline.org" target="_blank" rel="noopener noreferrer">
+                    <img src="/img/trans-lifeline-logo.svg" alt="Trans Lifeline logo"/>
+                  </a>
+                  <a href="https://wck.org" target="_blank" rel="noopener noreferrer">
+                    <img src="/img/world-central-kitchen-logo.svg" alt="World Central Kitchen logo"/>
+                  </a>
+                </div>
                 <a class="ta-btn ta-btn-primary login-donate-btn" href="https://ko-fi.com/triviaadvent" target="_blank" rel="noopener noreferrer">
                   Donate on Ko-fi
                 </a>
