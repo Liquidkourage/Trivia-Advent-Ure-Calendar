@@ -2876,6 +2876,7 @@ app.get('/admin/access', requireAdmin, async (req, res) => {
     <body class="ta-body" style="padding:24px;">
     ${header}
       <h1>Access & Links</h1>
+      ${req.query.msg ? `<p style="padding:8px 12px;background:#2e7d32;color:#fff;border-radius:4px;margin-bottom:16px;">${req.query.msg}</p>` : ''}
       <h3>Grant Access</h3>
       <form method="post" action="/admin/grant">
         <label>Email <input name="email" type="email" required /></label>
