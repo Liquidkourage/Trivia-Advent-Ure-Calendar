@@ -231,6 +231,9 @@ async function initDb() {
       ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS author_email CITEXT;
     EXCEPTION WHEN others THEN NULL; END $$;
     DO $$ BEGIN
+      ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS author_points_override NUMERIC;
+    EXCEPTION WHEN others THEN NULL; END $$;
+    DO $$ BEGIN
       ALTER TABLE players ADD COLUMN IF NOT EXISTS password_hash TEXT;
     EXCEPTION WHEN others THEN NULL; END $$;
     DO $$ BEGIN
@@ -647,16 +650,24 @@ async function gradeQuiz(pool, quizId, userEmail) {
 }
 
 async function computeAuthorAveragePoints(pool, quizId, authorEmailRaw) {
-  if (!authorEmailRaw) return { average: 0, count: 0 };
+  if (!authorEmailRaw) return { average: 0, count: 0, source: 'none' };
   const authorEmail = String(authorEmailRaw).toLowerCase();
+  const { rows: overrideRows } = await pool.query('SELECT author_points_override FROM quizzes WHERE id=$1', [quizId]);
+  const overrideVal = overrideRows.length ? overrideRows[0].author_points_override : null;
+  if (overrideVal !== null && overrideVal !== undefined) {
+    const numeric = Number(overrideVal);
+    if (Number.isFinite(numeric)) {
+      return { average: numeric, count: 0, source: 'override' };
+    }
+  }
   const { rows } = await pool.query(
     'SELECT user_email, SUM(points) AS total_points FROM responses WHERE quiz_id=$1 GROUP BY user_email',
     [quizId]
   );
   const others = rows.filter(r => (r.user_email || '').toLowerCase() !== authorEmail);
-  if (!others.length) return { average: 0, count: 0 };
+  if (!others.length) return { average: 0, count: 0, source: 'average' };
   const sum = others.reduce((acc, r) => acc + Number(r.total_points || 0), 0);
-  return { average: sum / others.length, count: others.length };
+  return { average: sum / others.length, count: others.length, source: 'average' };
 }
 
 function formatPoints(val) {
@@ -1764,6 +1775,138 @@ app.get('/admin/calendar', requireAdmin, async (req, res) => {
   }
 });
 
+app.get('/admin/author-slots', requireAdmin, async (req, res) => {
+  try {
+    const header = await renderHeader(req);
+    const msg = String(req.query.msg || '');
+    const { rows: quizzes } = await pool.query('SELECT id, title, unlock_at, author, author_email, author_points_override FROM quizzes ORDER BY unlock_at ASC LIMIT 200');
+    const esc = (v) => String(v || '').replace(/&/g, '&amp;').replace(/</g, '&lt;');
+    const items = quizzes.map(q => {
+      const unlock = q.unlock_at ? new Date(q.unlock_at) : null;
+      const dateStr = unlock ? unlock.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true }) : '—';
+      const overrideStr = (q.author_points_override !== null && q.author_points_override !== undefined)
+        ? formatPoints(q.author_points_override)
+        : '';
+      return `
+        <tr>
+          <td style="padding:10px 8px;">${q.id}</td>
+          <td style="padding:10px 8px;">${esc(q.title || 'Untitled Quiz')}</td>
+          <td style="padding:10px 8px;">${dateStr}</td>
+          <td style="padding:10px 8px;">${esc(q.author || '')}</td>
+          <td style="padding:10px 8px;">
+            <form method="post" action="/admin/quizzes/${q.id}/author-email" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+              <input type="email" name="author_email" value="${esc(q.author_email || '')}" placeholder="name@example.com" style="padding:6px 8px;border-radius:6px;border:1px solid #555;background:#0a0a0a;color:#ffd700;min-width:220px;"/>
+              <button type="submit" class="ta-btn ta-btn-primary" style="margin:0;">Save</button>
+              ${q.author_email ? `<a href="/admin/quizzes/${q.id}/author-email?clear=1" class="ta-btn ta-btn-outline" style="margin:0;">Clear</a>` : ''}
+            </form>
+          </td>
+          <td style="padding:10px 8px;">
+            <form method="post" action="/admin/quizzes/${q.id}/author-average" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+              <input type="text" name="author_points_override" value="${overrideStr}" placeholder="e.g. 42" style="padding:6px 8px;border-radius:6px;border:1px solid #555;background:#0a0a0a;color:#ffd700;min-width:120px;"/>
+              <button type="submit" class="ta-btn ta-btn-primary" style="margin:0;">Apply</button>
+              ${overrideStr ? `<a href="/admin/quizzes/${q.id}/author-average?clear=1" class="ta-btn ta-btn-outline" style="margin:0;">Clear</a>` : ''}
+            </form>
+          </td>
+        </tr>
+      `;
+    }).join('');
+    res.type('html').send(`
+      ${renderHead('Author Assignments • Admin', true)}
+      <body class="ta-body">
+        ${header}
+        <main class="ta-main ta-container" style="max-width:1100px;">
+          <h1 class="ta-page-title">Author Assignments</h1>
+          <p style="margin-bottom:24px;"><a href="/admin" class="ta-btn ta-btn-outline">← Back to Admin</a></p>
+          ${msg ? `<div style="margin-bottom:20px;padding:12px;border:1px solid #2e7d32;border-radius:6px;background:rgba(46,125,50,0.15);color:#81c784;">${esc(msg)}</div>` : ''}
+          <div style="background:#1a1a1a;border:1px solid #333;border-radius:10px;overflow-x:auto;">
+            <table style="width:100%;border-collapse:collapse;min-width:720px;">
+              <thead>
+                <tr style="background:#111;">
+                  <th style="padding:10px 8px;text-align:left;">Quiz ID</th>
+                  <th style="padding:10px 8px;text-align:left;">Title</th>
+                  <th style="padding:10px 8px;text-align:left;">Unlock</th>
+                  <th style="padding:10px 8px;text-align:left;">Author</th>
+                  <th style="padding:10px 8px;text-align:left;">Author Email</th>
+                  <th style="padding:10px 8px;text-align:left;">Author Points Override</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${items || '<tr><td colspan="6" style="padding:16px;text-align:center;opacity:0.8;">No quizzes found.</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+          <p style="margin-top:24px;font-size:14px;opacity:0.75;">Overrides replace the automatic average and immediately reflect on leaderboards.</p>
+        </main>
+        <footer class="ta-footer"><div class="ta-container">© Trivia Advent‑ure</div></footer>
+      </body></html>
+    `);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to load author assignments');
+  }
+});
+
+app.get('/admin/quizzes/:id/author-email', requireAdmin, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!id) return res.status(400).send('Invalid quiz id');
+    const clear = String(req.query.clear || '').toLowerCase() === '1';
+    const value = clear ? null : String(req.query.author_email || '').trim().toLowerCase();
+    await pool.query('UPDATE quizzes SET author_email=$1 WHERE id=$2', [value ? value : null, id]);
+    res.redirect('/admin/author-slots?msg=Author%20email%20updated');
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to update author email');
+  }
+});
+
+app.post('/admin/quizzes/:id/author-email', requireAdmin, express.urlencoded({ extended: true }), async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!id) return res.status(400).send('Invalid quiz id');
+    const email = String(req.body.author_email || '').trim().toLowerCase();
+    const value = email ? email : null;
+    await pool.query('UPDATE quizzes SET author_email=$1 WHERE id=$2', [value, id]);
+    res.redirect('/admin/author-slots?msg=Author%20email%20updated');
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to update author email');
+  }
+});
+
+app.get('/admin/quizzes/:id/author-average', requireAdmin, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!id) return res.status(400).send('Invalid quiz id');
+    const clear = String(req.query.clear || '').toLowerCase() === '1';
+    if (!clear) return res.status(400).send('Specify clear=1 to remove override');
+    await pool.query('UPDATE quizzes SET author_points_override=NULL WHERE id=$1', [id]);
+    res.redirect('/admin/author-slots?msg=Author%20override%20cleared');
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to clear override');
+  }
+});
+
+app.post('/admin/quizzes/:id/author-average', requireAdmin, express.urlencoded({ extended: true }), async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!id) return res.status(400).send('Invalid quiz id');
+    const raw = String(req.body.author_points_override || '').trim();
+    let value = null;
+    if (raw !== '') {
+      const parsed = Number(raw);
+      if (!Number.isFinite(parsed)) return res.status(400).send('Invalid points override');
+      value = parsed;
+    }
+    await pool.query('UPDATE quizzes SET author_points_override=$1 WHERE id=$2', [value, id]);
+    res.redirect('/admin/author-slots?msg=Author%20override%20saved');
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to update override');
+  }
+});
+
 // Player landing (logged-in non-admin)
 app.get('/player', requireAuth, async (req, res) => {
   const adminEmail = getAdminEmail();
@@ -1977,6 +2120,7 @@ app.get('/admin', requireAdmin, async (req, res) => {
             <a class="ta-card" href="/admin/upload-quiz"><strong>Upload Quiz</strong><span>Create a quiz with 10 questions</span></a>
             <a class="ta-card" href="/admin/quizzes"><strong>Manage Quizzes</strong><span>View/Edit/Clone/Delete</span></a>
             <a class="ta-card" href="/admin/calendar"><strong>Admin Calendar</strong><span>AM/PM occupancy and conflicts</span></a>
+            <a class="ta-card" href="/admin/author-slots"><strong>Author Assignments</strong><span>Set author emails & slot overrides</span></a>
           </div>
         </section>
         <section style="margin-bottom:32px;">
@@ -3210,13 +3354,17 @@ app.get('/quiz/:id', async (req, res) => {
     }
     const averagePoints = authorAverageInfo ? authorAverageInfo.average : 0;
     const averageCount = authorAverageInfo ? authorAverageInfo.count : 0;
+    const averageSource = authorAverageInfo ? authorAverageInfo.source : 'none';
+    const averageFooter = averageSource === 'override'
+      ? 'An admin set this value manually.'
+      : (averageCount ? 'This will update as more players finish.' : 'Once players begin submitting, your score will update automatically.');
     const authorMessage = isAuthor ? `
       <div style="margin:16px 0;padding:18px;border-radius:10px;border:1px solid rgba(255,255,255,0.18);background:rgba(0,0,0,0.35);">
         <h3 style="margin:0 0 8px 0;color:#ffd700;">Author participation</h3>
         <p style="margin:0;line-height:1.6;">
           As the author of this quiz, you won’t submit answers. We’ll automatically award you the current player average:
           <strong>${formatPoints(averagePoints)}</strong> points${averageCount ? ` across ${averageCount} player${averageCount === 1 ? '' : 's'}` : ''}.
-          ${averageCount ? 'This will update as more players finish.' : 'Once players begin submitting, your score will update automatically.'}
+          ${averageFooter}
         </p>
       </div>
     ` : '';
@@ -3356,7 +3504,8 @@ app.get('/quiz/:id/leaderboard', async (req, res) => {
       points: Number(r.points || 0),
       first_time: r.first_time ? new Date(r.first_time) : null,
       synthetic: false,
-      player_count: null
+      player_count: null,
+      source: 'player'
     }));
     const authorEmail = (qr[0].author_email || '').toLowerCase();
     if (authorEmail) {
@@ -3370,6 +3519,7 @@ app.get('/quiz/:id/leaderboard', async (req, res) => {
         normalized[existingIdx].synthetic = true;
         normalized[existingIdx].player_count = avgInfo.count;
         normalized[existingIdx].handle = handle;
+        normalized[existingIdx].source = avgInfo.source;
       } else {
         normalized.push({
           user_email: authorEmail,
@@ -3377,7 +3527,8 @@ app.get('/quiz/:id/leaderboard', async (req, res) => {
           points: avgInfo.average,
           first_time: null,
           synthetic: true,
-          player_count: avgInfo.count
+          player_count: avgInfo.count,
+          source: avgInfo.source
         });
       }
     }
@@ -3390,7 +3541,9 @@ app.get('/quiz/:id/leaderboard', async (req, res) => {
     const items = sorted.map(r => {
       const label = r.synthetic ? `${r.handle} (avg)` : r.handle;
       const detail = r.synthetic
-        ? (r.player_count ? `${r.player_count} player${r.player_count === 1 ? '' : 's'}` : '—')
+        ? (r.source === 'override'
+            ? 'Manual override'
+            : (r.player_count ? `${r.player_count} player${r.player_count === 1 ? '' : 's'}` : '—'))
         : (r.first_time ? fmtEt(r.first_time) : '');
       return `<tr><td>${label}</td><td>${formatPoints(r.points)}</td><td>${detail}</td></tr>`;
     }).join('');
