@@ -311,7 +311,6 @@ body.ta-body{margin:0;background:linear-gradient(180deg,var(--blue-top) 0%, var(
 .login-card{border-radius:20px;border:1px solid rgba(255,255,255,0.12);background:linear-gradient(180deg, rgba(12,23,70,0.72), rgba(12,23,70,0.52));backdrop-filter:blur(14px);box-shadow:0 20px 36px rgba(0,0,0,0.35);padding:28px;display:flex;flex-direction:column;gap:18px}
 .login-card--primary{background:linear-gradient(180deg, rgba(12,23,70,0.82), rgba(12,23,70,0.62));border:1px solid rgba(255,255,255,0.18)}
 .login-card--secondary{background:linear-gradient(180deg, rgba(15,61,46,0.75), rgba(10,20,58,0.6));}
-.login-card--info{background:linear-gradient(180deg, rgba(34,34,34,0.65), rgba(12,23,70,0.55));}
 .login-card--success{border-color:rgba(46,204,113,0.65);background:linear-gradient(180deg, rgba(46,204,113,0.28), rgba(12,23,70,0.55));box-shadow:0 20px 40px rgba(46,204,113,0.24)}
 .login-card--donate{align-items:flex-start;gap:14px;background:linear-gradient(180deg, rgba(255,167,38,0.22), rgba(12,23,70,0.45));border:1px solid rgba(255,167,38,0.35)}
 .login-card__title{margin:0;font-size:24px;font-family:"Bebas Neue",Inter,system-ui,sans-serif;letter-spacing:0.6px;color:var(--gold)}

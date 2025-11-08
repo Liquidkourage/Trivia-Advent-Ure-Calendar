@@ -2038,12 +2038,7 @@ app.get('/login', async (req, res) => {
                       </form>
                       <p class="login-hint">Check spam if you don&rsquo;t see the email after a minute.</p>
                     </div>
-                  ` : `
-                    <div class="login-card login-card--info">
-                      <h2 class="login-card__title">Need a hand?</h2>
-                      <p class="login-card__text">Forgot your password? Reach out to an admin for a reset or ask if magic links are enabled for your event.</p>
-                    </div>
-                  `}
+                  ` : ''}
                 </div>
               `}
               <div class="login-links">
