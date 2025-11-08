@@ -2658,13 +2658,20 @@ app.get('/admin/writer-invites/list', requireAdmin, async (req, res) => {
       `;
     }).join('');
     const header = await renderHeader(req);
+    const adminEmail = getAdminEmail();
     res.type('html').send(`
-      <html><head><title>Writer Invites</title><link rel="stylesheet" href="/style.css"></head>
+      <html><head><title>Writer Invites</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
       <body class="ta-body" style="padding:24px;">
       ${header}
         <h1>Writer Invites</h1>
-        <p><a href="/admin" class="ta-btn ta-btn-outline">Back</a></p>
-        <table style="width:100%;border-collapse:collapse;">
+        <p>
+          <a href="/admin" class="ta-btn ta-btn-outline">Back</a>
+          <a href="/admin/writer-invites/my" class="ta-btn ta-btn-primary" style="margin-left:8px;">My Writer Invites</a>
+        </p>
+        <div style="margin:16px 0;">
+          <input type="text" id="searchInput" placeholder="Search by author, email, or token..." style="width:100%;max-width:400px;padding:8px;border-radius:6px;border:1px solid #444;background:#2a2a2a;color:#fff;" />
+        </div>
+        <table id="invitesTable" style="width:100%;border-collapse:collapse;">
           <thead>
             <tr style="text-align:left;border-bottom:1px solid #444;">
               <th style="padding:6px 4px;">Slot</th>
@@ -2682,6 +2689,22 @@ app.get('/admin/writer-invites/list', requireAdmin, async (req, res) => {
           <tbody>${list || ''}</tbody>
         </table>
         <script src="/js/writer-invites-list.js"></script>
+        <script>
+          (function() {
+            const searchInput = document.getElementById('searchInput');
+            const table = document.getElementById('invitesTable');
+            const tbody = table.querySelector('tbody');
+            const rows = Array.from(tbody.querySelectorAll('tr'));
+            
+            searchInput.addEventListener('input', function(e) {
+              const query = e.target.value.toLowerCase().trim();
+              rows.forEach(row => {
+                const text = row.textContent.toLowerCase();
+                row.style.display = query === '' || text.includes(query) ? '' : 'none';
+              });
+            });
+          })();
+        </script>
       </body></html>
     `);
   } catch (e) {
