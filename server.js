@@ -3870,7 +3870,7 @@ app.get('/archive/:id', async (req, res) => {
 });
 
 // --- Overall leaderboard ---
-app.get('/leaderboard', async (_req, res) => {
+app.get('/leaderboard', async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT r.user_email, COALESCE(p.username, r.user_email) AS handle, SUM(r.points) AS points
