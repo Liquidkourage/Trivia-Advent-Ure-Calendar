@@ -3230,6 +3230,43 @@ app.get('/admin/quizzes', requireAdmin, async (req, res) => {
           </tbody>
         </table>
         <p style="margin-top:16px;"><a href="/admin" class="ta-btn ta-btn-outline">Back</a></p>
+        <script>
+          function filterQuizzes() {
+            const searchTerm = document.getElementById('quiz-search').value.toLowerCase().trim();
+            const statusFilter = document.getElementById('status-filter').value;
+            const now = new Date();
+            const rows = document.querySelectorAll('tbody tr');
+            let visibleCount = 0;
+            rows.forEach(row => {
+              const id = row.cells[0]?.textContent?.toLowerCase() || '';
+              const title = row.cells[1]?.textContent?.toLowerCase() || '';
+              const unlockText = row.cells[2]?.textContent || '';
+              const freezeText = row.cells[3]?.textContent || '';
+              const unlockDate = unlockText ? new Date(unlockText) : null;
+              const freezeDate = freezeText ? new Date(freezeText) : null;
+              
+              let status = '';
+              if (unlockDate && now < unlockDate) status = 'locked';
+              else if (freezeDate && now >= freezeDate) status = 'finalized';
+              else if (unlockDate && now >= unlockDate) status = 'active';
+              
+              const matchesSearch = !searchTerm || id.includes(searchTerm) || title.includes(searchTerm);
+              const matchesStatus = !statusFilter || status === statusFilter;
+              const matches = matchesSearch && matchesStatus;
+              
+              row.style.display = matches ? '' : 'none';
+              if (matches) visibleCount++;
+            });
+            document.getElementById('total-count').textContent = visibleCount;
+          }
+          function clearFilters() {
+            document.getElementById('quiz-search').value = '';
+            document.getElementById('status-filter').value = '';
+            filterQuizzes();
+          }
+          document.getElementById('quiz-search').addEventListener('input', filterQuizzes);
+          document.getElementById('status-filter').addEventListener('change', filterQuizzes);
+        </script>
       </body></html>
     `);
   } catch (e) {
