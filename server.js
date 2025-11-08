@@ -1634,10 +1634,22 @@ app.get('/public', async (req, res) => {
         </div>
         
         <div style="text-align:center;margin:48px 0;padding:32px;background:rgba(255,167,38,0.1);border-radius:12px;border:2px solid rgba(255,167,38,0.3);">
-          <h3 style="color:#ffd700;margin:0 0 16px 0;font-size:22px;">Support Trivia Advent-ure</h3>
-          <p style="margin:0 0 24px 0;opacity:0.9;font-size:16px;line-height:1.6;">
-            Love what we're doing? Help keep Trivia Advent-ure running and growing!<br/>
-            Your support helps us create more quizzes, improve features, and maintain the platform.
+          <h3 style="color:#ffd700;margin:0 0 16px 0;font-size:22px;">Play Trivia, Fuel Impact</h3>
+          <p style="margin:0 0 16px 0;opacity:0.9;font-size:16px;line-height:1.6;">
+            Trivia Advent-ure is a charitable project. 100% of player contributions are donated to mission-driven partners:
+          </p>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;text-align:left;margin:24px 0;">
+            <div style="background:rgba(0,0,0,0.35);border:1px solid rgba(255,255,255,0.15);border-radius:12px;padding:16px;">
+              <h4 style="margin:0 0 8px 0;color:#ffd700;">Trans Lifeline</h4>
+              <p style="margin:0;opacity:0.9;line-height:1.5;">A peer-support and microgrants organization serving trans people through community-led care.</p>
+            </div>
+            <div style="background:rgba(0,0,0,0.35);border:1px solid rgba(255,255,255,0.15);border-radius:12px;padding:16px;">
+              <h4 style="margin:0 0 8px 0;color:#ffd700;">World Central Kitchen</h4>
+              <p style="margin:0;opacity:0.9;line-height:1.5;">Providing nourishing meals to communities impacted by disasters around the globe.</p>
+            </div>
+          </div>
+          <p style="margin:0 0 24px 0;opacity:0.9;font-size:15px;">
+            Every Ko-fi donation helps us deliver funds to these partners and keep the experience running smoothly.
           </p>
           <a href="https://ko-fi.com/triviaadvent" target="_blank" rel="noopener noreferrer" 
              class="ta-btn ta-btn-primary" 
@@ -2042,7 +2054,7 @@ app.get('/login', async (req, res) => {
               </div>
               <div class="login-card login-card--donate">
                 <h2 class="login-card__title">Support the adventure</h2>
-                <p class="login-card__text">Help keep the quizzes flowing by chipping in for coffee. Every donation helps with hosting, writing, and new features.</p>
+                <p class="login-card__text">Trivia Advent-ure is a charitable project. Every contribution on Ko-fi benefits <strong>Trans Lifeline</strong> and <strong>World Central Kitchen</strong>.</p>
                 <a class="ta-btn ta-btn-primary login-donate-btn" href="https://ko-fi.com/triviaadvent" target="_blank" rel="noopener noreferrer">
                   Donate on Ko-fi
                 </a>
