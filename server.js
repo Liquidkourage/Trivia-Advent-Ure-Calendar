@@ -2007,7 +2007,7 @@ app.get('/login', async (req, res) => {
                 </div>
               ` : `
                 <div class="login-forms">
-                  <div class="login-card">
+                  <div class="login-card login-card--primary">
                     <h2 class="login-card__title">Sign in with your password</h2>
                     <p class="login-card__text">Enter your Trivia Advent-ure username and password to continue.</p>
                     <form method="post" action="/auth/login-password" class="login-form">
@@ -2020,10 +2020,13 @@ app.get('/login', async (req, res) => {
                         <input id="login-password" name="password" type="password" required autocomplete="current-password" />
                       </div>
                       <button type="submit" class="ta-btn ta-btn-primary login-submit">Sign in</button>
+                      <div class="login-form-footer">
+                        <a class="login-link" href="/login?magic=1#magic-link-card">Forgot your password?</a>
+                      </div>
                     </form>
                   </div>
                   ${showMagic ? `
-                    <div class="login-card login-card--secondary">
+                    <div class="login-card login-card--secondary" id="magic-link-card">
                       <h2 class="login-card__title">Prefer a magic link?</h2>
                       <p class="login-card__text">We&rsquo;ll email you a one-time link you can use on any device.</p>
                       <form method="post" action="/auth/request-link" class="login-form" onsubmit="event.preventDefault(); const fd=new FormData(this); const v=String(fd.get('email')||'').trim(); if(!v){alert('Enter your email'); return;} fetch('/auth/request-link',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ email: v })}).then(r=>r.json()).then(d=>{ if (d.link) { alert('Magic link (dev):\n'+d.link); } else { alert('If you have access, a magic link was sent.'); } }).catch(()=>alert('Failed.'));">
@@ -2046,6 +2049,13 @@ app.get('/login', async (req, res) => {
               <div class="login-links">
                 <a href="/" class="ta-btn ta-btn-outline">Return home</a>
                 ${ADMIN_PIN_ENABLED ? '<a href="/admin/pin" class="ta-btn ta-btn-outline">Admin PIN access</a>' : ''}
+              </div>
+              <div class="login-card login-card--donate">
+                <h2 class="login-card__title">Support the adventure</h2>
+                <p class="login-card__text">Help keep the quizzes flowing by chipping in for coffee. Every donation helps with hosting, writing, and new features.</p>
+                <a class="ta-btn ta-btn-primary login-donate-btn" href="https://ko-fi.com/triviaadvent" target="_blank" rel="noopener noreferrer">
+                  Donate on Ko-fi
+                </a>
               </div>
             </section>
           </div>

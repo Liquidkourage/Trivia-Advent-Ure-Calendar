@@ -309,9 +309,11 @@ body.ta-body{margin:0;background:linear-gradient(180deg,var(--blue-top) 0%, var(
 .login-panel{display:flex;flex-direction:column;gap:24px;position:relative}
 .login-forms{display:flex;flex-direction:column;gap:20px}
 .login-card{border-radius:20px;border:1px solid rgba(255,255,255,0.12);background:linear-gradient(180deg, rgba(12,23,70,0.72), rgba(12,23,70,0.52));backdrop-filter:blur(14px);box-shadow:0 20px 36px rgba(0,0,0,0.35);padding:28px;display:flex;flex-direction:column;gap:18px}
+.login-card--primary{background:linear-gradient(180deg, rgba(12,23,70,0.82), rgba(12,23,70,0.62));border:1px solid rgba(255,255,255,0.18)}
 .login-card--secondary{background:linear-gradient(180deg, rgba(15,61,46,0.75), rgba(10,20,58,0.6));}
 .login-card--info{background:linear-gradient(180deg, rgba(34,34,34,0.65), rgba(12,23,70,0.55));}
 .login-card--success{border-color:rgba(46,204,113,0.65);background:linear-gradient(180deg, rgba(46,204,113,0.28), rgba(12,23,70,0.55));box-shadow:0 20px 40px rgba(46,204,113,0.24)}
+.login-card--donate{align-items:flex-start;gap:14px;background:linear-gradient(180deg, rgba(255,167,38,0.22), rgba(12,23,70,0.45));border:1px solid rgba(255,167,38,0.35)}
 .login-card__title{margin:0;font-size:24px;font-family:"Bebas Neue",Inter,system-ui,sans-serif;letter-spacing:0.6px;color:var(--gold)}
 .login-card__text{margin:0;font-size:16px;line-height:1.6;opacity:.92}
 .login-form{display:flex;flex-direction:column;gap:16px}
@@ -320,10 +322,14 @@ body.ta-body{margin:0;background:linear-gradient(180deg,var(--blue-top) 0%, var(
 .login-field input{width:100%;padding:14px 16px;border-radius:12px;border:1px solid rgba(255,255,255,0.28);background:rgba(0,0,0,0.25);color:#fff;font-size:16px;transition:border-color 0.2s ease, box-shadow 0.2s ease}
 .login-field input:focus{outline:none;border-color:var(--gold);box-shadow:0 0 0 3px rgba(255,167,38,0.28)}
 .login-submit{align-self:flex-start;margin-top:4px}
+.login-form-footer{margin-top:6px}
+.login-form-footer .login-link{color:var(--gold);font-weight:600;text-decoration:none;font-size:14px;letter-spacing:0.2px}
+.login-form-footer .login-link:hover{text-decoration:underline;color:#ffd27f}
 .login-hint{margin:0;font-size:14px;opacity:.75}
 .login-actions{display:flex;flex-wrap:wrap;gap:12px;margin-top:4px}
 .login-links{display:flex;flex-wrap:wrap;gap:12px}
 .login-links .ta-btn{min-width:160px}
+.login-donate-btn{display:inline-flex;align-items:center;gap:8px;padding:12px 20px;font-weight:700}
 
 @media (max-width: 1024px){
   .login-grid{grid-template-columns:1fr;gap:32px}
