@@ -768,10 +768,6 @@ app.get('/account', requireAuth, async (req, res) => {
                 <strong>Edit Profile</strong>
                 <span>Change username and password</span>
               </a>
-              <a class="ta-card" href="/account/security">
-                <strong>Change Password</strong>
-                <span>Update your account password</span>
-              </a>
             </div>
           </section>
           
@@ -3000,23 +2996,79 @@ initDb().then(() => {
 // --- Admin: list quizzes ---
 app.get('/admin/quizzes', requireAdmin, async (req, res) => {
   try {
-    const { rows } = await pool.query('SELECT id, title, unlock_at, freeze_at FROM quizzes ORDER BY unlock_at ASC, id ASC LIMIT 200');
-    const items = rows.map(q => `<tr>
-      <td>#${q.id}</td>
-      <td>${q.title}</td>
-      <td>${fmtEt(q.unlock_at)}</td>
-      <td>${fmtEt(q.freeze_at)}</td>
-      <td><a href="/admin/quiz/${q.id}">View/Edit</a> · <a href="/admin/quiz/${q.id}/analytics">Analytics</a> · <a href="/admin/quiz/${q.id}/grade">Grade</a> · <a href="/quiz/${q.id}">Open</a></td>
-    </tr>`).join('');
+    const { rows } = await pool.query(`
+      SELECT 
+        q.id, 
+        q.title, 
+        q.unlock_at, 
+        q.freeze_at,
+        latest_grading.last_graded_at,
+        latest_grading.last_graded_by
+      FROM quizzes q
+      LEFT JOIN LATERAL (
+        SELECT 
+          r.override_updated_at as last_graded_at,
+          r.override_updated_by as last_graded_by
+        FROM responses r
+        WHERE r.quiz_id = q.id 
+          AND r.override_updated_at IS NOT NULL
+        ORDER BY r.override_updated_at DESC
+        LIMIT 1
+      ) latest_grading ON true
+      ORDER BY q.unlock_at DESC, q.id DESC
+      LIMIT 200
+    `);
+    
+    const fmtTime = (ts) => {
+      if (!ts) return 'Never';
+      const d = new Date(ts);
+      const now = new Date();
+      const diffMs = now - d;
+      const diffMins = Math.floor(diffMs / 60000);
+      const diffHours = Math.floor(diffMs / 3600000);
+      const diffDays = Math.floor(diffMs / 86400000);
+      
+      if (diffMins < 1) return 'Just now';
+      if (diffMins < 60) return `${diffMins}m ago`;
+      if (diffHours < 24) return `${diffHours}h ago`;
+      if (diffDays < 7) return `${diffDays}d ago`;
+      return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+    };
+    
+    const items = rows.map(q => {
+      const gradedInfo = q.last_graded_at 
+        ? `<div style="font-size:12px;opacity:0.8;">${q.last_graded_by || 'Unknown'} · ${fmtTime(q.last_graded_at)}</div>`
+        : '<div style="font-size:12px;opacity:0.5;">Not graded</div>';
+      return `<tr>
+        <td>#${q.id}</td>
+        <td>${q.title || 'Untitled'}</td>
+        <td>${fmtEt(q.unlock_at)}</td>
+        <td>${fmtEt(q.freeze_at)}</td>
+        <td>${gradedInfo}</td>
+        <td><a href="/admin/quiz/${q.id}">View/Edit</a> · <a href="/admin/quiz/${q.id}/analytics">Analytics</a> · <a href="/admin/quiz/${q.id}/grade">Grade</a> · <a href="/quiz/${q.id}">Open</a></td>
+      </tr>`;
+    }).join('');
+    
     const header = await renderHeader(req);
     res.type('html').send(`
-      <html><head><title>Quizzes</title><link rel="stylesheet" href="/style.css"></head>
+      <html><head><title>Quizzes</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
       <body class="ta-body" style="padding:24px;">
       ${header}
         <h1>Quizzes</h1>
-        <table border="1" cellspacing="0" cellpadding="6">
-          <tr><th>ID</th><th>Title</th><th>Unlock</th><th>Freeze</th><th>Actions</th></tr>
-          ${items || '<tr><td colspan="5">No quizzes</td></tr>'}
+        <table border="1" cellspacing="0" cellpadding="8" style="border-collapse:collapse;width:100%;">
+          <thead>
+            <tr style="background:#1a1a1a;">
+              <th style="padding:8px;text-align:left;">ID</th>
+              <th style="padding:8px;text-align:left;">Title</th>
+              <th style="padding:8px;text-align:left;">Unlock</th>
+              <th style="padding:8px;text-align:left;">Freeze</th>
+              <th style="padding:8px;text-align:left;">Last Graded</th>
+              <th style="padding:8px;text-align:left;">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${items || '<tr><td colspan="6">No quizzes</td></tr>'}
+          </tbody>
         </table>
         <p style="margin-top:16px;"><a href="/admin">Back</a></p>
       </body></html>
