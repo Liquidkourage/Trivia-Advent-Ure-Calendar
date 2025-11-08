@@ -14,8 +14,8 @@
 html{background:linear-gradient(180deg,var(--blue-top) 0%, var(--blue-mid) 60%, var(--blue-bottom) 100%);min-height:100%;background-color:#0b1338}
 body{background:linear-gradient(180deg,var(--blue-top) 0%, var(--blue-mid) 60%, var(--blue-bottom) 100%);background-color:#0b1338}
 *{box-sizing:border-box}
-body.ta-body{margin:0;background:linear-gradient(180deg,var(--blue-top) 0%, var(--blue-mid) 60%, var(--blue-bottom) 100%);color:var(--snow);font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;position:relative;overflow-x:hidden;min-height:100vh;background-color:#0b1338;display:flex;flex-direction:column}
-.ta-body>main,.ta-body>.ta-main{flex:1 0 auto}
+body.ta-body{margin:0;background:linear-gradient(180deg,var(--blue-top) 0%, var(--blue-mid) 60%, var(--blue-bottom) 100%);color:var(--snow);font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;position:relative;overflow:hidden;min-height:100vh;background-color:#0b1338;display:grid;grid-template-rows:auto 1fr auto}
+.ta-body>main,.ta-body>.ta-main{flex:0 0 auto}
 .ta-body:before{content:"";position:fixed;inset:0;pointer-events:none;opacity:.32;z-index:2;background-image:radial-gradient(1.8px 1.8px at 20px 30px, #fff 50%, rgba(255,255,255,0) 51%),radial-gradient(1.8px 1.8px at 80px 120px, #fff 50%, rgba(255,255,255,0) 51%),radial-gradient(1.8px 1.8px at 200px 50px, #fff 50%, rgba(255,255,255,0) 51%),radial-gradient(1.8px 1.8px at 320px 80px, #fff 50%, rgba(255,255,255,0) 51%);
   background-size: 420px 220px;animation:snowfall 18s linear infinite}
 .ta-body:after{content:"";position:fixed;inset:0;pointer-events:none;opacity:.18;z-index:2;background-image:radial-gradient(2.6px 2.6px at 60px 40px, #fff 50%, rgba(255,255,255,0) 51%),radial-gradient(2.6px 2.6px at 220px 160px, #fff 50%, rgba(255,255,255,0) 51%),radial-gradient(2.6px 2.6px at 360px 120px, #fff 50%, rgba(255,255,255,0) 51%),radial-gradient(2.6px 2.6px at 480px 200px, #fff 50%, rgba(255,255,255,0) 51%);
@@ -24,7 +24,7 @@ body.ta-body{margin:0;background:linear-gradient(180deg,var(--blue-top) 0%, var(
 @keyframes snowfall{from{background-position:0 0, 0 0, 0 0, 0 0}to{background-position:0 220px, 0 220px, 0 220px, 0 220px}}
 @keyframes snowfallSlow{from{background-position:0 0, 0 0, 0 0, 0 0}to{background-position:0 320px, 0 320px, 0 320px, 0 320px}}
 .ta-container{max-width:1100px;margin:0 auto;padding:24px}
-.ta-header{background:rgba(0,0,0,0.4);backdrop-filter:saturate(120%) blur(6px);position:fixed;top:0;left:0;right:0;z-index:40;border-bottom:1px solid rgba(255,255,255,0.08)}
+.ta-header{background:rgba(0,0,0,0.4);backdrop-filter:saturate(120%) blur(6px);position:sticky;top:0;z-index:40;border-bottom:1px solid rgba(255,255,255,0.08)}
 .ta-header-inner{display:flex;align-items:center;justify-content:space-between;gap:16px;max-width:1100px;margin:0 auto;padding:12px 24px}
 .ta-brand{display:flex;align-items:center;gap:12px}
 .ta-logo{width:44px;height:44px;border-radius:6px;object-fit:cover;box-shadow:0 2px 10px rgba(0,0,0,0.3)}
@@ -38,8 +38,8 @@ body.ta-body{margin:0;background:linear-gradient(180deg,var(--blue-top) 0%, var(
 .ta-menu-toggle[aria-expanded="true"] span:nth-child(1){transform:rotate(45deg) translate(8px,8px)}
 .ta-menu-toggle[aria-expanded="true"] span:nth-child(2){opacity:0}
 .ta-menu-toggle[aria-expanded="true"] span:nth-child(3){transform:rotate(-45deg) translate(8px,-8px)}
-.ta-main{flex:1 0 auto;overflow:auto;padding:86px 0 140px 0}
-.ta-footer{border-top:1px solid rgba(255,255,255,0.08);background:rgba(0,0,0,0.35);margin-top:auto;position:fixed;left:0;right:0;bottom:0;z-index:30}
+.ta-main{overflow:auto;padding:32px 0}
+.ta-footer{border-top:1px solid rgba(255,255,255,0.08);background:rgba(0,0,0,0.35);margin-top:0;position:sticky;bottom:0;z-index:30}
 .ta-footer-inner{display:flex;flex-wrap:wrap;gap:32px;align-items:flex-start;padding:28px 0;justify-content:space-between}
 .ta-footer-brand{display:flex;align-items:center;gap:12px;flex:0 0 auto;min-width:220px}
 .ta-footer-brand img{width:44px;height:44px;border-radius:8px;object-fit:cover;box-shadow:0 2px 10px rgba(0,0,0,0.3)}
