@@ -491,7 +491,6 @@ async function sendWriterInviteEmail(to, author, linkUrl, slotDate, slotHalf) {
   const text = `Hi ${author || ''},\r\n\r\nHere is your private link to compose your quiz:${slot}\r\n${linkUrl}\r\n\r\nThanks!`;
   await sendPlainEmail(to, 'Your Trivia Advent-ure writer link', text);
 }
-
 // --- Time helpers ---
 function etToUtc(dateTimeStr) {
   // dateTimeStr: 'YYYY-MM-DDTHH:mm' or 'YYYY-MM-DD HH:mm' in Eastern Time (Dec = EST, UTC-5)
@@ -904,7 +903,6 @@ app.post('/account/security', requireAuth, express.urlencoded({ extended: true }
     ));
   }
 });
-
 // Main account page - hub for all account settings
 app.get('/account', requireAuth, async (req, res) => {
   try {
@@ -969,8 +967,8 @@ app.get('/account', requireAuth, async (req, res) => {
               <div class="account-stack">
                 <section class="account-card">
                   <h2>Profile &amp; Security</h2>
-                  <div class="account-links">
-                    <a class="account-link" href="/account/credentials">
+                  <div class="account-actions">
+                    <a class="account-action" href="/account/credentials">
                       <div>
                         <strong>Edit Profile</strong>
                         <small>Change username and password</small>
@@ -981,29 +979,29 @@ app.get('/account', requireAuth, async (req, res) => {
                 </section>
                 <section class="account-card">
                   <h2>Activity &amp; Data</h2>
-                  <div class="account-links">
-                    <a class="account-link" href="/player">
+                  <div class="account-actions">
+                    <a class="account-action" href="/player">
                       <div>
                         <strong>My Dashboard</strong>
                         <small>View your stats and recent quizzes</small>
                       </div>
                       <span aria-hidden="true">›</span>
                     </a>
-                    <a class="account-link" href="/account/history">
+                    <a class="account-action" href="/account/history">
                       <div>
                         <strong>Quiz History</strong>
                         <small>View all your quiz attempts</small>
                       </div>
                       <span aria-hidden="true">›</span>
                     </a>
-                    <a class="account-link" href="/account/export">
+                    <a class="account-action" href="/account/export">
                       <div>
                         <strong>Export Data</strong>
                         <small>Download your quiz data (CSV/JSON)</small>
                       </div>
                       <span aria-hidden="true">›</span>
                     </a>
-                    <a class="account-link" href="/calendar">
+                    <a class="account-action" href="/calendar">
                       <div>
                         <strong>Calendar</strong>
                         <small>Browse and play quizzes</small>
@@ -1014,8 +1012,8 @@ app.get('/account', requireAuth, async (req, res) => {
                 </section>
                 <section class="account-card">
                   <h2>Communication</h2>
-                  <div class="account-links">
-                    <a class="account-link" href="/account/preferences">
+                  <div class="account-actions">
+                    <a class="account-action" href="/account/preferences">
                       <div>
                         <strong>Email Preferences</strong>
                         <small>Manage notification settings</small>
@@ -1027,7 +1025,7 @@ app.get('/account', requireAuth, async (req, res) => {
                 <section class="account-card">
                   <h2>Danger Zone</h2>
                   <p>Permanently delete your account and all associated data. This action cannot be undone.</p>
-                  <a href="/account/delete" class="account-link account-link--danger">
+                  <a href="/account/delete" class="account-action account-action--danger">
                     <strong>Delete Account</strong>
                   </a>
                 </section>
@@ -1392,7 +1390,6 @@ app.get('/account/preferences', requireAuth, async (req, res) => {
     res.status(500).send('Failed to load preferences');
   }
 });
-
 app.post('/account/preferences', requireAuth, express.urlencoded({ extended: true }), async (req, res) => {
   try {
     const email = (req.session.user.email || '').toLowerCase();
@@ -1705,7 +1702,7 @@ app.get('/public', async (req, res) => {
             <div style="text-align:center;">
               <div style="font-size:36px;margin-bottom:8px;">🏆</div>
               <h3 style="color:#ffd700;margin:0 0 8px 0;font-size:18px;">Compete & Climb</h3>
-              <p style="margin:0;opacity:0.8;line-height:1.5;">Per-quiz leaderboards freeze after 24 hours. Overall standings update continuously.</p>
+              <p style="margin:0;opacity:0.8;line-height:1.5;">Per-quiz leaderboard freezes after 24 hours. Overall standings update continuously.</p>
             </div>
             <div style="text-align:center;">
               <div style="font-size:36px;margin-bottom:8px;">📊</div>
@@ -1850,7 +1847,6 @@ app.get('/admin/calendar', requireAdmin, async (req, res) => {
     res.status(500).send('Failed to load admin calendar');
   }
 });
-
 app.get('/admin/author-slots', requireAdmin, async (req, res) => {
   try {
     const header = await renderHeader(req);
@@ -2351,7 +2347,6 @@ app.get('/admin/pin', async (req, res) => {
     </body></html>
   `);
 });
-
 app.post('/admin/pin', (req, res) => {
   if (!ADMIN_PIN_ENABLED) return res.status(404).send('Not found');
   const provided = String((req.body && req.body.pin) || '').trim();
@@ -2829,7 +2824,6 @@ app.post('/writer/:token/autosave', express.json(), async (req, res) => {
     res.status(500).json({ error: 'Failed to save' });
   }
 });
-
 app.post('/writer/:token', express.urlencoded({ extended: true }), async (req, res) => {
   try {
     const { rows } = await pool.query(
@@ -3303,7 +3297,6 @@ app.post('/quiz/:id/autosave', requireAuth, express.json(), async (req, res) => 
     res.status(500).json({ error: 'Failed to save' });
   }
 });
-
 // --- Play quiz ---
 app.get('/quiz/:id', async (req, res) => {
   try {
@@ -3755,7 +3748,6 @@ app.get('/archive/:id', async (req, res) => {
     res.status(500).send('Failed to load archived quiz');
   }
 });
-
 // --- Overall leaderboard ---
 app.get('/leaderboard', async (req, res) => {
   try {
@@ -4609,7 +4601,6 @@ app.post('/admin/quiz/:id/regrade', requireAdmin, async (req, res) => {
     res.status(500).send('Failed to regrade');
   }
 });
-
 // --- Quiz Analytics Dashboard ---
 app.get('/admin/quiz/:id/analytics', requireAdmin, async (req, res) => {
   try {
@@ -5108,7 +5099,6 @@ app.post('/admin/players/revoke-admin', requireAdmin, async (req, res) => {
     res.status(500).send('Failed to revoke admin');
   }
 });
-
 app.post('/admin/players/revoke-access', requireAdmin, async (req, res) => {
   try {
     const email = String(req.body.email || '').trim().toLowerCase();

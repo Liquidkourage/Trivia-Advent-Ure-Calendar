@@ -129,30 +129,39 @@ body.ta-body{margin:0;background:linear-gradient(180deg,var(--blue-top) 0%, var(
 .ta-content--medium{max-width:960px}
 .ta-content--narrow{max-width:720px}
 
-.account-page{width:100%;max-width:1280px;margin:0 auto;display:flex;flex-direction:column;gap:var(--section-gap)}
-.account-header{display:flex;flex-direction:column;gap:12px}
-.account-layout{display:grid;grid-template-columns:minmax(280px,1fr) minmax(320px,2fr);gap:var(--section-gap);align-items:flex-start}
-.account-stack{display:grid;gap:var(--section-gap)}
-.account-card{background:rgba(0,0,0,0.45);border:1px solid rgba(255,255,255,0.12);border-radius:16px;padding:24px;box-shadow:0 20px 40px rgba(0,0,0,0.25)}
-.account-card h2{margin-top:0;margin-bottom:12px;font-size:20px;color:var(--gold)}
-.account-card p{margin:8px 0}
-.account-summary dl{margin:0;display:grid;grid-template-columns:repeat(2,minmax(120px,1fr));gap:12px 16px}
-.account-summary dt{font-weight:600;opacity:0.75}
-.account-summary dd{margin:0;font-weight:700}
-.account-links{display:grid;gap:12px}
-.account-link{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-radius:12px;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.08);text-decoration:none;color:var(--snow);transition:transform 0.2s ease, border-color 0.2s ease}
-.account-link:hover{transform:translateY(-2px);border-color:var(--gold)}
-.account-link small{opacity:0.7}
-.account-link--danger{justify-content:center;background:rgba(211,47,47,0.18);border-color:#d32f2f;color:#ffd7d7}
-.account-link--danger:hover{border-color:#ff7676}
-.account-alert{padding:12px 16px;border-radius:10px;border:1px solid rgba(76,175,80,0.35);background:rgba(76,175,80,0.18);color:#c8f7cf;font-weight:600;max-width:480px}
+.account-page{width:100%;max-width:1280px;margin:0 auto;display:flex;flex-direction:column;gap:var(--section-gap);}
+.account-header{display:flex;flex-direction:column;gap:12px;margin-bottom:8px;}
+.account-alert{padding:12px 16px;border-radius:12px;border:1px solid rgba(76,175,80,0.35);background:rgba(76,175,80,0.18);color:#c8f7cf;font-weight:600;max-width:520px;}
+.account-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:var(--section-gap);align-items:stretch;}
+.account-card{background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.12);border-radius:18px;padding:28px;box-shadow:0 18px 40px rgba(0,0,0,0.35);display:flex;flex-direction:column;gap:20px;}
+.account-card__title{display:flex;justify-content:space-between;align-items:center;gap:12px;}
+.account-card__title h2{margin:0;font-size:22px;color:var(--gold);}
+.account-tag{padding:4px 10px;border-radius:999px;background:rgba(255,255,255,0.12);font-size:12px;letter-spacing:0.4px;text-transform:uppercase;}
+.account-card--accent{background:linear-gradient(135deg,rgba(255,167,38,0.25),rgba(0,0,0,0.35));border:1px solid rgba(255,205,112,0.35);}
+.account-summary dl{margin:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:18px 20px;}
+.account-summary dt{margin:0;font-weight:600;opacity:0.75;font-size:13px;letter-spacing:0.2px;text-transform:uppercase;}
+.account-summary dd{margin:4px 0 0 0;font-size:20px;font-weight:700;color:#fff;}
+.account-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;}
+.account-stat{background:rgba(0,0,0,0.45);border:1px solid rgba(255,255,255,0.12);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:6px;}
+.account-stat__label{font-size:13px;opacity:0.7;text-transform:uppercase;letter-spacing:0.3px;}
+.account-stat__value{font-size:30px;font-weight:800;color:var(--gold);}
+.account-actions{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;}
+.account-action{display:flex;justify-content:space-between;align-items:flex-start;padding:16px 18px;border-radius:14px;border:1px solid rgba(255,255,255,0.12);background:rgba(0,0,0,0.35);text-decoration:none;color:var(--snow);transition:transform 0.2s ease,border-color 0.2s ease,background 0.2s ease;gap:16px;}
+.account-action strong{display:block;font-size:16px;margin-bottom:4px;}
+.account-action small{opacity:0.72;font-size:13px;}
+.account-action span[aria-hidden="true"]{font-size:20px;opacity:0.6;align-self:center;}
+.account-action:hover{transform:translateY(-2px);border-color:var(--gold);background:rgba(0,0,0,0.5);}
+.account-action--danger{justify-content:center;background:rgba(211,47,47,0.18);border-color:rgba(211,47,47,0.6);color:#ffd7d7;}
+.account-action--danger:hover{border-color:#ff7676;background:rgba(211,47,47,0.28);}
 
 @media (max-width: 1100px){
-  .account-layout{grid-template-columns:1fr}
+  .account-grid{grid-template-columns:repeat(auto-fit,minmax(260px,1fr));}
 }
 
 @media (max-width: 720px){
-  .account-summary dl{grid-template-columns:1fr}
+  .account-card{padding:22px;}
+  .account-summary dl{grid-template-columns:1fr;}
+  .account-actions{grid-template-columns:1fr;}
 }
 
 /* Calendar tiles (simple baseline styles applied via inline HTML already) */
