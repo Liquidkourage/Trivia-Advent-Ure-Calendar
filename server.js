@@ -4721,10 +4721,162 @@ app.post('/admin/admins/send-links', requireAdmin, async (_req, res) => {
         console.warn('Send mail failed for', email, mailErr?.message || mailErr);
       }
     }
-    res.type('html').send(`<html><body style="font-family: system-ui; padding:24px;"><h1>Magic links sent</h1><p>Sent ${sent} link(s) to ${rows.length} admin(s).</p><p><a href="/admin/admins">Back</a></p></body></html>`);
+    res.type('html').send(`<html><body style="font-family: system-ui; padding:24px;"><h1>Magic links sent</h1><p>Sent ${sent} link(s) to ${rows.length} admin(s).</p><p><a href="/admin/admins" class="ta-btn ta-btn-outline">Back</a></p></body></html>`);
   } catch (e) {
     console.error(e);
     res.status(500).send('Failed to send links');
+  }
+});
+
+// --- Admin: Send Announcements ---
+app.get('/admin/announcements', requireAdmin, async (req, res) => {
+  try {
+    // Get count of players who have announcements enabled
+    const countResult = await pool.query(`
+      SELECT COUNT(*) as count 
+      FROM players 
+      WHERE email_notifications_enabled = true 
+        AND email_announcements = true
+    `);
+    const recipientCount = parseInt(countResult.rows[0]?.count || 0);
+    
+    const header = await renderHeader(req);
+    res.type('html').send(`
+      <html><head><title>Send Announcement • Admin</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
+      <body class="ta-body">
+        ${header}
+        <main class="ta-main ta-container" style="max-width:800px;">
+          <h1 class="ta-page-title">Send Announcement</h1>
+          <p style="margin-bottom:24px;"><a href="/admin" class="ta-btn ta-btn-outline">← Back to Admin</a></p>
+          
+          <div style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:24px;margin-bottom:24px;">
+            <p style="margin:0;opacity:0.9;">This announcement will be sent to <strong>${recipientCount}</strong> player${recipientCount !== 1 ? 's' : ''} who have announcements enabled.</p>
+          </div>
+          
+          <form method="post" action="/admin/announcements" style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:24px;">
+            <div style="margin-bottom:20px;">
+              <label style="display:block;margin-bottom:8px;font-weight:bold;">Subject</label>
+              <input type="text" name="subject" required style="width:100%;padding:10px;border-radius:6px;border:1px solid #444;background:#2a2a2a;color:#fff;font-size:16px;" placeholder="Announcement subject line" />
+            </div>
+            
+            <div style="margin-bottom:20px;">
+              <label style="display:block;margin-bottom:8px;font-weight:bold;">Message</label>
+              <textarea name="message" required rows="12" style="width:100%;padding:10px;border-radius:6px;border:1px solid #444;background:#2a2a2a;color:#fff;font-size:14px;font-family:inherit;resize:vertical;" placeholder="Enter your announcement message here. You can use plain text or basic HTML."></textarea>
+              <div style="font-size:12px;opacity:0.7;margin-top:4px;">Basic HTML is supported (e.g., &lt;strong&gt;, &lt;em&gt;, &lt;a&gt;, &lt;br&gt;)</div>
+            </div>
+            
+            <div style="margin-top:24px;">
+              <button type="submit" class="ta-btn ta-btn-primary" data-confirm="Send announcement to ${recipientCount} player${recipientCount !== 1 ? 's' : ''}?">Send Announcement</button>
+              <a href="/admin" class="ta-btn ta-btn-outline" style="margin-left:8px;">Cancel</a>
+            </div>
+          </form>
+        </main>
+        <footer class="ta-footer"><div class="ta-container">© Trivia Advent‑ure</div></footer>
+        <script src="/js/common-enhancements.js"></script>
+      </body></html>
+    `);
+  } catch (e) {
+    console.error('Error loading announcements page:', e);
+    res.status(500).send('Failed to load announcements page');
+  }
+});
+
+app.post('/admin/announcements', requireAdmin, express.urlencoded({ extended: true }), async (req, res) => {
+  try {
+    const subject = String(req.body.subject || '').trim();
+    const message = String(req.body.message || '').trim();
+    
+    if (!subject || !message) {
+      return res.status(400).send('Subject and message are required');
+    }
+    
+    // Get all players who have announcements enabled
+    const players = await pool.query(`
+      SELECT email, username 
+      FROM players 
+      WHERE email_notifications_enabled = true 
+        AND email_announcements = true
+    `);
+    
+    let sent = 0;
+    let failed = 0;
+    const errors = [];
+    
+    // Create HTML email template
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <style>
+          body { font-family: system-ui, -apple-system, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background: linear-gradient(90deg, #FFA726 0%, #FFC46B 100%); color: #111; padding: 20px; border-radius: 8px 8px 0 0; text-align: center; }
+          .content { background: #f9f9f9; padding: 24px; border: 1px solid #ddd; border-top: none; }
+          .footer { text-align: center; padding: 16px; color: #666; font-size: 12px; }
+          a { color: #FFA726; }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h1 style="margin: 0;">Trivia Advent-ure</h1>
+        </div>
+        <div class="content">
+          ${message.replace(/\n/g, '<br>')}
+        </div>
+        <div class="footer">
+          <p>You're receiving this because you have announcements enabled in your email preferences.</p>
+          <p><a href="${process.env.PUBLIC_BASE_URL || 'https://triviaadventure.org'}/account/preferences">Manage email preferences</a></p>
+        </div>
+      </body>
+      </html>
+    `;
+    
+    // Send to each player
+    for (const player of players.rows) {
+      try {
+        await sendHTMLEmail(player.email, subject, htmlContent);
+        sent++;
+        // Small delay to avoid rate limiting
+        await new Promise(resolve => setTimeout(resolve, 100));
+      } catch (e) {
+        failed++;
+        errors.push({ email: player.email, error: e.message });
+        console.error('Failed to send announcement to ' + player.email + ':', e);
+      }
+    }
+    
+    const header = await renderHeader(req);
+    res.type('html').send(`
+      <html><head><title>Announcement Sent • Admin</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
+      <body class="ta-body">
+        ${header}
+        <main class="ta-main ta-container" style="max-width:800px;">
+          <h1 class="ta-page-title">Announcement Sent</h1>
+          <div style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:24px;margin-bottom:24px;">
+            <p style="font-size:18px;margin:0 0 16px 0;"><strong>Successfully sent:</strong> ${sent} email${sent !== 1 ? 's' : ''}</p>
+            ${failed > 0 ? '<p style="font-size:18px;margin:0;color:#d32f2f;"><strong>Failed:</strong> ' + failed + ' email' + (failed !== 1 ? 's' : '') + '</p>' : ''}
+          </div>
+          
+          ${errors.length > 0 ? `
+          <div style="background:#2a1a1a;border:1px solid #d32f2f;border-radius:8px;padding:16px;margin-bottom:24px;">
+            <h3 style="margin:0 0 12px 0;color:#d32f2f;">Errors:</h3>
+            <ul style="margin:0;padding-left:20px;">
+              ${errors.map(e => '<li>' + e.email + ': ' + e.error + '</li>').join('')}
+            </ul>
+          </div>
+          ` : ''}
+          
+          <div style="margin-top:24px;">
+            <a href="/admin/announcements" class="ta-btn ta-btn-primary">Send Another</a>
+            <a href="/admin" class="ta-btn ta-btn-outline" style="margin-left:8px;">Back to Admin</a>
+          </div>
+        </main>
+        <footer class="ta-footer"><div class="ta-container">© Trivia Advent‑ure</div></footer>
+      </body></html>
+    `);
+  } catch (e) {
+    console.error('Error sending announcements:', e);
+    res.status(500).send('Failed to send announcements');
   }
 });
 
