@@ -455,6 +455,31 @@ async function sendPlainEmail(email, subject, text) {
   await gmail.users.messages.send({ userId: 'me', requestBody: { raw: rawMessage } });
 }
 
+async function sendHTMLEmail(email, subject, html) {
+  const fromHeader = process.env.EMAIL_FROM || 'no-reply@example.com';
+  const oAuth2Client = new google.auth.OAuth2(
+    process.env.GMAIL_CLIENT_ID,
+    process.env.GMAIL_CLIENT_SECRET
+  );
+  oAuth2Client.setCredentials({ refresh_token: process.env.GMAIL_REFRESH_TOKEN });
+  const gmail = google.gmail({ version: 'v1', auth: oAuth2Client });
+  const rawLines = [
+    `From: ${fromHeader}`,
+    `To: ${email}`,
+    `Subject: ${subject}`,
+    'MIME-Version: 1.0',
+    'Content-Type: text/html; charset=UTF-8',
+    '',
+    html
+  ];
+  const rawMessage = Buffer.from(rawLines.join('\r\n'))
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+  await gmail.users.messages.send({ userId: 'me', requestBody: { raw: rawMessage } });
+}
+
 async function sendWriterInviteEmail(to, author, linkUrl, slotDate, slotHalf) {
   const slot = slotDate ? `\r\nSlot: ${slotDate}${slotHalf ? ' ' + slotHalf : ''}` : '';
   const text = `Hi ${author || ''},\r\n\r\nHere is your private link to compose your quiz:${slot}\r\n${linkUrl}\r\n\r\nThanks!`;
@@ -1211,12 +1236,8 @@ app.get('/account/export', requireAuth, async (req, res) => {
 app.get('/account/preferences', requireAuth, async (req, res) => {
   try {
     const email = (req.session.user.email || '').toLowerCase();
-    const player = (await pool.query('SELECT email_notifications_enabled, email_quiz_unlocks, email_results, email_recaps, email_summaries, email_announcements FROM players WHERE email=$1', [email])).rows[0];
+    const player = (await pool.query('SELECT email_notifications_enabled, email_announcements FROM players WHERE email=$1', [email])).rows[0];
     const notificationsEnabled = player ? (player.email_notifications_enabled !== false) : true;
-    const quizUnlocks = player ? (player.email_quiz_unlocks !== false) : true;
-    const results = player ? (player.email_results !== false) : true;
-    const recaps = player ? (player.email_recaps !== false) : true;
-    const summaries = player ? (player.email_summaries !== false) : true;
     const announcements = player ? (player.email_announcements !== false) : true;
     
     const header = await renderHeader(req);
@@ -1243,42 +1264,10 @@ app.get('/account/preferences', requireAuth, async (req, res) => {
               <h3 style="margin:0 0 16px 0;color:#ffd700;font-size:18px;">Notification Types</h3>
               <div style="display:flex;flex-direction:column;gap:16px;">
                 <label style="display:flex;align-items:center;gap:12px;cursor:pointer;padding:12px;border-radius:6px;background:rgba(255,255,255,0.02);">
-                  <input type="checkbox" name="email_quiz_unlocks" value="1" ${quizUnlocks ? 'checked' : ''} style="width:20px;height:20px;cursor:pointer;" />
-                  <div>
-                    <div style="font-weight:bold;margin-bottom:4px;">Quiz Unlock Notifications</div>
-                    <div style="font-size:14px;opacity:0.7;">Get notified when new quizzes unlock</div>
-                  </div>
-                </label>
-                
-                <label style="display:flex;align-items:center;gap:12px;cursor:pointer;padding:12px;border-radius:6px;background:rgba(255,255,255,0.02);">
-                  <input type="checkbox" name="email_results" value="1" ${results ? 'checked' : ''} style="width:20px;height:20px;cursor:pointer;" />
-                  <div>
-                    <div style="font-weight:bold;margin-bottom:4px;">Results Emails</div>
-                    <div style="font-size:14px;opacity:0.7;">Receive your quiz results and scores</div>
-                  </div>
-                </label>
-                
-                <label style="display:flex;align-items:center;gap:12px;cursor:pointer;padding:12px;border-radius:6px;background:rgba(255,255,255,0.02);">
-                  <input type="checkbox" name="email_recaps" value="1" ${recaps ? 'checked' : ''} style="width:20px;height:20px;cursor:pointer;" />
-                  <div>
-                    <div style="font-weight:bold;margin-bottom:4px;">Quiz Recaps</div>
-                    <div style="font-size:14px;opacity:0.7;">Receive quiz recaps with answers and highlights</div>
-                  </div>
-                </label>
-                
-                <label style="display:flex;align-items:center;gap:12px;cursor:pointer;padding:12px;border-radius:6px;background:rgba(255,255,255,0.02);">
-                  <input type="checkbox" name="email_summaries" value="1" ${summaries ? 'checked' : ''} style="width:20px;height:20px;cursor:pointer;" />
-                  <div>
-                    <div style="font-weight:bold;margin-bottom:4px;">Weekly Summaries</div>
-                    <div style="font-size:14px;opacity:0.7;">Receive weekly summaries of your activity</div>
-                  </div>
-                </label>
-                
-                <label style="display:flex;align-items:center;gap:12px;cursor:pointer;padding:12px;border-radius:6px;background:rgba(255,255,255,0.02);">
                   <input type="checkbox" name="email_announcements" value="1" ${announcements ? 'checked' : ''} style="width:20px;height:20px;cursor:pointer;" />
                   <div>
                     <div style="font-weight:bold;margin-bottom:4px;">Announcements</div>
-                    <div style="font-size:14px;opacity:0.7;">Receive important announcements and updates</div>
+                    <div style="font-size:14px;opacity:0.7;">Receive important announcements and updates from administrators</div>
                   </div>
                 </label>
               </div>
@@ -1303,14 +1292,10 @@ app.post('/account/preferences', requireAuth, express.urlencoded({ extended: tru
   try {
     const email = (req.session.user.email || '').toLowerCase();
     const enabled = req.body.email_notifications_enabled === '1';
-    const quizUnlocks = req.body.email_quiz_unlocks === '1';
-    const results = req.body.email_results === '1';
-    const recaps = req.body.email_recaps === '1';
-    const summaries = req.body.email_summaries === '1';
     const announcements = req.body.email_announcements === '1';
     await pool.query(
-      'UPDATE players SET email_notifications_enabled=$1, email_quiz_unlocks=$2, email_results=$3, email_recaps=$4, email_summaries=$5, email_announcements=$6 WHERE email=$7',
-      [enabled, quizUnlocks, results, recaps, summaries, announcements, email]
+      'UPDATE players SET email_notifications_enabled=$1, email_announcements=$2 WHERE email=$3',
+      [enabled, announcements, email]
     );
     res.redirect('/account?msg=Preferences saved');
   } catch (e) {
@@ -1874,6 +1859,12 @@ app.get('/admin', requireAdmin, async (req, res) => {
             <a class="ta-card" href="/admin/writer-invite"><strong>Writer Invite</strong><span>Create token link for guest authors</span></a>
             <a class="ta-card" href="/admin/writer-invites"><strong>Writer Invites (CSV)</strong><span>Prepare CSV and bulk-generate links</span></a>
             <a class="ta-card" href="/admin/writer-invites/list"><strong>Writer Invites (List)</strong><span>Status, resend, deactivate, copy</span></a>
+          </div>
+        </section>
+        <section style="margin-bottom:32px;">
+          <h2 style="margin-bottom:12px;color:#ffd700;">Communication</h2>
+          <div class="ta-card-grid">
+            <a class="ta-card" href="/admin/announcements"><strong>Send Announcement</strong><span>Send email announcement to all players</span></a>
           </div>
         </section>
         <section style="margin-bottom:32px;">
