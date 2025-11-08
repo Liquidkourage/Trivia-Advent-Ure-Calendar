@@ -2886,6 +2886,18 @@ app.get('/admin/access', requireAdmin, async (req, res) => {
         <label>Email <input name="email" type="email" required /></label>
         <button type="submit">Send</button>
       </form>
+      <h3 style="margin-top:24px;">Test Ko-fi Webhook</h3>
+      <form method="post" action="/admin/test-kofi" style="border:1px solid #ddd;padding:16px;border-radius:6px;max-width:500px;">
+        <div style="margin-bottom:12px;">
+          <label>Test Email <input name="email" type="email" required style="width:100%;" /></label>
+          <div style="font-size:12px;opacity:0.7;margin-top:4px;">This will simulate a Ko-fi donation webhook</div>
+        </div>
+        <div style="margin-bottom:12px;">
+          <label>Donation Date (optional) <input name="created_at" type="datetime-local" style="width:100%;" /></label>
+          <div style="font-size:12px;opacity:0.7;margin-top:4px;">Leave blank to use current time</div>
+        </div>
+        <button type="submit" style="background:#ff5e5e;color:#fff;border:none;padding:8px 16px;border-radius:4px;cursor:pointer;">Simulate Ko-fi Donation</button>
+      </form>
       <p style="margin-top:16px;"><a href="/admin">Back</a></p>
     </body></html>
   `);
