@@ -1984,18 +1984,13 @@ app.get('/login', async (req, res) => {
     ${header}
       <main class="ta-main login-main">
         <div class="ta-container login-container">
-          <div class="login-grid">
-            <section class="login-hero">
-              <span class="login-pill">Trivia Advent-ure</span>
-              <h1 class="login-title">Step back through the advent doors</h1>
-              <p class="login-lead">Track your streak, unlock daily trivia challenges, and see how you stack up on the leaderboard.</p>
-              <ul class="login-benefits">
-                <li>Unlock two fresh puzzles each day of December</li>
-                <li>Earn points toward personal and team bragging rights</li>
-                <li>Revisit solved doors to review answers and lore</li>
-              </ul>
-            </section>
+          <div class="login-shell">
             <section class="login-panel">
+              <header class="login-head">
+                <span class="login-pill">Trivia Advent-ure</span>
+                <h1 class="login-title">${loggedIn ? 'You&rsquo;re signed in' : 'Sign in to play'}</h1>
+                <p class="login-lead">${loggedIn ? 'Jump back into the calendar and keep your streak alive.' : 'Unlock December&rsquo;s daily trivia doors and track your streak.'}</p>
+              </header>
               ${loggedIn ? `
                 <div class="login-card login-card--success">
                   <h2 class="login-card__title">You&rsquo;re already signed in</h2>

@@ -297,16 +297,14 @@ body.ta-body{margin:0;background:linear-gradient(180deg,var(--blue-top) 0%, var(
 
 /* Login page */
 .login-body{display:flex;flex-direction:column;min-height:100vh}
-.login-main{flex:1;display:flex;align-items:center;padding:72px 0 92px}
-.login-container{width:100%}
-.login-grid{display:grid;grid-template-columns:minmax(320px,1.1fr) minmax(320px,0.9fr);gap:48px;align-items:stretch;position:relative}
-.login-hero{position:relative;padding:32px;border-radius:22px;background:linear-gradient(145deg, rgba(255,167,38,0.22) 0%, rgba(15,61,46,0.6) 45%, rgba(12,23,70,0.75) 100%);border:1px solid rgba(255,255,255,0.18);box-shadow:0 24px 40px rgba(0,0,0,0.35);overflow:hidden}
-.login-hero::after{content:"";position:absolute;inset:12px;border-radius:18px;border:1px solid rgba(255,255,255,0.08);pointer-events:none}
-.login-pill{display:inline-flex;align-items:center;gap:8px;padding:6px 14px;border-radius:999px;background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.22);font-weight:700;font-size:14px;letter-spacing:0.6px;color:var(--gold);text-transform:uppercase;box-shadow:0 10px 24px rgba(0,0,0,0.25)}
-.login-title{margin:18px 0 12px 0;font-family:"Cinzel Decorative","Cinzel",Georgia,serif;font-size:40px;letter-spacing:0.5px;color:#fff;text-shadow:0 8px 18px rgba(0,0,0,0.55)}
-.login-lead{margin:0 0 18px 0;font-size:18px;line-height:1.6;max-width:520px;opacity:.95}
-.login-benefits{margin:0;padding-left:22px;display:grid;gap:10px;line-height:1.5;font-size:16px;opacity:.9}
+.login-main{flex:1;display:flex;align-items:center;justify-content:center;padding:72px 16px 92px}
+.login-container{width:100%;display:flex;justify-content:center}
+.login-shell{width:100%;max-width:640px;display:flex;flex-direction:column;gap:24px}
 .login-panel{display:flex;flex-direction:column;gap:24px;position:relative}
+.login-head{display:flex;flex-direction:column;align-items:center;gap:12px;text-align:center}
+.login-pill{display:inline-flex;align-items:center;gap:8px;padding:6px 14px;border-radius:999px;background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.22);font-weight:700;font-size:14px;letter-spacing:0.6px;color:var(--gold);text-transform:uppercase;box-shadow:0 10px 24px rgba(0,0,0,0.25)}
+.login-title{margin:8px 0 4px 0;font-family:"Cinzel Decorative","Cinzel",Georgia,serif;font-size:40px;letter-spacing:0.5px;color:#fff;text-shadow:0 8px 18px rgba(0,0,0,0.55)}
+.login-lead{margin:0;font-size:18px;line-height:1.6;max-width:520px;opacity:.92}
 .login-forms{display:flex;flex-direction:column;gap:20px}
 .login-card{border-radius:20px;border:1px solid rgba(255,255,255,0.12);background:linear-gradient(180deg, rgba(12,23,70,0.72), rgba(12,23,70,0.52));backdrop-filter:blur(14px);box-shadow:0 20px 36px rgba(0,0,0,0.35);padding:28px;display:flex;flex-direction:column;gap:18px}
 .login-card--primary{background:linear-gradient(180deg, rgba(12,23,70,0.82), rgba(12,23,70,0.62));border:1px solid rgba(255,255,255,0.18)}
@@ -330,17 +328,11 @@ body.ta-body{margin:0;background:linear-gradient(180deg,var(--blue-top) 0%, var(
 .login-links .ta-btn{min-width:160px}
 .login-donate-btn{display:inline-flex;align-items:center;gap:8px;padding:12px 20px;font-weight:700}
 
-@media (max-width: 1024px){
-  .login-grid{grid-template-columns:1fr;gap:32px}
-  .login-hero{order:-1}
-}
-
 @media (max-width: 640px){
-  .login-main{padding:48px 0 64px}
-  .login-hero,.login-card{padding:24px;border-radius:18px}
+  .login-main{padding:48px 16px 64px}
+  .login-card{padding:24px;border-radius:18px}
   .login-title{font-size:32px}
   .login-lead{font-size:16px}
-  .login-benefits{font-size:15px}
   .login-links{flex-direction:column;align-items:stretch}
   .login-links .ta-btn{width:100%}
   .login-submit{width:100%;justify-content:center}
