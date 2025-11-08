@@ -3583,7 +3583,7 @@ app.get('/quiz/:id', async (req, res) => {
       ${renderHead(`Quiz ${id}`, false)}
       <body class="ta-body">
         ${header}
-        <main class="ta-container-wide">
+        <main class="ta-main ta-container-wide">
           <div class="ta-quiz-hero">
             <div class="ta-quiz-hero-top">
               <h1 class="ta-quiz-title">${quiz.title}</h1>
@@ -3739,7 +3739,7 @@ app.get('/quiz/:id/leaderboard', async (req, res) => {
       ${renderHead(`Leaderboard • Quiz ${id}`, false)}
       <body class="ta-body" style="padding:24px;">
       ${header}
-        <main class="ta-container" style="max-width:960px;">
+        <main class="ta-main ta-container" style="max-width:960px;">
           ${renderBreadcrumb([{ label: 'Calendar', href: '/calendar' }, { label: qr[0].title || `Quiz #${id}` }, { label: 'Leaderboard' }])}
           ${subnav}
           <h1 class="ta-page-title">Leaderboard — ${qr[0].title}</h1>
@@ -3936,7 +3936,7 @@ app.get('/leaderboard', async (req, res) => {
       ${renderHead('Overall Leaderboard', false)}
       <body class="ta-body">
         ${header}
-        <main class="ta-container" style="max-width:960px;padding:24px;">
+        <main class="ta-main ta-container" style="max-width:960px;padding:24px;">
           ${renderBreadcrumb([{ label: 'Leaderboard' }])}
           <h1 class="ta-page-title">Overall Leaderboard</h1>
           <section style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin:20px 0;">
