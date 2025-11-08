@@ -677,8 +677,9 @@ app.get('/account/credentials', requireAuth, async (req, res) => {
     const header = await renderHeader(req);
     res.type('html').send(`
       <html><head><title>Set your account</title><link rel="stylesheet" href="/style.css"></head>
-      <body class="ta-body" style="padding:24px; max-width:720px; margin:0 auto;">
+      <body class="ta-body">
       ${header}
+      <main class="ta-main ta-container" style="max-width:720px; margin:0 auto; padding:24px;">
         <h1>Set your username and password</h1>
         <form method="post" action="/account/credentials">
           <div style="margin-bottom:10px;">
@@ -691,6 +692,7 @@ app.get('/account/credentials', requireAuth, async (req, res) => {
           <button type="submit">Save</button>
         </form>
         <p style="margin-top:16px;"><a href="/calendar">Skip for now</a></p>
+      </main>
       </body></html>
     `);
   } catch (e) {
