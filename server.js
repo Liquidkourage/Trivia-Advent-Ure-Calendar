@@ -3225,6 +3225,7 @@ app.get('/admin/quizzes', requireAdmin, async (req, res) => {
         ? `<div style="font-size:12px;opacity:0.8;">${q.last_graded_by || 'Unknown'} · ${fmtTime(q.last_graded_at)}</div>`
         : '<div style="font-size:12px;opacity:0.5;">Not graded</div>';
       return `<tr>
+        <td><input type="checkbox" class="quiz-checkbox" value="${q.id}" /></td>
         <td>#${q.id}</td>
         <td>${q.title || 'Untitled'}</td>
         <td>${fmtEt(q.unlock_at)}</td>
@@ -3259,9 +3260,17 @@ app.get('/admin/quizzes', requireAdmin, async (req, res) => {
             <button onclick="clearFilters()" class="ta-btn ta-btn-outline" style="padding:8px 16px;">Clear</button>
           </div>
         </div>
+        <div id="bulk-quiz-actions" style="display:none;margin-bottom:16px;padding:12px;background:#1a1a1a;border-radius:6px;">
+          <div style="margin-bottom:8px;"><strong>Bulk Actions (<span id="selected-quiz-count">0</span> selected):</strong></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button onclick="bulkQuizAction('delete')" class="ta-btn" style="background:#d32f2f;color:#fff;border-color:#d32f2f;padding:6px 12px;">Delete Selected</button>
+            <button onclick="bulkQuizAction('export')" class="ta-btn" style="background:#4caf50;color:#fff;border-color:#4caf50;padding:6px 12px;">Export Selected</button>
+          </div>
+        </div>
         <table border="1" cellspacing="0" cellpadding="8" style="border-collapse:collapse;width:100%;">
           <thead>
             <tr style="background:#1a1a1a;">
+              <th style="padding:8px;text-align:left;"><input type="checkbox" id="select-all-quizzes" onchange="toggleAllQuizzes(this)" /></th>
               <th style="padding:8px;text-align:left;">ID</th>
               <th style="padding:8px;text-align:left;">Title</th>
               <th style="padding:8px;text-align:left;">Unlock</th>
@@ -3271,7 +3280,7 @@ app.get('/admin/quizzes', requireAdmin, async (req, res) => {
             </tr>
           </thead>
           <tbody>
-            ${items || '<tr><td colspan="6">No quizzes</td></tr>'}
+            ${items || '<tr><td colspan="7">No quizzes</td></tr>'}
           </tbody>
         </table>
         <p style="margin-top:16px;"><a href="/admin" class="ta-btn ta-btn-outline">Back</a></p>
@@ -3311,6 +3320,43 @@ app.get('/admin/quizzes', requireAdmin, async (req, res) => {
           }
           document.getElementById('quiz-search').addEventListener('input', filterQuizzes);
           document.getElementById('status-filter').addEventListener('change', filterQuizzes);
+          
+          function toggleAllQuizzes(checkbox) {
+            document.querySelectorAll('.quiz-checkbox').forEach(cb => cb.checked = checkbox.checked);
+            updateBulkQuizActions();
+          }
+          
+          function updateBulkQuizActions() {
+            const selected = document.querySelectorAll('.quiz-checkbox:checked').length;
+            const bulkDiv = document.getElementById('bulk-quiz-actions');
+            const countSpan = document.getElementById('selected-quiz-count');
+            if (selected > 0) {
+              bulkDiv.style.display = 'block';
+              countSpan.textContent = selected;
+            } else {
+              bulkDiv.style.display = 'none';
+            }
+          }
+          
+          function bulkQuizAction(action) {
+            const ids = Array.from(document.querySelectorAll('.quiz-checkbox:checked')).map(cb => cb.value);
+            if (ids.length === 0) {
+              alert('No quizzes selected');
+              return;
+            }
+            if (action === 'delete') {
+              if (!confirm(`Delete ${ids.length} quiz(zes)? This cannot be undone.`)) return;
+              // TODO: Implement bulk delete endpoint
+              alert('Bulk delete feature coming soon');
+            } else if (action === 'export') {
+              // TODO: Implement bulk export
+              alert('Bulk export feature coming soon');
+            }
+          }
+          
+          document.querySelectorAll('.quiz-checkbox').forEach(cb => {
+            cb.addEventListener('change', updateBulkQuizActions);
+          });
         </script>
       </body></html>
     `);
