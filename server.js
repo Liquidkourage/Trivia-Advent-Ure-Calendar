@@ -3538,26 +3538,95 @@ app.get('/quiz/:id/leaderboard', async (req, res) => {
       const bTime = b.first_time ? b.first_time.getTime() : Number.POSITIVE_INFINITY;
       return aTime - bTime;
     });
-    const items = sorted.map(r => {
+    const playerEntries = sorted.filter(r => !r.synthetic);
+    const totalParticipants = playerEntries.length;
+    const averagePoints = totalParticipants
+      ? playerEntries.reduce((acc, r) => acc + Number(r.points || 0), 0) / totalParticipants
+      : 0;
+    const topCards = sorted.slice(0, 3).map((r, idx) => {
+      const medal = ['🥇','🥈','🥉'][idx] || '⭐';
+      const detail = r.synthetic
+        ? (r.source === 'override'
+            ? 'Manual override'
+            : (r.player_count ? `${r.player_count} player${r.player_count === 1 ? '' : 's'}` : 'Average'))
+        : (r.first_time ? `First submitted: ${fmtEt(r.first_time)}` : '');
+      return `
+        <div style="background:#1a1a1a;border:1px solid rgba(255,255,255,0.12);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:8px;box-shadow:0 8px 20px rgba(0,0,0,0.25);">
+          <div style="font-size:32px;">${medal}</div>
+          <div style="font-weight:800;font-size:18px;color:#ffd700;">${r.synthetic ? `${r.handle} (avg)` : r.handle}</div>
+          <div style="font-size:28px;font-weight:700;">${formatPoints(r.points)}</div>
+          <div style="font-size:13px;opacity:0.8;">${detail || '—'}</div>
+        </div>
+      `;
+    }).join('');
+    const tableRows = sorted.map((r, idx) => {
       const label = r.synthetic ? `${r.handle} (avg)` : r.handle;
       const detail = r.synthetic
         ? (r.source === 'override'
             ? 'Manual override'
-            : (r.player_count ? `${r.player_count} player${r.player_count === 1 ? '' : 's'}` : '—'))
+            : (r.player_count ? `${r.player_count} player${r.player_count === 1 ? '' : 's'}` : 'Average'))
         : (r.first_time ? fmtEt(r.first_time) : '');
-      return `<tr><td>${label}</td><td>${formatPoints(r.points)}</td><td>${detail}</td></tr>`;
+      const rank = idx + 1;
+      return `
+        <tr style="border-bottom:1px solid rgba(255,255,255,0.08);${idx % 2 ? 'background:rgba(255,255,255,0.02);' : ''}">
+          <td style="padding:10px 8px;font-weight:700;color:${rank === 1 ? '#ffd700' : '#fff'};">${rank}</td>
+          <td style="padding:10px 8px;">${label}</td>
+          <td style="padding:10px 8px;font-weight:600;">${formatPoints(r.points)}</td>
+          <td style="padding:10px 8px;font-size:13px;opacity:0.75;">${detail || '—'}</td>
+        </tr>
+      `;
     }).join('');
+    const syntheticNote = sorted.some(r => r.synthetic)
+      ? '<p style="margin-top:12px;font-size:13px;opacity:0.75;">Entries labelled “avg” represent the quiz author. They receive either the automatic player average or a manual override.</p>'
+      : '';
     const header = await renderHeader(req);
     res.type('html').send(`
       ${renderHead(`Leaderboard • Quiz ${id}`, false)}
       <body class="ta-body" style="padding:24px;">
       ${header}
-        <h1>Leaderboard • ${qr[0].title}</h1>
-        <table border="1" cellspacing="0" cellpadding="6">
-          <tr><th>Player</th><th>Points</th><th>First Submitted</th></tr>
-          ${items || '<tr><td colspan="3">No submissions yet.</td></tr>'}
-        </table>
-        <p style="margin-top:16px;"><a href="/quiz/${id}" class="ta-btn ta-btn-outline">Back to Quiz</a> <a href="/calendar" class="ta-btn ta-btn-outline" style="margin-left:8px;">Calendar</a></p>
+        <main class="ta-container" style="max-width:960px;">
+          <h1 class="ta-page-title">Leaderboard — ${qr[0].title}</h1>
+          <section style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin:20px 0;">
+            <div style="background:#1a1a1a;border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:16px;">
+              <div style="font-size:14px;opacity:0.75;margin-bottom:6px;">Total participants</div>
+              <div style="font-size:28px;font-weight:800;color:#ffd700;">${totalParticipants}</div>
+            </div>
+            <div style="background:#1a1a1a;border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:16px;">
+              <div style="font-size:14px;opacity:0.75;margin-bottom:6px;">Average score</div>
+              <div style="font-size:28px;font-weight:800;color:#ffd700;">${formatPoints(averagePoints)}</div>
+            </div>
+            <div style="background:#1a1a1a;border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:16px;">
+              <div style="font-size:14px;opacity:0.75;margin-bottom:6px;">Top score</div>
+              <div style="font-size:28px;font-weight:800;color:#ffd700;">${sorted.length ? formatPoints(sorted[0].points) : '0'}</div>
+            </div>
+          </section>
+          ${topCards ? `
+          <section style="margin:28px 0;">
+            <h2 style="margin:0 0 16px 0;color:#ffd700;">Top finishers</h2>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:18px;">
+              ${topCards}
+            </div>
+          </section>` : ''}
+          <section style="margin:28px 0;">
+            <div style="background:#0e0e0e;border:1px solid rgba(255,255,255,0.08);border-radius:12px;overflow:hidden;">
+              <table style="width:100%;border-collapse:collapse;">
+                <thead style="background:#111;">
+                  <tr>
+                    <th style="padding:10px 8px;text-align:left;">Rank</th>
+                    <th style="padding:10px 8px;text-align:left;">Player</th>
+                    <th style="padding:10px 8px;text-align:left;">Points</th>
+                    <th style="padding:10px 8px;text-align:left;">Details</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${tableRows || '<tr><td colspan="4" style="padding:16px;text-align:center;opacity:0.75;">No submissions yet.</td></tr>'}
+                </tbody>
+              </table>
+            </div>
+            ${syntheticNote}
+          </section>
+          <p style="margin-top:16px;"><a href="/quiz/${id}" class="ta-btn ta-btn-outline">Back to Quiz</a> <a href="/calendar" class="ta-btn ta-btn-outline" style="margin-left:8px;">Calendar</a></p>
+        </main>
       </body></html>
     `);
   } catch (e) {
@@ -3650,7 +3719,7 @@ app.get('/leaderboard', async (_req, res) => {
     rows.forEach(r => {
       const email = (r.user_email || '').toLowerCase();
       const points = Number(r.points || 0);
-      const existing = totals.get(email) || { handle: r.handle, points: 0 };
+      const existing = totals.get(email) || { handle: r.handle || email, points: 0, hasAuthorBonus: false, authorContrib: 0, authorSource: null };
       existing.handle = r.handle || existing.handle;
       existing.points += points;
       totals.set(email, existing);
@@ -3663,22 +3732,93 @@ app.get('/leaderboard', async (_req, res) => {
       let entry = totals.get(authorEmail);
       if (!entry) {
         const { rows: playerRows } = await pool.query('SELECT username FROM players WHERE email=$1', [authorEmail]);
-        entry = { handle: (playerRows.length && playerRows[0].username) ? playerRows[0].username : authorEmail, points: 0 };
+        entry = { handle: (playerRows.length && playerRows[0].username) ? playerRows[0].username : authorEmail, points: 0, hasAuthorBonus: false, authorContrib: 0, authorSource: null };
       }
       entry.points += avgInfo.average;
+      entry.hasAuthorBonus = true;
+      entry.authorContrib += avgInfo.average;
+      entry.authorSource = avgInfo.source;
       totals.set(authorEmail, entry);
     }
     const sorted = Array.from(totals.values()).sort((a, b) => b.points - a.points);
-    const items = sorted.map(r => `<tr><td>${r.handle}</td><td>${formatPoints(r.points)}</td></tr>`).join('');
+    const totalPlayers = sorted.length;
+    const averagePoints = totalPlayers
+      ? sorted.reduce((acc, r) => acc + Number(r.points || 0), 0) / totalPlayers
+      : 0;
+    const topCards = sorted.slice(0, 3).map((r, idx) => {
+      const medal = ['🥇','🥈','🥉'][idx] || '⭐';
+      const detail = r.hasAuthorBonus
+        ? `Includes ${formatPoints(r.authorContrib)} author bonus (${r.authorSource === 'override' ? 'manual override' : 'average'})`
+        : '';
+      return `
+        <div style="background:#1a1a1a;border:1px solid rgba(255,255,255,0.12);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:8px;box-shadow:0 8px 20px rgba(0,0,0,0.25);">
+          <div style="font-size:32px;">${medal}</div>
+          <div style="font-weight:800;font-size:18px;color:#ffd700;">${r.handle}</div>
+          <div style="font-size:28px;font-weight:700;">${formatPoints(r.points)}</div>
+          <div style="font-size:13px;opacity:0.8;">${detail || '&nbsp;'}</div>
+        </div>
+      `;
+    }).join('');
+    const tableRows = sorted.map((r, idx) => {
+      const rank = idx + 1;
+      const detail = r.hasAuthorBonus
+        ? `Author bonus: ${formatPoints(r.authorContrib)} ${r.authorSource === 'override' ? '(manual override)' : '(average)'}`
+        : '';
+      return `
+        <tr style="border-bottom:1px solid rgba(255,255,255,0.08);${idx % 2 ? 'background:rgba(255,255,255,0.02);' : ''}">
+          <td style="padding:10px 8px;font-weight:700;color:${rank === 1 ? '#ffd700' : '#fff'};">${rank}</td>
+          <td style="padding:10px 8px;">${r.handle}</td>
+          <td style="padding:10px 8px;font-weight:600;">${formatPoints(r.points)}</td>
+          <td style="padding:10px 8px;font-size:13px;opacity:0.75;">${detail || '—'}</td>
+        </tr>
+      `;
+    }).join('');
     res.type('html').send(`
       ${renderHead('Overall Leaderboard', false)}
-      <body class="ta-body" style="padding:24px;">
-        <h1>Overall Leaderboard</h1>
-        <table border="1" cellspacing="0" cellpadding="6">
-          <tr><th>Player</th><th>Points</th></tr>
-          ${items || '<tr><td colspan="2">No submissions yet.</td></tr>'}
-        </table>
-        <p style="margin-top:16px;"><a href="/calendar">Calendar</a></p>
+      <body class="ta-body">
+        <main class="ta-container" style="max-width:960px;padding:24px;">
+          <h1 class="ta-page-title">Overall Leaderboard</h1>
+          <section style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin:20px 0;">
+            <div style="background:#1a1a1a;border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:16px;">
+              <div style="font-size:14px;opacity:0.75;margin-bottom:6px;">Total players</div>
+              <div style="font-size:28px;font-weight:800;color:#ffd700;">${totalPlayers}</div>
+            </div>
+            <div style="background:#1a1a1a;border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:16px;">
+              <div style="font-size:14px;opacity:0.75;margin-bottom:6px;">Average points</div>
+              <div style="font-size:28px;font-weight:800;color:#ffd700;">${formatPoints(averagePoints)}</div>
+            </div>
+            <div style="background:#1a1a1a;border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:16px;">
+              <div style="font-size:14px;opacity:0.75;margin-bottom:6px;">Top score</div>
+              <div style="font-size:28px;font-weight:800;color:#ffd700;">${sorted.length ? formatPoints(sorted[0].points) : '0'}</div>
+            </div>
+          </section>
+          ${topCards ? `
+          <section style="margin:28px 0;">
+            <h2 style="margin:0 0 16px 0;color:#ffd700;">Podium</h2>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:18px;">
+              ${topCards}
+            </div>
+          </section>` : ''}
+          <section style="margin:28px 0;">
+            <div style="background:#0e0e0e;border:1px solid rgba(255,255,255,0.08);border-radius:12px;overflow:hidden;">
+              <table style="width:100%;border-collapse:collapse;">
+                <thead style="background:#111;">
+                  <tr>
+                    <th style="padding:10px 8px;text-align:left;">Rank</th>
+                    <th style="padding:10px 8px;text-align:left;">Player</th>
+                    <th style="padding:10px 8px;text-align:left;">Total Points</th>
+                    <th style="padding:10px 8px;text-align:left;">Details</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${tableRows || '<tr><td colspan="4" style="padding:16px;text-align:center;opacity:0.75;">No submissions yet.</td></tr>'}
+                </tbody>
+              </table>
+            </div>
+            <p style="margin-top:12px;font-size:13px;opacity:0.75;">Players who authored quizzes receive an automatic average (or a manual override) noted in the details column.</p>
+          </section>
+          <p style="margin-top:16px;"><a href="/calendar" class="ta-btn ta-btn-outline">Back to Calendar</a></p>
+        </main>
       </body></html>
     `);
   } catch (e) {
