@@ -792,10 +792,25 @@ app.get('/auth/magic', async (req, res) => {
 
 // Shared function to process Ko-fi donation webhook
 async function processKofiDonation(body, skipSecretCheck = false) {
-  // Support a few possible shapes
-  const type = (body.type || body.data?.type || '').toLowerCase();
-  const email = (body.email || body.data?.email || '').trim();
-  const createdAtStr = body.created_at || body.timestamp || body.data?.created_at || body.data?.timestamp;
+  // Ko-fi sends data as a JSON string in body.data, so parse it if needed
+  let parsedData = body.data;
+  if (typeof parsedData === 'string') {
+    try {
+      parsedData = JSON.parse(parsedData);
+    } catch (e) {
+      console.error('[Ko-fi] Failed to parse data JSON:', e);
+      return { success: false, error: 'Invalid data format' };
+    }
+  }
+  
+  // Support multiple payload shapes
+  // Ko-fi format: data.type, data.email, data.timestamp
+  // Also support direct body.type, body.email, etc.
+  const type = (parsedData?.type || body.type || body.data?.type || '').toLowerCase();
+  const email = (parsedData?.email || body.email || body.data?.email || '').trim();
+  const createdAtStr = parsedData?.timestamp || body.created_at || body.timestamp || body.data?.created_at || body.data?.timestamp;
+  
+  console.log('[Ko-fi] Parsed data - type:', type, 'email:', email, 'timestamp:', createdAtStr);
   
   if (!email) {
     return { success: false, error: 'No email' };
