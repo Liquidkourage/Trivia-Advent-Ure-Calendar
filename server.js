@@ -360,41 +360,56 @@ const transporter = (() => {
 })();
 
 async function sendMagicLink(email, token, linkUrl) {
-  const fromHeader = process.env.EMAIL_FROM || 'no-reply@example.com';
-  const fromEmail = parseEmailAddress(fromHeader) || 'no-reply@example.com';
-  const url = linkUrl || `${process.env.PUBLIC_BASE_URL || ''}/auth/magic?token=${encodeURIComponent(token)}`;
-  console.log('[info] Magic link:', url);
+  try {
+    const fromHeader = process.env.EMAIL_FROM || 'no-reply@example.com';
+    const fromEmail = parseEmailAddress(fromHeader) || 'no-reply@example.com';
+    const url = linkUrl || `${process.env.PUBLIC_BASE_URL || ''}/auth/magic?token=${encodeURIComponent(token)}`;
+    console.log('[sendMagicLink] Sending magic link to:', email);
+    console.log('[sendMagicLink] Magic link URL:', url);
 
-  // Use Gmail HTTP API with OAuth2
-  const oAuth2Client = new google.auth.OAuth2(
-    process.env.GMAIL_CLIENT_ID,
-    process.env.GMAIL_CLIENT_SECRET
-  );
-  oAuth2Client.setCredentials({ refresh_token: process.env.GMAIL_REFRESH_TOKEN });
-  const gmail = google.gmail({ version: 'v1', auth: oAuth2Client });
+    // Check if Gmail credentials are configured
+    if (!process.env.GMAIL_CLIENT_ID || !process.env.GMAIL_CLIENT_SECRET || !process.env.GMAIL_REFRESH_TOKEN) {
+      throw new Error('Gmail OAuth credentials not configured. Missing GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, or GMAIL_REFRESH_TOKEN');
+    }
 
-  const subject = 'Your Trivia Advent-ure magic link';
-  const text = `Click to sign in: ${url}\r\nThis link expires in 30 minutes and can be used once.`;
+    // Use Gmail HTTP API with OAuth2
+    const oAuth2Client = new google.auth.OAuth2(
+      process.env.GMAIL_CLIENT_ID,
+      process.env.GMAIL_CLIENT_SECRET
+    );
+    oAuth2Client.setCredentials({ refresh_token: process.env.GMAIL_REFRESH_TOKEN });
+    const gmail = google.gmail({ version: 'v1', auth: oAuth2Client });
 
-  const rawLines = [
-    `From: ${fromHeader}`,
-    `To: ${email}`,
-    `Subject: ${subject}`,
-    'MIME-Version: 1.0',
-    'Content-Type: text/plain; charset=UTF-8',
-    '',
-    text
-  ];
-  const rawMessage = Buffer.from(rawLines.join('\r\n'))
-    .toString('base64')
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/, '');
+    const subject = 'Your Trivia Advent-ure magic link';
+    const text = `Click to sign in: ${url}\r\nThis link expires in 30 minutes and can be used once.`;
 
-  await gmail.users.messages.send({
-    userId: 'me',
-    requestBody: { raw: rawMessage }
-  });
+    const rawLines = [
+      `From: ${fromHeader}`,
+      `To: ${email}`,
+      `Subject: ${subject}`,
+      'MIME-Version: 1.0',
+      'Content-Type: text/plain; charset=UTF-8',
+      '',
+      text
+    ];
+    const rawMessage = Buffer.from(rawLines.join('\r\n'))
+      .toString('base64')
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
+
+    const result = await gmail.users.messages.send({
+      userId: 'me',
+      requestBody: { raw: rawMessage }
+    });
+    
+    console.log('[sendMagicLink] Email sent successfully. Message ID:', result.data.id);
+    return result;
+  } catch (error) {
+    console.error('[sendMagicLink] Error sending email to', email, ':', error.message);
+    console.error('[sendMagicLink] Full error:', error);
+    throw error;
+  }
 }
 
 async function sendPlainEmail(email, subject, text) {
@@ -798,14 +813,22 @@ async function processKofiDonation(body, skipSecretCheck = false) {
   }
 
   await pool.query('INSERT INTO players(email, access_granted_at) VALUES($1, NOW()) ON CONFLICT (email) DO NOTHING', [email]);
+  console.log('[Ko-fi] Player record created/updated for:', email);
 
   // Optionally auto-send magic link
   const token = crypto.randomBytes(24).toString('base64url');
   const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
   await pool.query('INSERT INTO magic_tokens(token,email,expires_at,used) VALUES($1,$2,$3,false)', [token, email, expiresAt]);
+  console.log('[Ko-fi] Magic token created for:', email);
   
   const linkUrl = `${process.env.PUBLIC_BASE_URL || ''}/auth/magic?token=${encodeURIComponent(token)}`;
-  await sendMagicLink(email, token, linkUrl).catch(err => console.warn('Send mail failed:', err.message));
+  try {
+    await sendMagicLink(email, token, linkUrl);
+    console.log('[Ko-fi] Magic link email sent successfully to:', email);
+  } catch (err) {
+    console.error('[Ko-fi] Send mail failed for', email, ':', err.message);
+    console.error('[Ko-fi] Full error:', err);
+  }
 
   return { success: true, email, token, linkUrl };
 }
@@ -813,22 +836,31 @@ async function processKofiDonation(body, skipSecretCheck = false) {
 // --- Ko-fi webhook ---
 app.post('/webhooks/kofi', async (req, res) => {
   try {
+    console.log('[Ko-fi Webhook] Received request');
+    console.log('[Ko-fi Webhook] Headers:', JSON.stringify(req.headers, null, 2));
+    console.log('[Ko-fi Webhook] Body:', JSON.stringify(req.body, null, 2));
+    
     if (WEBHOOK_SHARED_SECRET) {
       const provided = req.headers['x-kofi-secret'] || req.query.secret || '';
-      if (provided !== WEBHOOK_SHARED_SECRET) return res.status(401).send('Bad secret');
+      if (provided !== WEBHOOK_SHARED_SECRET) {
+        console.log('[Ko-fi Webhook] Bad secret provided');
+        return res.status(401).send('Bad secret');
+      }
     }
     const body = req.body || {};
     const result = await processKofiDonation(body);
     
     if (!result.success) {
+      console.log('[Ko-fi Webhook] Processing failed:', result.error);
       if (result.ignored) return res.status(204).send('Ignored');
       if (result.beforeCutoff) return res.status(204).send('Before cutoff');
       return res.status(400).send(result.error);
     }
     
+    console.log('[Ko-fi Webhook] Successfully processed donation for:', result.email);
     res.status(200).send('OK');
   } catch (e) {
-    console.error('Webhook error:', e);
+    console.error('[Ko-fi Webhook] Error:', e);
     res.status(200).send('OK'); // respond OK to avoid retries storms
   }
 });
