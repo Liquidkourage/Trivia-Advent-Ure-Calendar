@@ -3345,7 +3345,7 @@ app.get('/admin/quizzes', requireAdmin, async (req, res) => {
               return;
             }
             if (action === 'delete') {
-              if (!confirm(`Delete ${ids.length} quiz(zes)? This cannot be undone.`)) return;
+              if (!confirm('Delete ' + ids.length + ' quiz(zes)? This cannot be undone.')) return;
               // TODO: Implement bulk delete endpoint
               alert('Bulk delete feature coming soon');
             } else if (action === 'export') {
