@@ -380,8 +380,8 @@ async function sendMagicLink(email, token, linkUrl) {
     oAuth2Client.setCredentials({ refresh_token: process.env.GMAIL_REFRESH_TOKEN });
     const gmail = google.gmail({ version: 'v1', auth: oAuth2Client });
 
-    const subject = 'Your Trivia Advent-ure magic link';
-    const text = `Click to sign in: ${url}\r\nThis link expires in 24 hours and can be used once.`;
+    const subject = 'Welcome to Trivia Advent-ure!';
+    const text = `Welcome to Trivia Advent-ure!\r\n\r\nClick the link below to sign in and get started:\r\n${url}\r\n\r\nThis link expires in 24 hours and can only be used once.\r\n\r\nIf you didn't request this link, you can safely ignore this email.\r\n\r\nHappy trivia-ing!`;
 
     const rawLines = [
       `From: ${fromHeader}`,
