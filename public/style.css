@@ -294,3 +294,49 @@ body.ta-body{margin:0;background:linear-gradient(180deg,var(--blue-top) 0%, var(
 .seg button{background:rgba(0,0,0,.25);color:#fff;border:0;padding:6px 10px;border-right:1px solid rgba(255,255,255,.2);cursor:pointer}
 .seg button:last-child{border-right:0}
 .seg button:hover{filter:brightness(1.1)}
+
+/* Login page */
+.login-body{display:flex;flex-direction:column;min-height:100vh}
+.login-main{flex:1;display:flex;align-items:center;padding:72px 0 92px}
+.login-container{width:100%}
+.login-grid{display:grid;grid-template-columns:minmax(320px,1.1fr) minmax(320px,0.9fr);gap:48px;align-items:stretch;position:relative}
+.login-hero{position:relative;padding:32px;border-radius:22px;background:linear-gradient(145deg, rgba(255,167,38,0.22) 0%, rgba(15,61,46,0.6) 45%, rgba(12,23,70,0.75) 100%);border:1px solid rgba(255,255,255,0.18);box-shadow:0 24px 40px rgba(0,0,0,0.35);overflow:hidden}
+.login-hero::after{content:"";position:absolute;inset:12px;border-radius:18px;border:1px solid rgba(255,255,255,0.08);pointer-events:none}
+.login-pill{display:inline-flex;align-items:center;gap:8px;padding:6px 14px;border-radius:999px;background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.22);font-weight:700;font-size:14px;letter-spacing:0.6px;color:var(--gold);text-transform:uppercase;box-shadow:0 10px 24px rgba(0,0,0,0.25)}
+.login-title{margin:18px 0 12px 0;font-family:"Cinzel Decorative","Cinzel",Georgia,serif;font-size:40px;letter-spacing:0.5px;color:#fff;text-shadow:0 8px 18px rgba(0,0,0,0.55)}
+.login-lead{margin:0 0 18px 0;font-size:18px;line-height:1.6;max-width:520px;opacity:.95}
+.login-benefits{margin:0;padding-left:22px;display:grid;gap:10px;line-height:1.5;font-size:16px;opacity:.9}
+.login-panel{display:flex;flex-direction:column;gap:24px;position:relative}
+.login-forms{display:flex;flex-direction:column;gap:20px}
+.login-card{border-radius:20px;border:1px solid rgba(255,255,255,0.12);background:linear-gradient(180deg, rgba(12,23,70,0.72), rgba(12,23,70,0.52));backdrop-filter:blur(14px);box-shadow:0 20px 36px rgba(0,0,0,0.35);padding:28px;display:flex;flex-direction:column;gap:18px}
+.login-card--secondary{background:linear-gradient(180deg, rgba(15,61,46,0.75), rgba(10,20,58,0.6));}
+.login-card--info{background:linear-gradient(180deg, rgba(34,34,34,0.65), rgba(12,23,70,0.55));}
+.login-card--success{border-color:rgba(46,204,113,0.65);background:linear-gradient(180deg, rgba(46,204,113,0.28), rgba(12,23,70,0.55));box-shadow:0 20px 40px rgba(46,204,113,0.24)}
+.login-card__title{margin:0;font-size:24px;font-family:"Bebas Neue",Inter,system-ui,sans-serif;letter-spacing:0.6px;color:var(--gold)}
+.login-card__text{margin:0;font-size:16px;line-height:1.6;opacity:.92}
+.login-form{display:flex;flex-direction:column;gap:16px}
+.login-field{display:flex;flex-direction:column;gap:8px}
+.login-field label{font-weight:600;font-size:15px;letter-spacing:0.2px}
+.login-field input{width:100%;padding:14px 16px;border-radius:12px;border:1px solid rgba(255,255,255,0.28);background:rgba(0,0,0,0.25);color:#fff;font-size:16px;transition:border-color 0.2s ease, box-shadow 0.2s ease}
+.login-field input:focus{outline:none;border-color:var(--gold);box-shadow:0 0 0 3px rgba(255,167,38,0.28)}
+.login-submit{align-self:flex-start;margin-top:4px}
+.login-hint{margin:0;font-size:14px;opacity:.75}
+.login-actions{display:flex;flex-wrap:wrap;gap:12px;margin-top:4px}
+.login-links{display:flex;flex-wrap:wrap;gap:12px}
+.login-links .ta-btn{min-width:160px}
+
+@media (max-width: 1024px){
+  .login-grid{grid-template-columns:1fr;gap:32px}
+  .login-hero{order:-1}
+}
+
+@media (max-width: 640px){
+  .login-main{padding:48px 0 64px}
+  .login-hero,.login-card{padding:24px;border-radius:18px}
+  .login-title{font-size:32px}
+  .login-lead{font-size:16px}
+  .login-benefits{font-size:15px}
+  .login-links{flex-direction:column;align-items:stretch}
+  .login-links .ta-btn{width:100%}
+  .login-submit{width:100%;justify-content:center}
+}

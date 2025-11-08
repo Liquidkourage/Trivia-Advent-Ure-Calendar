@@ -1980,27 +1980,80 @@ app.get('/login', async (req, res) => {
   const header = await renderHeader(req);
   res.type('html').send(`
     ${renderHead('Login • Trivia Advent-ure', false)}
-    <body class=\"ta-body\" style=\"padding: 24px;\">
+    <body class="ta-body login-body">
     ${header}
-      <h1>Login</h1>
-      ${loggedIn ? `<p>You are signed in as ${req.session.user.email}. <a href=\"/logout\" class=\"ta-btn ta-btn-outline\" style=\"display:inline-block;margin-left:8px;\">Logout</a></p>` : `
-        <div style=\"display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap;\">
-          <form method=\"post\" action=\"/auth/login-password\" style=\"min-width:300px;\">
-            <h3>Password</h3>
-            <div><label>Username <input name=\"username\" required /></label></div>
-            <div style=\"margin-top:8px;\"><label>Password <input name=\"password\" type=\"password\" required /></label></div>
-            <button type=\"submit\" style=\"margin-top:8px;\">Sign in</button>
-          </form>
-          ${showMagic ? `
-          <form method=\"post\" action=\"/auth/request-link\" onsubmit=\"event.preventDefault(); const fd=new FormData(this); const v=String(fd.get('email')||'').trim(); if(!v){alert('Enter your email'); return;} fetch('/auth/request-link',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ email: v })}).then(r=>r.json()).then(d=>{ if (d.link) { alert('Magic link (dev):\\n'+d.link); } else { alert('If you have access, a magic link was sent.'); } }).catch(()=>alert('Failed.'));\" style=\"min-width:340px;\">
-            <h3>Magic link</h3>
-            <label>Email <input name=\"email\" type=\"email\" required /></label>
-            <button type=\"submit\" style=\"margin-left:8px;\">Send magic link</button>
-          </form>` : ''}
+      <main class="ta-main login-main">
+        <div class="ta-container login-container">
+          <div class="login-grid">
+            <section class="login-hero">
+              <span class="login-pill">Trivia Advent-ure</span>
+              <h1 class="login-title">Step back through the advent doors</h1>
+              <p class="login-lead">Track your streak, unlock daily trivia challenges, and see how you stack up on the leaderboard.</p>
+              <ul class="login-benefits">
+                <li>Unlock two fresh puzzles each day of December</li>
+                <li>Earn points toward personal and team bragging rights</li>
+                <li>Revisit solved doors to review answers and lore</li>
+              </ul>
+            </section>
+            <section class="login-panel">
+              ${loggedIn ? `
+                <div class="login-card login-card--success">
+                  <h2 class="login-card__title">You&rsquo;re already signed in</h2>
+                  <p class="login-card__text">Signed in as <strong>${req.session.user.email}</strong>. Jump back into the adventure.</p>
+                  <div class="login-actions">
+                    <a class="ta-btn ta-btn-primary" href="/calendar">Open calendar</a>
+                    <a class="ta-btn ta-btn-outline" href="/logout">Logout</a>
+                  </div>
+                </div>
+              ` : `
+                <div class="login-forms">
+                  <div class="login-card">
+                    <h2 class="login-card__title">Sign in with your password</h2>
+                    <p class="login-card__text">Enter your Trivia Advent-ure username and password to continue.</p>
+                    <form method="post" action="/auth/login-password" class="login-form">
+                      <div class="login-field">
+                        <label for="login-username">Username</label>
+                        <input id="login-username" name="username" required autocomplete="username" />
+                      </div>
+                      <div class="login-field">
+                        <label for="login-password">Password</label>
+                        <input id="login-password" name="password" type="password" required autocomplete="current-password" />
+                      </div>
+                      <button type="submit" class="ta-btn ta-btn-primary login-submit">Sign in</button>
+                    </form>
+                  </div>
+                  ${showMagic ? `
+                    <div class="login-card login-card--secondary">
+                      <h2 class="login-card__title">Prefer a magic link?</h2>
+                      <p class="login-card__text">We&rsquo;ll email you a one-time link you can use on any device.</p>
+                      <form method="post" action="/auth/request-link" class="login-form" onsubmit="event.preventDefault(); const fd=new FormData(this); const v=String(fd.get('email')||'').trim(); if(!v){alert('Enter your email'); return;} fetch('/auth/request-link',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ email: v })}).then(r=>r.json()).then(d=>{ if (d.link) { alert('Magic link (dev):\n'+d.link); } else { alert('If you have access, a magic link was sent.'); } }).catch(()=>alert('Failed.'));">
+                        <div class="login-field">
+                          <label for="login-email">Email</label>
+                          <input id="login-email" name="email" type="email" required autocomplete="email" />
+                        </div>
+                        <button type="submit" class="ta-btn ta-btn-outline login-submit">Send magic link</button>
+                      </form>
+                      <p class="login-hint">Check spam if you don&rsquo;t see the email after a minute.</p>
+                    </div>
+                  ` : `
+                    <div class="login-card login-card--info">
+                      <h2 class="login-card__title">Need a hand?</h2>
+                      <p class="login-card__text">Forgot your password? Reach out to an admin for a reset or ask if magic links are enabled for your event.</p>
+                    </div>
+                  `}
+                </div>
+              `}
+              <div class="login-links">
+                <a href="/" class="ta-btn ta-btn-outline">Return home</a>
+                ${ADMIN_PIN_ENABLED ? '<a href="/admin/pin" class="ta-btn ta-btn-outline">Admin PIN access</a>' : ''}
+              </div>
+            </section>
+          </div>
         </div>
-        ${showMagic ? '' : '<div style=\"margin-top:8px;color:#888;\">Forgot your password? Ask an admin or use the magic link (if enabled).</div>'}
-      `}
-      <p style="margin-top:16px;"><a href="/" class="ta-btn ta-btn-outline">Home</a>${ADMIN_PIN_ENABLED ? ' <a href="/admin/pin" class="ta-btn ta-btn-outline" style="margin-left:8px;">Admin PIN</a>' : ''}</p>
+      </main>
+      <footer class="ta-footer">
+        <div class="ta-container">© Trivia Advent‑ure</div>
+      </footer>
     </body></html>
   `);
 });
