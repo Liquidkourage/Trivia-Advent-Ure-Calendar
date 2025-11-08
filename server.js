@@ -3201,6 +3201,19 @@ app.get('/admin/quizzes', requireAdmin, async (req, res) => {
       <body class="ta-body" style="padding:24px;">
       ${header}
         <h1>Quizzes</h1>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:12px;">
+          <p style="margin:0;opacity:0.8;">Total: <span id="total-count">${rows.length}</span> quiz${rows.length !== 1 ? 'zes' : ''}</p>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <input type="text" id="quiz-search" placeholder="Search by title or ID..." style="padding:8px 12px;border-radius:6px;border:1px solid #444;background:#1a1a1a;color:#fff;min-width:200px;" />
+            <select id="status-filter" style="padding:8px 12px;border-radius:6px;border:1px solid #444;background:#1a1a1a;color:#fff;">
+              <option value="">All Statuses</option>
+              <option value="locked">Locked</option>
+              <option value="active">Active</option>
+              <option value="finalized">Finalized</option>
+            </select>
+            <button onclick="clearFilters()" class="ta-btn ta-btn-outline" style="padding:8px 16px;">Clear</button>
+          </div>
+        </div>
         <table border="1" cellspacing="0" cellpadding="8" style="border-collapse:collapse;width:100%;">
           <thead>
             <tr style="background:#1a1a1a;">
@@ -4021,7 +4034,13 @@ app.get('/admin/players', requireAdmin, async (req, res) => {
         <main class="ta-main ta-container">
           <h1 class="ta-page-title">Players</h1>
           ${req.query.msg ? `<p style="padding:8px 12px;background:#2e7d32;color:#fff;border-radius:4px;margin-bottom:16px;">${req.query.msg}</p>` : ''}
-          <p style="margin-bottom:16px;opacity:0.8;">Total: ${rows.length} player${rows.length !== 1 ? 's' : ''}</p>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:12px;">
+            <p style="margin:0;opacity:0.8;">Total: <span id="total-count">${rows.length}</span> player${rows.length !== 1 ? 's' : ''}</p>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <input type="text" id="player-search" placeholder="Search by email or username..." style="padding:8px 12px;border-radius:6px;border:1px solid #444;background:#1a1a1a;color:#fff;min-width:250px;" />
+              <button onclick="clearSearch()" class="ta-btn ta-btn-outline" style="padding:8px 16px;">Clear</button>
+            </div>
+          </div>
           
           <div id="bulk-actions" style="display:none;margin-bottom:16px;padding:12px;background:#1a1a1a;border-radius:6px;">
             <div style="margin-bottom:8px;"><strong>Bulk Actions (<span id="selected-count">0</span> selected):</strong></div>
@@ -4054,6 +4073,24 @@ app.get('/admin/players', requireAdmin, async (req, res) => {
             </table>
           </div>
           <script>
+            function filterPlayers() {
+              const searchTerm = document.getElementById('player-search').value.toLowerCase().trim();
+              const rows = document.querySelectorAll('tbody tr');
+              let visibleCount = 0;
+              rows.forEach(row => {
+                const email = row.cells[1]?.textContent?.toLowerCase() || '';
+                const username = row.cells[2]?.textContent?.toLowerCase() || '';
+                const matches = !searchTerm || email.includes(searchTerm) || username.includes(searchTerm);
+                row.style.display = matches ? '' : 'none';
+                if (matches) visibleCount++;
+              });
+              document.getElementById('total-count').textContent = visibleCount;
+            }
+            function clearSearch() {
+              document.getElementById('player-search').value = '';
+              filterPlayers();
+            }
+            document.getElementById('player-search').addEventListener('input', filterPlayers);
             function toggleAll(checkbox) {
               document.querySelectorAll('.player-checkbox').forEach(cb => cb.checked = checkbox.checked);
               updateBulkActions();
