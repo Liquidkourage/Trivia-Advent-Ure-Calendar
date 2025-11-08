@@ -561,37 +561,39 @@ function renderFooter(req) {
   const accountLink = email ? '<a href="/account">Account</a>' : '<a href="/login">Account</a>';
   return `
     <footer class="ta-footer">
-      <div class="ta-container ta-footer-inner">
-        <div class="ta-footer-brand">
-          <img src="/logo.svg" alt="Trivia Advent-ure logo"/>
-          <div>
-            <div class="ta-footer-title">Trivia Advent‑ure</div>
-            <div class="ta-footer-subtitle">Daily trivia for a good cause</div>
+      <div class="ta-container">
+        <div class="ta-footer-inner">
+          <div class="ta-footer-brand">
+            <img src="/logo.svg" alt="Trivia Advent-ure logo"/>
+            <div>
+              <div class="ta-footer-title">Trivia Advent‑ure</div>
+              <div class="ta-footer-subtitle">Daily trivia for a good cause</div>
+            </div>
           </div>
-        </div>
-        <div class="ta-footer-links">
-          <div>
-            <h4>Explore</h4>
-            <a href="${homeHref}">Home</a>
-            <a href="/calendar">Calendar</a>
-            <a href="/leaderboard">Leaderboard</a>
+          <div class="ta-footer-links">
+            <div class="ta-footer-section">
+              <h4>Explore</h4>
+              <a href="${homeHref}">Home</a>
+              <a href="/calendar">Calendar</a>
+              <a href="/leaderboard">Leaderboard</a>
+            </div>
+            <div class="ta-footer-section">
+              <h4>Account</h4>
+              ${accountLink}
+              ${email ? '<a href="/logout">Logout</a>' : '<a href="/login">Login</a>'}
+              ${isAdmin ? '<a href="/admin">Admin</a>' : ''}
+            </div>
+            <div class="ta-footer-section">
+              <h4>Support</h4>
+              <a href="https://ko-fi.com/triviaadvent" target="_blank" rel="noopener noreferrer">Donate on Ko-fi</a>
+              <a href="/public#faq">FAQ</a>
+            </div>
           </div>
-          <div>
-            <h4>Account</h4>
-            ${accountLink}
-            ${email ? '<a href="/logout">Logout</a>' : '<a href="/login">Login</a>'}
-            ${isAdmin ? '<a href="/admin">Admin</a>' : ''}
+          <div class="ta-footer-charities">
+            <span>Benefiting</span>
+            <a href="https://translifeline.org" target="_blank" rel="noopener noreferrer"><img src="/img/TL-logo_purple_transparent.png" alt="Trans Lifeline"/></a>
+            <a href="https://wck.org" target="_blank" rel="noopener noreferrer"><img src="/img/download.png" alt="World Central Kitchen"/></a>
           </div>
-          <div>
-            <h4>Support</h4>
-            <a href="https://ko-fi.com/triviaadvent" target="_blank" rel="noopener noreferrer">Donate on Ko-fi</a>
-            <a href="/public#faq">FAQ</a>
-          </div>
-        </div>
-        <div class="ta-footer-charities">
-          <span>Benefiting:</span>
-          <a href="https://translifeline.org" target="_blank" rel="noopener noreferrer"><img src="/img/TL-logo_purple_transparent.png" alt="Trans Lifeline"/></a>
-          <a href="https://wck.org" target="_blank" rel="noopener noreferrer"><img src="/img/download.png" alt="World Central Kitchen"/></a>
         </div>
         <div class="ta-footer-copy">© Trivia Advent‑ure</div>
       </div>

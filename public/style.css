@@ -41,19 +41,29 @@ body.ta-body{margin:0;background:linear-gradient(180deg,var(--blue-top) 0%, var(
 .ta-menu-toggle[aria-expanded="true"] span:nth-child(3){transform:rotate(-45deg) translate(8px,-8px)}
 .ta-main{min-height:60vh}
 .ta-footer{border-top:1px solid rgba(255,255,255,0.08);background:rgba(0,0,0,0.35)}
-.ta-footer-inner{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:24px;align-items:start;padding:32px 24px}
-.ta-footer-brand{display:flex;align-items:center;gap:12px}
+.ta-footer-inner{display:flex;flex-wrap:wrap;gap:32px;align-items:flex-start;padding:28px 0;justify-content:space-between}
+.ta-footer-brand{display:flex;align-items:center;gap:12px;flex:0 0 auto;min-width:220px}
 .ta-footer-brand img{width:44px;height:44px;border-radius:8px;object-fit:cover;box-shadow:0 2px 10px rgba(0,0,0,0.3)}
 .ta-footer-title{font-weight:700;font-size:18px;color:var(--gold)}
 .ta-footer-subtitle{opacity:0.75;font-size:14px}
-.ta-footer-links{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:16px}
-.ta-footer-links h4{margin:0 0 8px 0;font-size:14px;text-transform:uppercase;letter-spacing:0.5px;color:rgba(255,255,255,0.7)}
-.ta-footer-links a{display:block;color:rgba(255,255,255,0.85);text-decoration:none;padding:4px 0;font-weight:500}
+.ta-footer-links{flex:1 1 360px;display:grid;grid-template-columns:repeat(3,minmax(140px,1fr));gap:12px 28px}
+.ta-footer-section h4{margin:0 0 6px 0;font-size:13px;text-transform:uppercase;letter-spacing:0.6px;color:rgba(255,255,255,0.65)}
+.ta-footer-links a{display:block;color:rgba(255,255,255,0.85);text-decoration:none;padding:3px 0;font-weight:500;line-height:1.4}
 .ta-footer-links a:hover{color:var(--gold)}
-.ta-footer-charities{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
-.ta-footer-charities span{font-weight:600;font-size:14px;opacity:0.8}
+.ta-footer-charities{display:flex;flex-direction:column;gap:10px;align-items:flex-start;flex:0 0 auto;min-width:160px}
+.ta-footer-charities span{font-weight:600;font-size:13px;opacity:0.75;text-transform:uppercase;letter-spacing:0.6px}
 .ta-footer-charities img{width:96px;height:auto;border-radius:10px;background:rgba(255,255,255,0.05);padding:6px;box-shadow:0 4px 12px rgba(0,0,0,0.25)}
-.ta-footer-copy{grid-column:1/-1;font-size:13px;opacity:0.6}
+.ta-footer-copy{padding:12px 0 20px 0;font-size:13px;opacity:0.6;text-align:center;border-top:1px solid rgba(255,255,255,0.08)}
+
+@media (max-width: 900px){
+  .ta-footer-links{grid-template-columns:repeat(2,minmax(140px,1fr))}
+}
+
+@media (max-width: 600px){
+  .ta-footer-inner{flex-direction:column;gap:24px;padding:24px 0}
+  .ta-footer-links{grid-template-columns:repeat(auto-fit,minmax(140px,1fr))}
+  .ta-footer-charities{flex-direction:row;align-items:center;gap:12px}
+}
 .ta-breadcrumbs{display:flex;align-items:center;gap:8px;font-size:14px;margin:0 0 16px 0;opacity:0.85}
 .ta-breadcrumbs a{color:rgba(255,255,255,0.85);text-decoration:none;font-weight:600}
 .ta-breadcrumbs a:hover{color:var(--gold)}
