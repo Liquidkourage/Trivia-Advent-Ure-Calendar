@@ -506,6 +506,38 @@ async function renderHeader(req) {
   return `<header class="ta-header"><div class="ta-header-inner"><div class="ta-brand"><img class="ta-logo" src="/logo.svg"/><span class="ta-title">Trivia Advent‑ure</span></div><nav class="ta-nav">${navLinks}</nav></div></header>`;
 }
 
+// Helper function for user-friendly error pages
+async function renderErrorPage(req, statusCode, title, message, suggestions = []) {
+  const header = await renderHeader(req);
+  const suggestionsHtml = suggestions.length > 0 
+    ? `<div style="margin-top:16px;padding:12px;background:rgba(255,167,38,0.1);border-left:3px solid var(--gold);border-radius:4px;">
+        <strong style="color:#ffd700;">What you can try:</strong>
+        <ul style="margin:8px 0 0 0;padding-left:20px;">
+          ${suggestions.map(s => `<li>${s}</li>`).join('')}
+        </ul>
+      </div>`
+    : '';
+  
+  return `
+    <html><head><title>${title} • Trivia Advent-ure</title><link rel="stylesheet" href="/style.css"><link rel="icon" href="/favicon.svg" type="image/svg+xml"></head>
+    <body class="ta-body">
+      ${header}
+      <main class="ta-main ta-container" style="max-width:720px;">
+        <h1 class="ta-page-title" style="color:#d32f2f;">${title}</h1>
+        <div style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:24px;margin-top:16px;">
+          <p style="font-size:18px;line-height:1.6;margin:0;">${message}</p>
+          ${suggestionsHtml}
+        </div>
+        <div style="margin-top:24px;">
+          <a href="/" class="ta-btn ta-btn-primary">Go Home</a>
+          <a href="javascript:history.back()" class="ta-btn ta-btn-outline" style="margin-left:8px;">Go Back</a>
+        </div>
+      </main>
+      <footer class="ta-footer"><div class="ta-container">© Trivia Advent‑ure</div></footer>
+    </body></html>
+  `;
+}
+
 function fmtEt(dateLike){
   if (!dateLike) return '';
   try {
@@ -665,7 +697,10 @@ app.post('/auth/login-password', express.urlencoded({ extended: true }), async (
     res.redirect('/calendar');
   } catch (e) {
     console.error(e);
-    res.status(500).send('Failed to login');
+    res.status(500).send(await renderErrorPage(req, 500, 'Login Failed',
+      'We encountered an error while processing your login. Please try again.',
+      ['Check your username and password', 'Try using the magic link option if available', 'Clear your browser cache and try again', 'Contact support if the problem persists']
+    ));
   }
 });
 
@@ -696,7 +731,10 @@ app.post('/account/security', requireAuth, express.urlencoded({ extended: true }
     res.redirect('/calendar');
   } catch (e) {
     console.error(e);
-    res.status(500).send('Failed to set password');
+    res.status(500).send(await renderErrorPage(req, 500, 'Password Setup Failed',
+      'We couldn\'t set your password. Please try again.',
+      ['Make sure your password is at least 8 characters long', 'Check that both password fields match', 'Try again in a few moments', 'Contact support if the problem continues']
+    ));
   }
 });
 
@@ -705,7 +743,12 @@ app.get('/account', requireAuth, async (req, res) => {
   try {
     const email = (req.session.user.email || '').toLowerCase();
     const player = (await pool.query('SELECT username, email, access_granted_at, password_set_at, onboarding_complete FROM players WHERE email=$1', [email])).rows[0];
-    if (!player) return res.status(404).send('Account not found');
+    if (!player) {
+      return res.status(404).send(await renderErrorPage(req, 404, 'Account Not Found',
+        'We couldn\'t find your account. You may need to sign up first.',
+        ['Make sure you\'re logged in', 'Try logging out and back in', 'Contact support if you believe you have an account']
+      ));
+    }
     
     const isAdmin = await isAdminUser(req);
     const displayName = player.username || email;
