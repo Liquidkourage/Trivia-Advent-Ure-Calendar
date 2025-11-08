@@ -50,7 +50,7 @@ app.get('/admin/writer-submissions/:id', requireAdmin, async (req, res) => {
           <label style="margin-left:12px;">Unlock (ET) <input name="unlock_at" type="datetime-local" required value="${(req.query && req.query.unlock) ? String(req.query.unlock).replace(' ','T') : ''}"/></label>
           <button type="submit" style="margin-left:12px;">Publish</button>
         </form>
-        <p style="margin-top:16px;"><a href="/admin/writer-submissions">Back</a></p>
+        <p style="margin-top:16px;"><a href="/admin/writer-submissions" class="ta-btn ta-btn-outline">Back</a></p>
       </body></html>
     `);
   } catch (e) {
@@ -666,7 +666,7 @@ app.get('/account/security', requireAuth, async (req, res) => {
         <label>New password <input type="password" name="password" required minlength="8" /></label>
         <button type="submit" style="margin-left:8px;">Save</button>
       </form>
-      <p style="margin-top:16px;"><a href="/calendar">Calendar</a></p>
+      <p style="margin-top:16px;"><a href="/calendar" class="ta-btn ta-btn-outline">Calendar</a></p>
     </body></html>
   `);
 });
@@ -881,7 +881,7 @@ app.get('/account/credentials', requireAuth, async (req, res) => {
           </div>
           <button type="submit">Save</button>
         </form>
-        <p style="margin-top:16px;"><a href="/calendar">Skip for now</a></p>
+        <p style="margin-top:16px;"><a href="/calendar" class="ta-btn ta-btn-outline">Skip for now</a></p>
       </main>
       </body></html>
     `);
@@ -952,7 +952,7 @@ app.get('/account/history', requireAuth, async (req, res) => {
         ${header}
         <main class="ta-main ta-container" style="max-width:900px;">
           <h1 class="ta-page-title">Quiz History</h1>
-          <p style="margin-bottom:24px;"><a href="/account">← Back to Account</a></p>
+          <p style="margin-bottom:24px;"><a href="/account" class="ta-btn ta-btn-outline">← Back to Account</a></p>
           
           ${quizAttempts.length === 0 ? `
             <div style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:32px;text-align:center;">
@@ -971,7 +971,7 @@ app.get('/account/history', requireAuth, async (req, res) => {
                     <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:12px;">
                       <div style="flex:1;">
                         <h3 style="margin:0 0 8px 0;color:#ffd700;">
-                          <a href="/quiz/${q.id}" style="color:#ffd700;text-decoration:none;">${q.title || 'Untitled Quiz'}</a>
+                          <a href="/quiz/${q.id}" class="ta-btn ta-btn-small" style="color:#111;text-decoration:none;">${q.title || 'Untitled Quiz'}</a>
                         </h3>
                         <div style="font-size:14px;opacity:0.7;margin-bottom:4px;">${unlockDate}${q.author ? ` • ${q.author}` : ''}</div>
                         <div style="font-size:14px;opacity:0.7;">
@@ -1017,7 +1017,7 @@ app.get('/account/export', requireAuth, async (req, res) => {
           ${header}
           <main class="ta-main ta-container" style="max-width:720px;">
             <h1 class="ta-page-title">Export Your Data</h1>
-            <p style="margin-bottom:24px;"><a href="/account">← Back to Account</a></p>
+            <p style="margin-bottom:24px;"><a href="/account" class="ta-btn ta-btn-outline">← Back to Account</a></p>
             
             <div style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:24px;">
               <p style="margin-bottom:24px;">Download all your quiz data, including responses, scores, and quiz history.</p>
@@ -1163,7 +1163,7 @@ app.get('/account/preferences', requireAuth, async (req, res) => {
         ${header}
         <main class="ta-main ta-container" style="max-width:720px;">
           <h1 class="ta-page-title">Email Preferences</h1>
-          <p style="margin-bottom:24px;"><a href="/account">← Back to Account</a></p>
+          <p style="margin-bottom:24px;"><a href="/account" class="ta-btn ta-btn-outline">← Back to Account</a></p>
           
           <form method="post" action="/account/preferences" style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:24px;">
             <div style="margin-bottom:20px;">
@@ -1212,7 +1212,7 @@ app.get('/account/delete', requireAuth, async (req, res) => {
       ${header}
       <main class="ta-main ta-container" style="max-width:720px;">
         <h1 class="ta-page-title">Delete Account</h1>
-        <p style="margin-bottom:24px;"><a href="/account">← Back to Account</a></p>
+        <p style="margin-bottom:24px;"><a href="/account" class="ta-btn ta-btn-outline">← Back to Account</a></p>
         
         <div style="background:#1a1a1a;border:2px solid #d32f2f;border-radius:8px;padding:24px;">
           <h2 style="color:#d32f2f;margin-top:0;">Warning: This action cannot be undone</h2>
@@ -1506,10 +1506,10 @@ app.get('/admin/calendar', requireAdmin, async (req, res) => {
       }
       if (list.length === 1) {
         const q = list[0];
-        return `<div><a href=\"/admin/quiz/${q.id}\">#${q.id} ${q.title.replace(/</g,'&lt;')}</a></div>`;
+        return `<div><a href=\"/admin/quiz/${q.id}\" class=\"ta-btn ta-btn-small\">#${q.id} ${q.title.replace(/</g,'&lt;')}</a></div>`;
       }
       // Conflict
-      const links = list.map(q=>`<div><a href=\"/admin/quiz/${q.id}\">#${q.id} ${q.title.replace(/</g,'&lt;')}</a></div>`).join('');
+      const links = list.map(q=>`<div><a href=\"/admin/quiz/${q.id}\" class=\"ta-btn ta-btn-small\">#${q.id} ${q.title.replace(/</g,'&lt;')}</a></div>`).join('');
       return `<div style=\"color:#c62828;\"><strong>Conflict (${list.length})</strong></div>${links}`;
     }
     const htmlRows = rows.map(r => `
@@ -1524,7 +1524,7 @@ app.get('/admin/calendar', requireAdmin, async (req, res) => {
       <body class=\"ta-body\" style=\"padding:24px;\">
       ${header}
         <h1>Calendar (Admin)</h1>
-        <p><a href=\"/admin\">Back</a></p>
+        <p><a href=\"/admin\" class=\"ta-btn ta-btn-outline\">Back</a></p>
         <table style=\"width:100%;border-collapse:collapse;\">
           <thead><tr><th style=\"text-align:left;padding:6px 4px;\">Day</th><th style=\"text-align:left;padding:6px 4px;\">AM</th><th style=\"text-align:left;padding:6px 4px;\">PM</th></tr></thead>
           <tbody>${htmlRows}</tbody>
@@ -1601,7 +1601,7 @@ app.get('/player', requireAuth, async (req, res) => {
     <body class="ta-body">
       ${header}
       <main class="ta-main ta-container">
-        ${needsPassword ? `<div style="margin:12px 0;padding:10px;border:1px solid #ffecb5;border-radius:6px;background:#fff8e1;color:#6b4f00;">Welcome! For cross-device login, please <a href="/account/security">set your password</a>.</div>` : ''}
+        ${needsPassword ? `<div style="margin:12px 0;padding:10px;border:1px solid #ffecb5;border-radius:6px;background:#fff8e1;color:#6b4f00;">Welcome! For cross-device login, please <a href="/account/security" class="ta-btn ta-btn-small" style="display:inline-block;margin-left:4px;">set your password</a>.</div>` : ''}
         <h1 class="ta-page-title">Welcome, ${displayName}</h1>
         
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin:24px 0;">
@@ -1734,7 +1734,7 @@ app.get('/admin', requireAdmin, async (req, res) => {
               return `
                 <div style="background:#1a1a1a;padding:16px;border-radius:8px;border:1px solid #333;display:flex;justify-content:space-between;align-items:center;">
                   <div>
-                    <div style="font-weight:bold;margin-bottom:4px;"><a href="/admin/quizzes/${q.id}" style="color:#ffd700;">${q.title || 'Untitled Quiz'}</a></div>
+                    <div style="font-weight:bold;margin-bottom:4px;"><a href="/admin/quizzes/${q.id}" class="ta-btn ta-btn-small" style="color:#111;text-decoration:none;">${q.title || 'Untitled Quiz'}</a></div>
                     <div style="font-size:14px;opacity:0.7;">${unlockDate} • ${q.author || 'Unknown'} • ${q.response_count || 0} responses</div>
                   </div>
                 </div>
@@ -1790,7 +1790,7 @@ app.get('/login', async (req, res) => {
     <body class=\"ta-body\" style=\"padding: 24px;\">
     ${header}
       <h1>Login</h1>
-      ${loggedIn ? `<p>You are signed in as ${req.session.user.email}. <a href=\"/logout\">Logout</a></p>` : `
+      ${loggedIn ? `<p>You are signed in as ${req.session.user.email}. <a href=\"/logout\" class=\"ta-btn ta-btn-outline\" style=\"display:inline-block;margin-left:8px;\">Logout</a></p>` : `
         <div style=\"display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap;\">
           <form method=\"post\" action=\"/auth/login-password\" style=\"min-width:300px;\">
             <h3>Password</h3>
@@ -1807,7 +1807,7 @@ app.get('/login', async (req, res) => {
         </div>
         ${showMagic ? '' : '<div style=\"margin-top:8px;color:#888;\">Forgot your password? Ask an admin or use the magic link (if enabled).</div>'}
       `}
-      <p style="margin-top:16px;"><a href="/">Home</a>${ADMIN_PIN_ENABLED ? ' · <a href="/admin/pin">Admin PIN</a>' : ''}</p>
+      <p style="margin-top:16px;"><a href="/" class="ta-btn ta-btn-outline">Home</a>${ADMIN_PIN_ENABLED ? ' <a href="/admin/pin" class="ta-btn ta-btn-outline" style="margin-left:8px;">Admin PIN</a>' : ''}</p>
     </body></html>
   `);
 });
@@ -1832,7 +1832,7 @@ app.get('/admin/pin', async (req, res) => {
         <label>PIN <input type="password" name="pin" required /></label>
         <button type="submit">Enter</button>
       </form>
-      <p style="margin-top:16px;"><a href="/">Home</a></p>
+      <p style="margin-top:16px;"><a href="/" class="ta-btn ta-btn-outline">Home</a></p>
     </body></html>
   `);
 });
@@ -2003,7 +2003,7 @@ app.get('/admin/upload-quiz', requireAdmin, async (req, res) => {
         </fieldset>
         <div style="margin-top:12px;"><button type="submit">Create Quiz</button></div>
       </form>
-      <p style="margin-top:16px;"><a href="/">Home</a></p>
+      <p style="margin-top:16px;"><a href="/" class="ta-btn ta-btn-outline">Home</a></p>
     </body></html>
   `);
 });
@@ -2086,7 +2086,7 @@ app.get('/admin/writer-invite', requireAdmin, async (req, res) => {
         <button type="submit">Generate Invite Link</button>
       </form>
       <div id="result" style="margin-top:16px;font-family:monospace;"></div>
-      <p style="margin-top:16px;"><a href="/admin">Back</a></p>
+      <p style="margin-top:16px;"><a href="/admin" class="ta-btn ta-btn-outline">Back</a></p>
       <script>
         const form = document.getElementById('inviteForm');
         const result = document.getElementById('result');
@@ -2172,7 +2172,7 @@ app.get('/admin/writer-invites', requireAdmin, async (req, res) => {
       <div class="toolbar" style="margin:12px 0; display:flex; gap:8px; align-items:center;">
         <button id="downloadCsv">Download CSV</button>
         <button id="generateLinks">Generate Links</button>
-        <a href="/admin" style="margin-left:12px;">Back to Admin</a>
+        <a href="/admin" class="ta-btn ta-btn-outline" style="margin-left:12px;">Back to Admin</a>
       </div>
       <table id="tbl" style="width:100%;border-collapse:collapse;">
         <thead><tr>
@@ -2263,7 +2263,7 @@ app.get('/writer/:token', async (req, res) => {
           </fieldset>
           <div style="margin-top:12px;"><button type="submit">Submit Quiz</button></div>
         </form>
-        <p style="margin-top:16px;"><a href="/">Home</a></p>
+        <p style="margin-top:16px;"><a href="/" class="ta-btn ta-btn-outline">Home</a></p>
         </div>
         <script src="/js/writer-form.js"></script>
       </body></html>
@@ -2392,7 +2392,7 @@ app.get('/admin/writer-submissions', requireAdmin, async (req, res) => {
         <ul style="list-style:none;padding:0;margin:0;">
           ${list || '<li>No submissions yet.</li>'}
         </ul>
-        <p style="margin-top:16px;"><a href="/admin">Back</a></p>
+        <p style="margin-top:16px;"><a href="/admin" class="ta-btn ta-btn-outline">Back</a></p>
       </body></html>
     `);
   } catch (e) {
@@ -2452,7 +2452,7 @@ app.get('/admin/writer-submissions/:id', requireAdmin, async (req, res) => {
           <label style="margin-left:12px;">Unlock (ET) <input name="unlock_at" type="datetime-local" required value="${(req.query && req.query.unlock) ? String(req.query.unlock).replace(' ','T') : ''}"/></label>
           <button type="submit" style="margin-left:12px;">Publish</button>
         </form>
-        <p style="margin-top:16px;"><a href="/admin/writer-submissions">Back</a></p>
+        <p style="margin-top:16px;"><a href="/admin/writer-submissions" class="ta-btn ta-btn-outline">Back</a></p>
       </body></html>
     `);
   } catch (e) {
@@ -2555,7 +2555,7 @@ app.get('/admin/writer-invites/list', requireAdmin, async (req, res) => {
       <body class="ta-body" style="padding:24px;">
       ${header}
         <h1>Writer Invites</h1>
-        <p><a href="/admin">Back</a></p>
+        <p><a href="/admin" class="ta-btn ta-btn-outline">Back</a></p>
         <table style="width:100%;border-collapse:collapse;">
           <thead>
             <tr style="text-align:left;border-bottom:1px solid #444;">
@@ -2634,7 +2634,7 @@ app.post('/admin/writer-invites/:token/deactivate', requireAdmin, async (req, re
         </fieldset>
         <div style="margin-top:12px;"><button type="submit">Submit Quiz</button></div>
       </form>
-      <p style="margin-top:16px;"><a href="/">Home</a></p>
+      <p style="margin-top:16px;"><a href="/" class="ta-btn ta-btn-outline">Home</a></p>
     </body></html>
   `);
 }); */
@@ -2728,7 +2728,7 @@ app.get('/quiz/:id', async (req, res) => {
             <tr><th>#</th><th>Question</th><th>Your answer</th><th>Correct answer</th><th>Points</th><th>Actions</th></tr>
             ${rowsHtml}
           </table>
-          <p style="margin-top:16px;"><a href="/calendar">Back to Calendar</a></p>
+          <p style="margin-top:16px;"><a href="/calendar" class="ta-btn ta-btn-outline">Back to Calendar</a></p>
         </body></html>
       `);
     }
@@ -2775,7 +2775,7 @@ app.get('/quiz/:id', async (req, res) => {
             </ul>
           </section>
           ${form}
-          <p style="margin-top:16px;"><a href="/calendar">Back to Calendar</a></p>
+          <p style="margin-top:16px;"><a href="/calendar" class="ta-btn ta-btn-outline">Back to Calendar</a></p>
         </main>
       </body></html>
     `);
@@ -2831,7 +2831,7 @@ app.get('/quiz/:id/leaderboard', async (req, res) => {
           <tr><th>Player</th><th>Points</th><th>First Submitted</th></tr>
           ${items || '<tr><td colspan="3">No submissions yet.</td></tr>'}
         </table>
-        <p style="margin-top:16px;"><a href="/quiz/${id}">Back to Quiz</a> · <a href="/calendar">Calendar</a></p>
+        <p style="margin-top:16px;"><a href="/quiz/${id}" class="ta-btn ta-btn-outline">Back to Quiz</a> <a href="/calendar" class="ta-btn ta-btn-outline" style="margin-left:8px;">Calendar</a></p>
       </body></html>
     `);
   } catch (e) {
@@ -2856,7 +2856,7 @@ app.get('/archive', async (_req, res) => {
       <body class=\"ta-body\" style=\"padding:24px;\">
       ${header}
         <h1>Past Quizzes</h1>
-        <p><a href=\"/calendar\">Back to Calendar</a></p>
+        <p><a href=\"/calendar\" class=\"ta-btn ta-btn-outline\">Back to Calendar</a></p>
         <ul style=\"list-style:none;padding:0;\">${items || '<li>No past quizzes.</li>'}</ul>
       </body></html>
     `);
@@ -2902,7 +2902,7 @@ app.get('/archive/:id', async (req, res) => {
         ${(quiz.author || quiz.author_blurb) ? `<div style=\"margin-top:8px;\"><strong>${esc(quiz.author||'')}</strong><div style=\"opacity:.9;\">${esc(quiz.author_blurb||'')}</div></div>` : ''}
         ${quiz.description ? `<div style=\"margin-top:8px;\">${esc(quiz.description)}</div>` : ''}
         <div style=\"margin-top:12px;\">${qHtml}</div>
-        <p style=\"margin-top:16px;\"><a href=\"/quiz/${quiz.id}\">View quiz page</a> · <a href=\"/archive\">Back to Archive</a></p>
+        <p style=\"margin-top:16px;\"><a href=\"/quiz/${quiz.id}\" class=\"ta-btn ta-btn-outline\">View quiz page</a> <a href=\"/archive\" class=\"ta-btn ta-btn-outline\" style=\"margin-left:8px;\">Back to Archive</a></p>
       </body></html>
     `);
   } catch (e) {
@@ -3045,7 +3045,12 @@ app.get('/admin/quizzes', requireAdmin, async (req, res) => {
         <td>${fmtEt(q.unlock_at)}</td>
         <td>${fmtEt(q.freeze_at)}</td>
         <td>${gradedInfo}</td>
-        <td><a href="/admin/quiz/${q.id}">View/Edit</a> · <a href="/admin/quiz/${q.id}/analytics">Analytics</a> · <a href="/admin/quiz/${q.id}/grade">Grade</a> · <a href="/quiz/${q.id}">Open</a></td>
+        <td>
+          <a href="/admin/quiz/${q.id}" class="ta-btn ta-btn-small" style="margin-right:4px;">View/Edit</a>
+          <a href="/admin/quiz/${q.id}/analytics" class="ta-btn ta-btn-small" style="margin-right:4px;">Analytics</a>
+          <a href="/admin/quiz/${q.id}/grade" class="ta-btn ta-btn-small" style="margin-right:4px;">Grade</a>
+          <a href="/quiz/${q.id}" class="ta-btn ta-btn-small">Open</a>
+        </td>
       </tr>`;
     }).join('');
     
@@ -3070,7 +3075,7 @@ app.get('/admin/quizzes', requireAdmin, async (req, res) => {
             ${items || '<tr><td colspan="6">No quizzes</td></tr>'}
           </tbody>
         </table>
-        <p style="margin-top:16px;"><a href="/admin">Back</a></p>
+        <p style="margin-top:16px;"><a href="/admin" class="ta-btn ta-btn-outline">Back</a></p>
       </body></html>
     `);
   } catch (e) {
@@ -3110,12 +3115,12 @@ app.get('/admin/quiz/:id', requireAdmin, async (req, res) => {
           <div style="margin-top:8px;"><button type="submit">Replace Questions</button></div>
         </form>
         <div style="margin-top:16px;">
-          <a href="/admin/quiz/${id}/analytics" style="display:inline-block;padding:8px 16px;background:#4caf50;color:#fff;text-decoration:none;border-radius:4px;margin-right:8px;">Analytics</a>
-          <a href="/admin/quiz/${id}/grade" style="display:inline-block;padding:8px 16px;background:#2196f3;color:#fff;text-decoration:none;border-radius:4px;margin-right:8px;">Grade Responses</a>
+          <a href="/admin/quiz/${id}/analytics" class="ta-btn" style="background:#4caf50;color:#fff;border-color:#4caf50;margin-right:8px;">Analytics</a>
+          <a href="/admin/quiz/${id}/grade" class="ta-btn" style="background:#2196f3;color:#fff;border-color:#2196f3;margin-right:8px;">Grade Responses</a>
           <form method="post" action="/admin/quiz/${id}/clone" style="display:inline-block;"><button type="submit">Clone Quiz</button></form>
           <form method="post" action="/admin/quiz/${id}/delete" style="display:inline-block; margin-left:8px;" onsubmit="return confirm('Delete this quiz? This cannot be undone.');"><button type="submit">Delete Quiz</button></form>
         </div>
-        <p style="margin-top:16px;"><a href="/admin/quizzes">Back</a></p>
+        <p style="margin-top:16px;"><a href="/admin/quizzes" class="ta-btn ta-btn-outline">Back</a></p>
       </body></html>
     `);
   } catch (e) {
@@ -3222,7 +3227,7 @@ app.get('/admin/seed-demo', requireAdmin, async (_req, res) => {
       <html><body style="font-family: system-ui; padding:24px;">
         <h1>Seeded Demo Quiz</h1>
         <p>Created <strong>${title}</strong> with 10 questions and unlocked it immediately.</p>
-        <p><a href="/quiz/${quizId}">Open Demo Quiz</a> · <a href="/calendar">Back to Calendar</a></p>
+        <p><a href="/quiz/${quizId}" class="ta-btn ta-btn-primary">Open Demo Quiz</a> <a href="/calendar" class="ta-btn ta-btn-outline" style="margin-left:8px;">Back to Calendar</a></p>
       </body></html>
     `);
   } catch (e) {
@@ -3281,7 +3286,7 @@ app.get('/admin/quiz/:id/seed-responses', requireAdmin, async (req, res) => {
       <html><body style="font-family: system-ui; padding:24px;">
         <h1>Seeded demo responses</h1>
         <p>Inserted/updated ${inserted} responses for ${emails.length} demo users.</p>
-        <p><a href="/admin/quiz/${quizId}/grade">Open Grader</a> · <a href="/calendar">Calendar</a></p>
+        <p><a href="/admin/quiz/${quizId}/grade" class="ta-btn ta-btn-primary">Open Grader</a> <a href="/calendar" class="ta-btn ta-btn-outline" style="margin-left:8px;">Calendar</a></p>
       </body></html>
     `);
   } catch (e) {
@@ -3692,8 +3697,8 @@ app.get('/admin/quiz/:id/analytics', requireAdmin, async (req, res) => {
           ${questionStatsHtml || '<p>No questions found.</p>'}
           
           <p style="margin-top:24px;">
-            <a href="/admin/quiz/${quizId}/grade">← Grade Responses</a> | 
-            <a href="/admin/quizzes">← Back to Quizzes</a>
+            <a href="/admin/quiz/${quizId}/grade" class="ta-btn ta-btn-outline">← Grade Responses</a>
+            <a href="/admin/quizzes" class="ta-btn ta-btn-outline" style="margin-left:8px;">← Back to Quizzes</a>
           </p>
         </main>
         <footer class="ta-footer"><div class="ta-container">© Trivia Advent‑ure</div></footer>
@@ -3834,8 +3839,8 @@ app.get('/admin/players', requireAdmin, async (req, res) => {
       const statusStr = status.length ? status.join(' • ') : 'Pending setup';
       return `<tr>
         <td><input type="checkbox" class="player-checkbox" value="${r.email}" /></td>
-        <td><a href="/admin/players/${encodeURIComponent(r.email)}" style="color:#ffd700;">${r.email || ''}</a></td>
-        <td><a href="/admin/players/${encodeURIComponent(r.email)}" style="color:#ffd700;">${r.username || '<em>Not set</em>'}</a></td>
+        <td><a href="/admin/players/${encodeURIComponent(r.email)}" class="ta-btn ta-btn-small" style="color:#111;text-decoration:none;">${r.email || ''}</a></td>
+        <td><a href="/admin/players/${encodeURIComponent(r.email)}" class="ta-btn ta-btn-small" style="color:#111;text-decoration:none;">${r.username || '<em>Not set</em>'}</a></td>
         <td>${fmtEt(r.access_granted_at)}</td>
         <td>${statusStr}</td>
         <td>${r.quizzes_played || 0}</td>
@@ -4228,7 +4233,7 @@ app.get('/admin/players/:email', requireAdmin, async (req, res) => {
         <div style="border:1px solid #ddd;padding:12px;margin-bottom:12px;border-radius:6px;">
           <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:8px;">
             <div>
-              <strong><a href="/admin/quiz/${q.id}/grade" style="color:#ffd700;">${q.title || `Quiz #${q.id}`}</a></strong>
+              <strong><a href="/admin/quiz/${q.id}/grade" class="ta-btn ta-btn-small" style="color:#111;text-decoration:none;">${q.title || `Quiz #${q.id}`}</a></strong>
               ${q.author ? `<span style="opacity:0.7;margin-left:8px;">by ${q.author}</span>` : ''}
             </div>
             <div style="text-align:right;">
@@ -4327,7 +4332,7 @@ app.get('/admin/players/:email', requireAdmin, async (req, res) => {
           <h2 style="margin-top:32px;margin-bottom:16px;">Detailed Responses</h2>
           ${responsesHtml || '<p>No responses yet.</p>'}
           
-          <p style="margin-top:24px;"><a href="/admin/players">← Back to Players</a></p>
+          <p style="margin-top:24px;"><a href="/admin/players" class="ta-btn ta-btn-outline">← Back to Players</a></p>
         </main>
         <footer class="ta-footer"><div class="ta-container">© Trivia Advent‑ure</div></footer>
       </body></html>
@@ -4365,7 +4370,7 @@ app.get('/admin/admins', requireAdmin, async (_req, res) => {
           <tr><th>Email</th><th>Added</th><th>Actions</th></tr>
           ${items || '<tr><td colspan="3">No admins yet</td></tr>'}
         </table>
-        <p style="margin-top:16px;"><a href="/admin">Back</a></p>
+        <p style="margin-top:16px;"><a href="/admin" class="ta-btn ta-btn-outline">Back</a></p>
       </body></html>
     `);
   } catch (e) {
