@@ -1653,7 +1653,7 @@ app.get('/player', requireAuth, async (req, res) => {
         
         <div class="ta-actions" style="margin-top:32px;">
           <a class="ta-btn ta-btn-primary" href="/calendar">Open Calendar</a>
-          <a class="ta-btn" href="/account/credentials" style="margin-left:8px;">Account Settings</a>
+          <a class="ta-btn ta-btn-outline" href="/account/credentials" style="margin-left:8px;">Account Settings</a>
         </div>
       </main>
       <footer class="ta-footer"><div class="ta-container">© Trivia Advent‑ure</div></footer>
