@@ -500,8 +500,26 @@ body.ta-body{margin:0;background:linear-gradient(180deg,var(--blue-top) 0%, var(
 
 @media (max-width: 767px){
   :root{
-    --layout-gutter:18px;
-    --section-gap:22px;
+    --layout-gutter:16px;
+    --section-gap:20px;
     --content-max-width:100%;
   }
+  .ta-main{padding:24px var(--layout-gutter) 36px var(--layout-gutter);}
+  .ta-header-inner{padding:12px var(--layout-gutter);}
+  .ta-footer{position:relative;padding-top:16px;}
+  .ta-footer-inner{padding:20px var(--layout-gutter);}
+  .ta-footer-links{gap:10px;}
+  .ta-footer-copy{padding:8px 0 16px 0;}
+  .ta-calendar-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;max-width:100%;}
+  .ta-door{max-width:200px;min-width:130px;}
+  @media (max-width: 420px){
+    .ta-calendar-grid{grid-template-columns:repeat(1,minmax(0,1fr));}
+  }
+  .account-card{padding:20px;}
+  .account-summary dl{grid-template-columns:1fr;gap:16px;}
+  .account-actions{grid-template-columns:1fr;gap:10px;}
+  .account-action{padding:14px 16px;}
+  .account-action span[aria-hidden="true"]{font-size:18px;}
+  .ta-nav{padding:12px var(--layout-gutter);}
+  .ta-menu-toggle{width:36px;height:36px;}
 }
