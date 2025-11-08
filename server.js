@@ -381,7 +381,7 @@ async function sendMagicLink(email, token, linkUrl) {
     const gmail = google.gmail({ version: 'v1', auth: oAuth2Client });
 
     const subject = 'Your Trivia Advent-ure magic link';
-    const text = `Click to sign in: ${url}\r\nThis link expires in 30 minutes and can be used once.`;
+    const text = `Click to sign in: ${url}\r\nThis link expires in 24 hours and can be used once.`;
 
     const rawLines = [
       `From: ${fromHeader}`,
@@ -615,7 +615,7 @@ app.post('/auth/request-link', async (req, res) => {
     const { rows } = await pool.query('SELECT 1 FROM players WHERE email = $1', [email]);
     if (rows.length === 0) return res.status(403).json({ error: 'No access. Donate on Ko-fi to join.' });
     const token = crypto.randomBytes(24).toString('base64url');
-    const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
     await pool.query('INSERT INTO magic_tokens(token,email,expires_at,used) VALUES($1,$2,$3,false)', [token, email, expiresAt]);
     const linkUrl = `${process.env.PUBLIC_BASE_URL || ''}/auth/magic?token=${encodeURIComponent(token)}`;
     try {
@@ -754,7 +754,7 @@ app.get('/auth/dev-link', async (req, res) => {
     const { rows } = await pool.query('SELECT 1 FROM players WHERE email = $1', [email]);
     if (rows.length === 0) return res.status(403).json({ error: 'No access. Donate on Ko-fi to join.' });
     const token = crypto.randomBytes(24).toString('base64url');
-    const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
     await pool.query('INSERT INTO magic_tokens(token,email,expires_at,used) VALUES($1,$2,$3,false)', [token, email, expiresAt]);
     const linkUrl = `${process.env.PUBLIC_BASE_URL || ''}/auth/magic?token=${encodeURIComponent(token)}`;
     console.log('[info] Magic link (dev):', linkUrl);
@@ -3008,7 +3008,7 @@ app.post('/admin/send-link', requireAdmin, async (req, res) => {
     const email = String(req.body.email || '').trim().toLowerCase();
     if (!email) return res.status(400).send('Email required');
     const token = crypto.randomBytes(24).toString('base64url');
-    const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
     await pool.query('INSERT INTO magic_tokens(token,email,expires_at,used) VALUES($1,$2,$3,false)', [token, email, expiresAt]);
     const linkUrl = `${process.env.PUBLIC_BASE_URL || ''}/auth/magic?token=${encodeURIComponent(token)}`;
     await sendMagicLink(email, token, linkUrl);
@@ -3659,7 +3659,7 @@ app.post('/admin/admins/send-links', requireAdmin, async (_req, res) => {
       await pool.query('INSERT INTO players(email, access_granted_at) VALUES($1, NOW()) ON CONFLICT (email) DO NOTHING', [email]);
       // Create magic token and send
       const token = crypto.randomBytes(24).toString('base64url');
-      const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
+      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
       await pool.query('INSERT INTO magic_tokens(token,email,expires_at,used) VALUES($1,$2,$3,false)', [token, email, expiresAt]);
       const linkUrl = `${process.env.PUBLIC_BASE_URL || ''}/auth/magic?token=${encodeURIComponent(token)}`;
       try {
@@ -3753,7 +3753,7 @@ app.post('/onboarding/gift', requireAuth, async (req, res) => {
     for (const r of recipients) {
       await pool.query('INSERT INTO players(email, access_granted_at) VALUES($1, NOW()) ON CONFLICT (email) DO NOTHING', [r]);
       const token = crypto.randomBytes(24).toString('base64url');
-      const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
+      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
       await pool.query('INSERT INTO magic_tokens(token,email,expires_at,used) VALUES($1,$2,$3,false)', [token, r, expiresAt]);
       const linkUrl = `${process.env.PUBLIC_BASE_URL || ''}/auth/magic?token=${encodeURIComponent(token)}`;
       await sendMagicLink(r, token, linkUrl).catch(err => console.warn('Send mail failed:', err?.message || err));
