@@ -2472,7 +2472,11 @@ app.get('/calendar', async (req, res) => {
         <script>
           (function(){
             var mobileQuery = window.matchMedia('(max-width: 640px)');
+            var coarseQuery = window.matchMedia('(pointer: coarse)');
             var modal, titleEl, subtitleEl, amEl, pmEl, backEl;
+            function isMobileUIMode(){
+              return mobileQuery.matches || coarseQuery.matches;
+            }
             function ensureModal(){
               if (modal) return modal;
               modal = document.createElement('div');
@@ -2570,8 +2574,8 @@ app.get('/calendar', async (req, res) => {
             }
             function handleDoorClick(e){
               var door = e.currentTarget;
-              if (mobileQuery.matches){
-                e.preventDefault();
+              if (isMobileUIMode()){
+                if (e && typeof e.preventDefault === 'function') e.preventDefault();
                 if (!door.classList.contains('is-unlocked')) return;
                 showSlotModal(door);
                 return;
@@ -2587,11 +2591,25 @@ app.get('/calendar', async (req, res) => {
             function setupDoors(){
               var doors = document.querySelectorAll('.ta-door');
               doors.forEach(function(d){
-                d.addEventListener('click', handleDoorClick);
+                var handler = handleDoorClick;
+                if (window.PointerEvent){
+                  d.addEventListener('pointerup', function(evt){
+                    if (evt.pointerType !== 'mouse'){
+                      handler(evt);
+                    } else {
+                      handler(evt);
+                    }
+                  });
+                } else {
+                  d.addEventListener('click', handler);
+                  d.addEventListener('touchend', function(evt){
+                    handler(evt);
+                  }, { passive: false });
+                }
               });
             }
             function watchViewport(){
-              if (!mobileQuery.matches){
+              if (!isMobileUIMode()){
                 hideModal();
               }
             }
@@ -2599,6 +2617,15 @@ app.get('/calendar', async (req, res) => {
               mobileQuery.addEventListener('change', watchViewport);
             } else if (mobileQuery.addListener){
               mobileQuery.addListener(function(evt){
+                if (!evt.matches){
+                  hideModal();
+                }
+              });
+            }
+            if (coarseQuery.addEventListener){
+              coarseQuery.addEventListener('change', watchViewport);
+            } else if (coarseQuery.addListener){
+              coarseQuery.addListener(function(evt){
                 if (!evt.matches){
                   hideModal();
                 }
