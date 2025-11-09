@@ -72,6 +72,9 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
+// Cache-busting for static assets
+const ASSET_VERSION = process.env.ASSET_VERSION || '20241109a';
+
 // Feature flags / security toggles
 const ADMIN_PIN_ENABLED = (String(process.env.ADMIN_PIN_ENABLE || '').toLowerCase() === 'true') && String(process.env.ADMIN_PIN || '').trim().length > 0;
 
@@ -516,7 +519,7 @@ function utcToEtParts(d){
 // Helper function to generate HTML head with viewport meta tag
 function renderHead(title, includeFavicon = true) {
   const favicon = includeFavicon ? '<link rel="icon" href="/favicon.svg" type="image/svg+xml">' : '';
-  return `<html><head><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>${title}</title><link rel="stylesheet" href="/style.css">${favicon}</head>`;
+  return `<html><head><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>${title}</title><link rel="stylesheet" href="/style.css?v=${ASSET_VERSION}">${favicon}</head>`;
 }
 
 // Helper function to generate consistent header HTML across all pages
@@ -550,7 +553,7 @@ async function renderHeader(req) {
        <a href="https://ko-fi.com/triviaadvent" target="_blank" rel="noopener noreferrer">Donate</a>
        <a href="/login">Login</a>`;
   
-  return `<header class="ta-header"><div class="ta-header-inner"><div class="ta-brand"><img class="ta-logo" src="/logo.svg"/><span class="ta-title">Trivia Advent‑ure</span></div><button class="ta-menu-toggle" aria-label="Toggle menu" aria-expanded="false"><span></span><span></span><span></span></button><nav class="ta-nav">${navLinks}</nav></div></header><script src="/js/common-enhancements.js"></script>`;
+  return `<header class="ta-header"><div class="ta-header-inner"><div class="ta-brand"><img class="ta-logo" src="/logo.svg"/><span class="ta-title">Trivia Advent‑ure</span></div><button class="ta-menu-toggle" aria-label="Toggle menu" aria-expanded="false"><span></span><span></span><span></span></button><nav class="ta-nav">${navLinks}</nav></div></header><script src="/js/common-enhancements.js?v=${ASSET_VERSION}"></script>`;
 }
 
 function renderFooter(req) {
@@ -3493,8 +3496,8 @@ app.get('/quiz/:id', async (req, res) => {
           <p style="margin-top:16px;"><a href="/calendar" class="ta-btn ta-btn-outline">Back to Calendar</a></p>
         </main>
         ${renderFooter(req)}
-        <script src="/js/common-enhancements.js"></script>
-        <script src="/js/quiz-enhancements.js"></script>
+        <script src="/js/common-enhancements.js?v=${ASSET_VERSION}"></script>
+        <script src="/js/quiz-enhancements.js?v=${ASSET_VERSION}"></script>
       </body></html>
     `);
   } catch (e) {
@@ -4040,7 +4043,7 @@ app.get('/admin/quizzes', requireAdmin, async (req, res) => {
           </div>
         </main>
         ${renderFooter(req)}
-        <script src="/js/common-enhancements.js"></script>
+        <script src="/js/common-enhancements.js?v=${ASSET_VERSION}"></script>
         <script>
           function filterQuizzes() {
             const searchTerm = document.getElementById('quiz-search').value.toLowerCase().trim();
@@ -5544,7 +5547,7 @@ app.get('/admin/announcements', requireAdmin, async (req, res) => {
           </form>
         </main>
         ${renderFooter(req)}
-        <script src="/js/common-enhancements.js"></script>
+        <script src="/js/common-enhancements.js?v=${ASSET_VERSION}"></script>
       </body></html>
     `);
   } catch (e) {
