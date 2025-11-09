@@ -2499,26 +2499,54 @@ app.get('/calendar', async (req, res) => {
         ${renderFooter(req)}
         <script>
           (function(){
+            var recentlyOpened = new Set();
             function handleDoorClick(e){
               var door = e.currentTarget;
               // Let slot buttons work normally (they'll navigate)
-              if (e.target && e.target.closest && e.target.closest('.slot-btn')) return;
+              if (e.target && e.target.closest && e.target.closest('.slot-btn')) {
+                // If door was just opened, prevent immediate navigation
+                if (recentlyOpened.has(door)) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  return false;
+                }
+                return; // Allow normal button navigation
+              }
               if (!door.classList.contains('is-unlocked')) return;
               // Toggle door open/closed (works on both mobile and desktop)
               var wasOpen = door.classList.contains('is-open');
-              document.querySelectorAll('.ta-door.is-open').forEach(function(x){ x.classList.remove('is-open'); });
+              document.querySelectorAll('.ta-door.is-open').forEach(function(x){ 
+                x.classList.remove('is-open');
+                recentlyOpened.delete(x);
+              });
               if (!wasOpen){
                 door.classList.add('is-open');
+                // Mark as recently opened to prevent immediate button clicks
+                recentlyOpened.add(door);
+                setTimeout(function(){
+                  recentlyOpened.delete(door);
+                }, 300);
               }
             }
             function setupDoors(){
               var doors = document.querySelectorAll('.ta-door');
               doors.forEach(function(d){
-                if (window.PointerEvent){
-                  d.addEventListener('pointerup', handleDoorClick);
-                } else {
-                  d.addEventListener('click', handleDoorClick);
-                  d.addEventListener('touchend', handleDoorClick, { passive: false });
+                // Use click for better mobile compatibility
+                d.addEventListener('click', handleDoorClick, true);
+                // Also handle touch events separately to prevent double-firing
+                if ('ontouchstart' in window) {
+                  var touchStartTime = 0;
+                  d.addEventListener('touchstart', function(e){
+                    touchStartTime = Date.now();
+                  }, { passive: true });
+                  d.addEventListener('touchend', function(e){
+                    var touchDuration = Date.now() - touchStartTime;
+                    // Only handle if it's a quick tap (not a long press or swipe)
+                    if (touchDuration < 300 && !e.target.closest('.slot-btn')) {
+                      e.preventDefault();
+                      handleDoorClick(e);
+                    }
+                  }, { passive: false });
                 }
               });
             }
