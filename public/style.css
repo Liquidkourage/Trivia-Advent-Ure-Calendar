@@ -300,18 +300,12 @@ body.ta-body{margin:0;background:linear-gradient(180deg,var(--blue-top) 0%, var(
 }
 
 @media (max-width: 640px){
-  .slot-grid{gap:8px;padding:8px;display:none!important}
-  .ta-door-back{display:none!important}
-  .slot-btn{font-size:clamp(14px,4vw,16px);padding:8px 0;min-height:40px;border-radius:9px}
-}
-
-@media (pointer: coarse){
-  .slot-grid{display:none!important}
-  .ta-door-back{display:none!important}
+  .slot-grid{gap:10px;padding:10px}
+  .slot-btn{font-size:16px;padding:12px 0;min-height:48px;border-radius:10px;font-weight:800}
 }
 
 @media (max-width: 420px){
-  .slot-btn{font-size:clamp(13px,4.8vw,15px);padding:7px 0;min-height:36px;border-radius:8px}
+  .slot-btn{font-size:15px;padding:10px 0;min-height:44px;border-radius:10px}
 }
 
 body.ta-modal-open{overflow:hidden}

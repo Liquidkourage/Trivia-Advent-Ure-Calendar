@@ -2499,117 +2499,12 @@ app.get('/calendar', async (req, res) => {
         ${renderFooter(req)}
         <script>
           (function(){
-            var mobileQuery = window.matchMedia('(max-width: 640px)');
-            var coarseQuery = window.matchMedia('(pointer: coarse)');
-            var modal, titleEl, subtitleEl, amEl, pmEl, backEl;
-            function isMobileUIMode(){
-              return mobileQuery.matches || coarseQuery.matches;
-            }
-            function ensureModal(){
-              if (modal) return modal;
-              modal = document.createElement('div');
-              modal.className = 'ta-slot-modal';
-              modal.setAttribute('role','dialog');
-              modal.setAttribute('aria-modal','true');
-              modal.innerHTML = ''
-                + '<div class="ta-slot-modal__backdrop" data-close="true"></div>'
-                + '<div class="ta-slot-modal__card">'
-                + '  <button type="button" class="ta-slot-modal__close" data-close="true" aria-label="Close slot chooser">&times;</button>'
-                + '  <div class="ta-slot-modal__body">'
-                + '    <h2 class="ta-slot-modal__title" data-role="title">Choose a slot</h2>'
-                + '    <p class="ta-slot-modal__subtitle" data-role="subtitle"></p>'
-                + '    <div class="ta-slot-modal__actions">'
-                + '      <a data-role="slot-am" class="slot-choice slot-choice--am" href="#">Play AM</a>'
-                + '      <a data-role="slot-pm" class="slot-choice slot-choice--pm" href="#">Play PM</a>'
-                + '    </div>'
-                + '    <button type="button" class="ta-slot-modal__back" data-role="back" data-close="true">Back</button>'
-                + '  </div>'
-                + '</div>';
-              document.body.appendChild(modal);
-              titleEl = modal.querySelector('[data-role="title"]');
-              subtitleEl = modal.querySelector('[data-role="subtitle"]');
-              amEl = modal.querySelector('[data-role="slot-am"]');
-              pmEl = modal.querySelector('[data-role="slot-pm"]');
-              backEl = modal.querySelector('[data-role="back"]');
-              modal.addEventListener('click', function(e){
-                if (e.target === modal || e.target.getAttribute('data-close') === 'true') {
-                  hideModal();
-                }
-              });
-              [amEl, pmEl].forEach(function(link){
-                link.addEventListener('click', function(e){
-                  if (link.getAttribute('aria-disabled') === 'true'){
-                    e.preventDefault();
-                  } else {
-                    hideModal();
-                  }
-                });
-              });
-              backEl.addEventListener('click', function(e){
-                e.preventDefault();
-                hideModal();
-              });
-              document.addEventListener('keydown', function(e){
-                if (e.key === 'Escape' && modal.classList.contains('is-visible')){
-                  hideModal();
-                }
-              });
-              return modal;
-            }
-            function hideModal(){
-              if (!modal) return;
-              modal.classList.remove('is-visible');
-              document.body.classList.remove('ta-modal-open');
-            }
-            function updateSlotLink(link, options){
-              if (!link) return;
-              if (options.unlocked && options.url){
-                link.textContent = options.text;
-                link.href = options.url;
-                link.classList.remove('is-disabled');
-                link.setAttribute('aria-disabled','false');
-                link.removeAttribute('tabindex');
-              } else {
-                link.textContent = options.text;
-                link.href = '#';
-                link.classList.add('is-disabled');
-                link.setAttribute('aria-disabled','true');
-                link.setAttribute('tabindex','-1');
-              }
-            }
-            function showSlotModal(door){
-              ensureModal();
-              var dayNumber = door.getAttribute('data-day-number') || '';
-              var amUnlocked = door.getAttribute('data-am-unlocked') === 'true';
-              var pmUnlocked = door.getAttribute('data-pm-unlocked') === 'true';
-              var amStatus = door.getAttribute('data-am-status') || (amUnlocked ? 'Unlocked' : 'Locked');
-              var pmStatus = door.getAttribute('data-pm-status') || (pmUnlocked ? 'Unlocked' : 'Locked');
-              var amUrl = door.getAttribute('data-am-url') || '';
-              var pmUrl = door.getAttribute('data-pm-url') || '';
-              titleEl.textContent = dayNumber ? 'Day ' + dayNumber : 'Choose a slot';
-              subtitleEl.textContent = (amUnlocked || pmUnlocked) ? 'Pick a slot to play' : 'Both slots are locked right now';
-              updateSlotLink(amEl, { unlocked: amUnlocked, url: amUrl, text: amUnlocked ? 'Play AM' : 'AM ' + amStatus });
-              updateSlotLink(pmEl, { unlocked: pmUnlocked, url: pmUrl, text: pmUnlocked ? 'Play PM' : 'PM ' + pmStatus });
-              modal.classList.add('is-visible');
-              document.body.classList.add('ta-modal-open');
-              if (amEl.getAttribute('aria-disabled') === 'false'){
-                amEl.focus();
-              } else if (pmEl.getAttribute('aria-disabled') === 'false'){
-                pmEl.focus();
-              } else {
-                backEl.focus();
-              }
-            }
             function handleDoorClick(e){
               var door = e.currentTarget;
-              if (isMobileUIMode()){
-                if (e && typeof e.preventDefault === 'function') e.preventDefault();
-                if (!door.classList.contains('is-unlocked')) return;
-                showSlotModal(door);
-                return;
-              }
+              // Let slot buttons work normally (they'll navigate)
               if (e.target && e.target.closest && e.target.closest('.slot-btn')) return;
               if (!door.classList.contains('is-unlocked')) return;
+              // Toggle door open/closed (works on both mobile and desktop)
               var wasOpen = door.classList.contains('is-open');
               document.querySelectorAll('.ta-door.is-open').forEach(function(x){ x.classList.remove('is-open'); });
               if (!wasOpen){
@@ -2619,43 +2514,11 @@ app.get('/calendar', async (req, res) => {
             function setupDoors(){
               var doors = document.querySelectorAll('.ta-door');
               doors.forEach(function(d){
-                var handler = handleDoorClick;
                 if (window.PointerEvent){
-                  d.addEventListener('pointerup', function(evt){
-                    if (evt.pointerType !== 'mouse'){
-                      handler(evt);
-                    } else {
-                      handler(evt);
-                    }
-                  });
+                  d.addEventListener('pointerup', handleDoorClick);
                 } else {
-                  d.addEventListener('click', handler);
-                  d.addEventListener('touchend', function(evt){
-                    handler(evt);
-                  }, { passive: false });
-                }
-              });
-            }
-            function watchViewport(){
-              if (!isMobileUIMode()){
-                hideModal();
-              }
-            }
-            if (mobileQuery.addEventListener){
-              mobileQuery.addEventListener('change', watchViewport);
-            } else if (mobileQuery.addListener){
-              mobileQuery.addListener(function(evt){
-                if (!evt.matches){
-                  hideModal();
-                }
-              });
-            }
-            if (coarseQuery.addEventListener){
-              coarseQuery.addEventListener('change', watchViewport);
-            } else if (coarseQuery.addListener){
-              coarseQuery.addListener(function(evt){
-                if (!evt.matches){
-                  hideModal();
+                  d.addEventListener('click', handleDoorClick);
+                  d.addEventListener('touchend', handleDoorClick, { passive: false });
                 }
               });
             }
