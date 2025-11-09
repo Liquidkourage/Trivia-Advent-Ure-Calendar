@@ -373,9 +373,9 @@ body.ta-modal-open{overflow:hidden}
   h1{font-size:24px}
   h2{font-size:20px}
   h3{font-size:18px}
-  .ta-calendar-grid{gap:10px 12px;}
-  .ta-door-number{font-size:44px}
-  .ta-door-label{font-size:11px}
+  .ta-calendar-grid{gap:8px 10px;}
+  .ta-door-number{font-size:40px}
+  .ta-door-label{font-size:10px}
   .ta-title{font-size:20px}
 }
 .ta-door-panel{border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:10px;background:rgba(0,0,0,.25)}
@@ -542,9 +542,10 @@ body.ta-modal-open{overflow:hidden}
   .ta-footer-inner{padding:20px var(--layout-gutter);}
   .ta-footer-links{gap:10px;}
   .ta-footer-copy{padding:8px 0 16px 0;}
-  .ta-calendar-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:12px 14px;max-width:100%;}
+  .ta-calendar-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:10px 12px;max-width:100%;}
   .ta-door{width:100%;max-width:none;}
-  .ta-door-number{font-size:52px;}
+  .ta-door-number{font-size:46px;}
+  .ta-door-label{font-size:11px;}
   .account-card{padding:20px;}
   .account-summary dl{grid-template-columns:1fr;gap:16px;}
   .account-actions{grid-template-columns:1fr;gap:10px;}
