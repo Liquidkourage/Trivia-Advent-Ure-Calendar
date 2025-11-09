@@ -233,7 +233,7 @@ body.ta-body{margin:0;background:linear-gradient(180deg,var(--blue-top) 0%, var(
 .ta-door-content{padding:12px;text-align:center}
 .ta-door-panels{display:grid;grid-template-columns:1fr 1fr;gap:10px;width:100%;padding:12px}
 .slot-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;width:100%;padding:10px}
-.slot-btn{display:inline-block;text-align:center;padding:10px 0;border-radius:10px;font-weight:800;text-decoration:none}
+.slot-btn{display:flex;align-items:center;justify-content:center;text-align:center;padding:12px 0;border-radius:12px;font-weight:800;text-decoration:none;font-size:clamp(16px,1.8vw,18px);min-height:48px;transition:transform .15s ease,filter .15s ease}
 .slot-btn.unlocked{background:linear-gradient(90deg,var(--gold) 0%,var(--gold-2) 100%);color:#111;box-shadow:0 2px 0 rgba(0,0,0,.3)}
 .slot-btn.locked{background:rgba(255,255,255,.15);color:rgba(255,255,255,.8);box-shadow:inset 0 0 0 1px rgba(255,255,255,.12);cursor:default}
 .slot-btn.unlocked:hover{filter:brightness(1.05)}
@@ -296,20 +296,16 @@ body.ta-body{margin:0;background:linear-gradient(180deg,var(--blue-top) 0%, var(
 }
 
 @media (max-width: 900px){
-  .ta-calendar-grid{grid-template-columns:repeat(3,minmax(0,1fr));}
+  .slot-btn{font-size:clamp(15px,2.8vw,17px);padding:10px 0;min-height:44px;border-radius:10px}
 }
 
 @media (max-width: 640px){
-  .ta-calendar-grid{grid-template-columns:repeat(3,1fr);gap:16px;max-width:100%;}
-  .ta-door{width:100%;max-width:none;min-width:0;}
-  .slot-grid{gap:10px;}
-  .slot-btn{padding:8px 0;font-size:15px;}
+  .slot-grid{gap:8px;padding:8px}
+  .slot-btn{font-size:clamp(14px,4vw,16px);padding:8px 0;min-height:40px;border-radius:9px}
 }
 
 @media (max-width: 420px){
-  .ta-calendar-grid{grid-template-columns:repeat(2,1fr);gap:14px;}
-  .ta-door{width:100%;}
-  .slot-btn{padding:7px 0;font-size:14px;}
+  .slot-btn{font-size:clamp(13px,4.8vw,15px);padding:7px 0;min-height:36px;border-radius:8px}
 }
 
 @media (max-width: 320px){
