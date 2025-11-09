@@ -172,7 +172,7 @@ body.ta-body{margin:0;background:linear-gradient(180deg,var(--blue-top) 0%, var(
   grid-template-columns:repeat(6,minmax(0,1fr));
   gap:28px;
   width:100%;
-  max-width:1400px;
+  max-width:var(--content-max-width);
   margin:0 auto;
 }
 .ta-door-slot{position:relative;display:flex;flex-direction:column;align-items:center;gap:12px;width:100%}
@@ -288,28 +288,30 @@ body.ta-body{margin:0;background:linear-gradient(180deg,var(--blue-top) 0%, var(
 .ta-calendar-grid > *{width:100%;display:flex;justify-content:center}
 
 @media (max-width: 1400px){
-  .ta-calendar-grid{grid-template-columns:repeat(5,minmax(160px,1fr))}
+  .ta-calendar-grid{grid-template-columns:repeat(5,minmax(0,1fr));}
 }
 
 @media (max-width: 1100px){
-  .ta-calendar-grid{grid-template-columns:repeat(4,minmax(180px,1fr))}
+  .ta-calendar-grid{grid-template-columns:repeat(4,minmax(0,1fr));}
 }
 
 @media (max-width: 900px){
-  .ta-calendar-grid{grid-template-columns:repeat(3,minmax(180px,1fr))}
+  .ta-calendar-grid{grid-template-columns:repeat(3,minmax(0,1fr));}
 }
 
 @media (max-width: 640px){
-  .ta-calendar-grid{grid-template-columns:repeat(2,minmax(160px,1fr));padding-bottom:36px}
-  .ta-door{max-width:220px}
+  .ta-calendar-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:20px;}
+  .ta-door{max-width:200px;min-width:140px;}
 }
 
-@media (max-width: 360px){
-  .ta-calendar-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;}
-  .ta-door{max-width:150px;min-width:95px;}
+@media (max-width: 420px){
+  .ta-calendar-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;}
+  .ta-door{max-width:170px;min-width:120px;}
 }
-@media (max-width: 300px){
-  .ta-calendar-grid{grid-template-columns:repeat(1,minmax(0,1fr));}
+
+@media (max-width: 320px){
+  .ta-calendar-grid{grid-template-columns:repeat(1,minmax(0,1fr));gap:14px;}
+  .ta-door{max-width:260px;min-width:140px;}
 }
 
 /* Additional mobile optimizations */
