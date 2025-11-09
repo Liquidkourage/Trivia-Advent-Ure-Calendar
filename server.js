@@ -64,6 +64,7 @@ import session from 'express-session';
 import connectPgSimple from 'connect-pg-simple';
 import cookieParser from 'cookie-parser';
 import crypto from 'crypto';
+import fs from 'fs';
 import { Pool } from 'pg';
 import nodemailer from 'nodemailer';
 import { google } from 'googleapis';
@@ -73,7 +74,34 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 // Cache-busting for static assets
-const ASSET_VERSION = process.env.ASSET_VERSION || '20241109a';
+function computeAssetVersion() {
+  if (process.env.ASSET_VERSION) return process.env.ASSET_VERSION;
+  let pkgVersion = '0.0.0';
+  try {
+    const pkgJson = fs.readFileSync(new URL('./package.json', import.meta.url), 'utf8');
+    pkgVersion = JSON.parse(pkgJson).version || pkgVersion;
+  } catch (err) {
+    console.warn('[cache] Unable to read package.json version:', err);
+  }
+  try {
+    const hash = crypto.createHash('md5');
+    ['./public/style.css', './public/js/common-enhancements.js', './public/js/quiz-enhancements.js']
+      .forEach(rel => {
+        try {
+          const buf = fs.readFileSync(new URL(rel, import.meta.url));
+          hash.update(buf);
+        } catch (fileErr) {
+          // Ignore missing optional asset
+        }
+      });
+    const digest = hash.digest('hex').slice(0, 10);
+    return `${pkgVersion}-${digest}`;
+  } catch (err) {
+    console.warn('[cache] Unable to compute asset hash:', err);
+    return `${pkgVersion}-${Date.now()}`;
+  }
+}
+const ASSET_VERSION = computeAssetVersion();
 
 // Feature flags / security toggles
 const ADMIN_PIN_ENABLED = (String(process.env.ADMIN_PIN_ENABLE || '').toLowerCase() === 'true') && String(process.env.ADMIN_PIN || '').trim().length > 0;
