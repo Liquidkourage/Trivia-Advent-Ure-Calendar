@@ -377,6 +377,7 @@ body.ta-modal-open{overflow:hidden}
   .ta-door-number{font-size:20px;transform:translateY(3px);-webkit-text-stroke:0.5px #D4AF37;text-shadow:0 1px 0 rgba(0,0,0,.7), 0 2px 6px rgba(0,0,0,.45), 0 0 3px rgba(212,175,55,.35);}
   .ta-door-label{font-size:5px}
   .ta-door-front{gap:3px;}
+  .ta-door-back{padding:3px 4px;}
   .ta-badge{font-size:5px;padding:1px 2px;}
   .ta-title{font-size:20px}
 }
@@ -549,6 +550,7 @@ body.ta-modal-open{overflow:hidden}
   .ta-door-number{font-size:23px;transform:translateY(4px);-webkit-text-stroke:0.5px #D4AF37;text-shadow:0 1px 0 rgba(0,0,0,.7), 0 3px 9px rgba(0,0,0,.45), 0 0 4px rgba(212,175,55,.35);}
   .ta-door-label{font-size:6px;}
   .ta-door-front{gap:4px;}
+  .ta-door-back{padding:4px 5px;}
   .ta-badge{font-size:6px;padding:1px 3px;}
   .account-card{padding:20px;}
   .account-summary dl{grid-template-columns:1fr;gap:16px;}
