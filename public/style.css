@@ -300,12 +300,12 @@ body.ta-body{margin:0;background:linear-gradient(180deg,var(--blue-top) 0%, var(
 }
 
 @media (max-width: 640px){
-  .slot-grid{gap:10px;padding:10px}
-  .slot-btn{font-size:16px;padding:12px 0;min-height:48px;border-radius:10px;font-weight:800}
+  .slot-grid{gap:5px;padding:5px}
+  .slot-btn{font-size:12px;padding:6px 0;min-height:32px;border-radius:8px;font-weight:800}
 }
 
 @media (max-width: 420px){
-  .slot-btn{font-size:15px;padding:10px 0;min-height:44px;border-radius:10px}
+  .slot-btn{font-size:11px;padding:5px 0;min-height:28px;border-radius:7px}
 }
 
 body.ta-modal-open{overflow:hidden}
@@ -373,9 +373,11 @@ body.ta-modal-open{overflow:hidden}
   h1{font-size:24px}
   h2{font-size:20px}
   h3{font-size:18px}
-  .ta-calendar-grid{gap:8px 10px;}
-  .ta-door-number{font-size:40px}
-  .ta-door-label{font-size:10px}
+  .ta-calendar-grid{gap:4px 5px;}
+  .ta-door-number{font-size:20px;transform:translateY(3px);-webkit-text-stroke:0.5px #D4AF37;text-shadow:0 1px 0 rgba(0,0,0,.7), 0 2px 6px rgba(0,0,0,.45), 0 0 3px rgba(212,175,55,.35);}
+  .ta-door-label{font-size:5px}
+  .ta-door-front{gap:3px;}
+  .ta-badge{font-size:5px;padding:1px 2px;}
   .ta-title{font-size:20px}
 }
 .ta-door-panel{border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:10px;background:rgba(0,0,0,.25)}
@@ -542,10 +544,12 @@ body.ta-modal-open{overflow:hidden}
   .ta-footer-inner{padding:20px var(--layout-gutter);}
   .ta-footer-links{gap:10px;}
   .ta-footer-copy{padding:8px 0 16px 0;}
-  .ta-calendar-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:10px 12px;max-width:100%;}
+  .ta-calendar-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:5px 6px;max-width:100%;}
   .ta-door{width:100%;max-width:none;}
-  .ta-door-number{font-size:46px;}
-  .ta-door-label{font-size:11px;}
+  .ta-door-number{font-size:23px;transform:translateY(4px);-webkit-text-stroke:0.5px #D4AF37;text-shadow:0 1px 0 rgba(0,0,0,.7), 0 3px 9px rgba(0,0,0,.45), 0 0 4px rgba(212,175,55,.35);}
+  .ta-door-label{font-size:6px;}
+  .ta-door-front{gap:4px;}
+  .ta-badge{font-size:6px;padding:1px 3px;}
   .account-card{padding:20px;}
   .account-summary dl{grid-template-columns:1fr;gap:16px;}
   .account-actions{grid-template-columns:1fr;gap:10px;}
