@@ -4,7 +4,7 @@ app.get('/admin/writer-submissions/:id', requireAdmin, async (req, res) => {
   try {
     const id = Number(req.params.id);
     if (!id) return res.status(400).send('Invalid id');
-    const sres = await pool.query('SELECT ws.token, ws.author, ws.submitted_at, ws.updated_at, ws.data, wi.slot_date, wi.slot_half FROM writer_submissions ws LEFT JOIN writer_invites wi ON wi.token = ws.token WHERE ws.id=$1', [id]);
+    const sres = await pool.query('SELECT ws.token, ws.author, ws.submitted_at, ws.updated_at, ws.data, wi.slot_date, wi.slot_half, wi.submitted_at as invite_submitted_at FROM writer_submissions ws LEFT JOIN writer_invites wi ON wi.token = ws.token WHERE ws.id=$1', [id]);
     if (!sres.rows.length) return res.status(404).send('Not found');
     const row = sres.rows[0];
     const data = typeof row.data === 'string' ? JSON.parse(row.data) : row.data;
@@ -3253,7 +3253,7 @@ app.get('/admin/writer-submissions/:id', requireAdmin, async (req, res) => {
   try {
     const id = Number(req.params.id);
     if (!id) return res.status(400).send('Invalid id');
-    const sres = await pool.query('SELECT ws.token, ws.author, ws.submitted_at, ws.updated_at, ws.data, wi.slot_date, wi.slot_half FROM writer_submissions ws LEFT JOIN writer_invites wi ON wi.token = ws.token WHERE ws.id=$1', [id]);
+    const sres = await pool.query('SELECT ws.token, ws.author, ws.submitted_at, ws.updated_at, ws.data, wi.slot_date, wi.slot_half, wi.submitted_at as invite_submitted_at FROM writer_submissions ws LEFT JOIN writer_invites wi ON wi.token = ws.token WHERE ws.id=$1', [id]);
     if (!sres.rows.length) return res.status(404).send('Not found');
     const row = sres.rows[0];
     const data = typeof row.data === 'string' ? JSON.parse(row.data) : row.data;
