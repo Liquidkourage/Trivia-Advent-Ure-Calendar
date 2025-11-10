@@ -2500,6 +2500,7 @@ app.get('/calendar', async (req, res) => {
         <script>
           (function(){
             var recentlyOpened = new Set();
+            var touchStartDoor = null;
             function handleDoorClick(e){
               var door = e.currentTarget;
               // Let slot buttons work normally (they'll navigate)
@@ -2508,6 +2509,7 @@ app.get('/calendar', async (req, res) => {
                 if (recentlyOpened.has(door)) {
                   e.preventDefault();
                   e.stopPropagation();
+                  e.stopImmediatePropagation();
                   return false;
                 }
                 return; // Allow normal button navigation
@@ -2525,29 +2527,42 @@ app.get('/calendar', async (req, res) => {
                 recentlyOpened.add(door);
                 setTimeout(function(){
                   recentlyOpened.delete(door);
-                }, 300);
+                }, 500);
               }
             }
             function setupDoors(){
               var doors = document.querySelectorAll('.ta-door');
               doors.forEach(function(d){
-                // Use click for better mobile compatibility
-                d.addEventListener('click', handleDoorClick, true);
-                // Also handle touch events separately to prevent double-firing
+                // Handle touch events first to prevent double-firing
                 if ('ontouchstart' in window) {
-                  var touchStartTime = 0;
                   d.addEventListener('touchstart', function(e){
-                    touchStartTime = Date.now();
+                    if (!e.target.closest('.slot-btn')) {
+                      touchStartDoor = d;
+                    }
                   }, { passive: true });
                   d.addEventListener('touchend', function(e){
-                    var touchDuration = Date.now() - touchStartTime;
-                    // Only handle if it's a quick tap (not a long press or swipe)
-                    if (touchDuration < 300 && !e.target.closest('.slot-btn')) {
+                    if (touchStartDoor === d && !e.target.closest('.slot-btn')) {
                       e.preventDefault();
+                      e.stopPropagation();
                       handleDoorClick(e);
+                      touchStartDoor = null;
+                      // Prevent click event from firing
+                      setTimeout(function(){
+                        touchStartDoor = null;
+                      }, 100);
                     }
                   }, { passive: false });
                 }
+                // Use click for desktop and as fallback
+                d.addEventListener('click', function(e){
+                  // Skip if this was already handled by touch
+                  if (touchStartDoor === d) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    return;
+                  }
+                  handleDoorClick(e);
+                }, true);
               });
             }
             if (document.readyState === 'loading'){
