@@ -148,7 +148,6 @@ app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser());
 // Serve static assets (CSS, images)
 import path from 'path';
-import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 app.use(express.static(path.join(__dirname, 'public')));
