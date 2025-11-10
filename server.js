@@ -3341,23 +3341,28 @@ app.get('/admin/writer-invites/list', requireAdmin, async (req, res) => {
         r.submitted_at ? 'submitted' : '',
         r.published_at ? 'published' : ''
       ].filter(Boolean).join(' · ');
+      const esc = (s) => String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
       return `
-        <tr>
+        <tr data-token="${esc(r.token)}">
           <td style="padding:6px 4px;white-space:nowrap;">${slotStr} ${r.slot_half || ''}</td>
-          <td style="padding:6px 4px;">${(r.author || '').replace(/</g,'&lt;')}</td>
-          <td style="padding:6px 4px;">${(r.email || '').replace(/</g,'&lt;')}</td>
+          <td style="padding:6px 4px;">${esc(r.author)}</td>
+          <td style="padding:6px 4px;">
+            <span class="email-display" data-token="${esc(r.token)}">${esc(r.email || '(no email)')}</span>
+            <input type="email" class="email-edit" data-token="${esc(r.token)}" value="${esc(r.email || '')}" style="display:none;width:200px;padding:4px;border:1px solid #555;border-radius:4px;background:#2a2a2a;color:#fff;" />
+          </td>
           <td style="padding:6px 4px;">${status}</td>
           <td style="padding:6px 4px;"><a href="${link}" target="_blank">${r.token.slice(0,8)}...</a></td>
           <td style="padding:6px 4px;white-space:nowrap;">${fmt(r.sent_at)}</td>
           <td style="padding:6px 4px;white-space:nowrap;">${fmt(r.clicked_at)}</td>
           <td style="padding:6px 4px;white-space:nowrap;">${fmt(r.submitted_at)}</td>
           <td style="padding:6px 4px;white-space:nowrap;">${fmt(r.published_at)}</td>
-          <td style="padding:6px 4px;display:flex;gap:6px;">
-            <form method="post" action="/admin/writer-invites/${r.token}/resend" onsubmit="return confirm('Send email now?');">
-              <button type="submit">Resend</button>
+          <td style="padding:6px 4px;display:flex;gap:6px;flex-wrap:wrap;">
+            <button class="edit-email-btn" data-token="${esc(r.token)}" type="button" style="background:#d4af37;color:#000;border:none;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:12px;">Edit Email</button>
+            <form method="post" action="/admin/writer-invites/${r.token}/resend" onsubmit="return confirm('Send email now?');" style="display:inline;">
+              <button type="submit" style="font-size:12px;">Resend</button>
             </form>
-            ${r.active ? `<form method="post" action="/admin/writer-invites/${r.token}/deactivate" onsubmit="return confirm('Deactivate this invite?');"><button type="submit">Deactivate</button></form>` : ''}
-            <button class="copy" data-link="${link}" type="button">Copy</button>
+            ${r.active ? `<form method="post" action="/admin/writer-invites/${r.token}/deactivate" onsubmit="return confirm('Deactivate this invite?');" style="display:inline;"><button type="submit" style="font-size:12px;">Deactivate</button></form>` : ''}
+            <button class="copy" data-link="${link}" type="button" style="font-size:12px;">Copy</button>
           </td>
         </tr>
       `;
@@ -3484,6 +3489,44 @@ app.post('/admin/writer-invites/:token/deactivate', requireAdmin, async (req, re
   } catch (e) {
     console.error(e);
     res.status(500).send('Failed to deactivate');
+  }
+});
+
+app.post('/admin/writer-invites/:token/update-email', requireAdmin, express.urlencoded({ extended: true }), async (req, res) => {
+  try {
+    const token = String(req.params.token || '').trim();
+    const newEmail = String(req.body.email || '').trim() || null;
+    
+    // Validate email format if provided
+    if (newEmail && !newEmail.match(/^[^@]+@[^@]+\.[^@]+$/)) {
+      return res.status(400).send('Invalid email format');
+    }
+    
+    // Check if invite exists
+    const { rows } = await pool.query('SELECT email FROM writer_invites WHERE token=$1', [token]);
+    if (!rows.length) {
+      return res.status(404).send('Invite not found');
+    }
+    
+    const oldEmail = rows[0].email;
+    
+    // Update the email
+    await pool.query('UPDATE writer_invites SET email=$1 WHERE token=$2', [newEmail, token]);
+    
+    // If new email is provided and different, ensure they're in players table
+    if (newEmail && newEmail.toLowerCase() !== (oldEmail || '').toLowerCase()) {
+      try {
+        await ensureAuthorIsPlayer(newEmail);
+      } catch (e) {
+        console.error('[update-email] Error ensuring author is player:', e);
+        // Continue anyway - not critical
+      }
+    }
+    
+    res.status(200).send('Email updated');
+  } catch (e) {
+    console.error('[update-email] Error:', e);
+    res.status(500).send('Failed to update email: ' + (e?.message || String(e)));
   }
 });
 
