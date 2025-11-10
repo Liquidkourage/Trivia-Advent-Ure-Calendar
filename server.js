@@ -2310,6 +2310,7 @@ app.get('/admin', requireAdmin, async (req, res) => {
             <a class="ta-card" href="/admin/writer-invites"><strong>Writer Invites (CSV)</strong><span>Prepare CSV and bulk-generate links</span></a>
             <a class="ta-card" href="/admin/writer-invites/list"><strong>Writer Invites (List)</strong><span>Status, resend, deactivate, copy</span></a>
             <a class="ta-card" href="/admin/writer-invites/my"><strong>My Writer Invites</strong><span>View and access your own quiz writing links</span></a>
+            <a class="ta-card" href="/admin/writer-submissions"><strong>Writer Submissions</strong><span>Review and publish submitted quizzes</span></a>
           </div>
         </section>
         <section style="margin-bottom:32px;">
