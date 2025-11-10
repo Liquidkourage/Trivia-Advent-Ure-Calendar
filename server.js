@@ -83,6 +83,18 @@ function computeAssetVersion() {
   } catch (err) {
     console.warn('[cache] Unable to read package.json version:', err);
   }
+  
+  // Try to get git commit hash for cache busting
+  let commitHash = '';
+  try {
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = dirname(__filename);
+    commitHash = execSync('git rev-parse --short HEAD', { encoding: 'utf8', cwd: __dirname }).trim();
+  } catch (err) {
+    // Fall back to timestamp if git is not available
+    commitHash = Date.now().toString(36);
+  }
+  
   try {
     const hash = crypto.createHash('md5');
     ['./public/style.css', './public/js/common-enhancements.js', './public/js/quiz-enhancements.js']
@@ -95,10 +107,10 @@ function computeAssetVersion() {
         }
       });
     const digest = hash.digest('hex').slice(0, 10);
-    return `${pkgVersion}-${digest}`;
+    return `${pkgVersion}-${digest}-${commitHash}`;
   } catch (err) {
     console.warn('[cache] Unable to compute asset hash:', err);
-    return `${pkgVersion}-${Date.now()}`;
+    return `${pkgVersion}-${commitHash}`;
   }
 }
 const ASSET_VERSION = computeAssetVersion();
