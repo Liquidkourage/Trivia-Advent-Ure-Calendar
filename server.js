@@ -3342,7 +3342,20 @@ app.get('/admin/writer-submissions/:id', requireAdmin, async (req, res) => {
       <div style="margin-top:24px;background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:16px;">
         <h3 style="margin-top:0;color:#ffd700;">Select Timeslot</h3>
         <p style="opacity:0.8;font-size:14px;margin-bottom:16px;">Click an available slot to auto-fill the unlock time. Green = available, Red = taken.</p>
-        <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:8px;max-width:900px;">
+        <style>
+          @media (max-width: 768px) {
+            .slot-calendar-grid { grid-template-columns: repeat(3, 1fr) !important; gap: 6px !important; }
+            .slot-calendar-item { padding: 6px !important; font-size: 11px !important; }
+            .slot-calendar-day { font-size: 11px !important; }
+            .slot-calendar-half { font-size: 10px !important; }
+            .slot-calendar-status { font-size: 8px !important; }
+          }
+          @media (max-width: 480px) {
+            .slot-calendar-grid { grid-template-columns: repeat(2, 1fr) !important; gap: 4px !important; }
+            .slot-calendar-item { padding: 4px !important; font-size: 10px !important; }
+          }
+        </style>
+        <div class="slot-calendar-grid" style="display:grid;grid-template-columns:repeat(6,1fr);gap:8px;max-width:900px;">
           ${calendarSlots.map(slot => {
             const slotId = `slot-${slot.date}-${slot.half}`;
             const bgColor = slot.isTaken ? '#4a1a1a' : '#1a4a1a';
@@ -3352,7 +3365,7 @@ app.get('/admin/writer-submissions/:id', requireAdmin, async (req, res) => {
             return `
               <div 
                 id="${slotId}"
-                class="slot-btn-calendar"
+                class="slot-btn-calendar slot-calendar-item"
                 data-datetime="${slot.datetimeValue}"
                 data-taken="${slot.isTaken}"
                 style="
@@ -3370,9 +3383,9 @@ app.get('/admin/writer-submissions/:id', requireAdmin, async (req, res) => {
                 onmouseover="${slot.isTaken ? '' : 'this.style.opacity=1;this.style.transform=\'scale(1.02)\';'}"
                 onmouseout="${slot.isTaken ? '' : 'this.style.opacity=1;this.style.transform=\'scale(1)\';'}"
               >
-                <div style="font-weight:bold;color:#ffd700;font-size:12px;">Dec ${slot.day}</div>
-                <div style="font-size:11px;color:${slot.isTaken ? '#ff8888' : '#88ff88'};margin-top:4px;">${slot.half}</div>
-                ${slot.isTaken ? '<div style="font-size:9px;color:#ff8888;margin-top:2px;">TAKEN</div>' : '<div style="font-size:9px;color:#88ff88;margin-top:2px;">FREE</div>'}
+                <div class="slot-calendar-day" style="font-weight:bold;color:#ffd700;font-size:12px;">Dec ${slot.day}</div>
+                <div class="slot-calendar-half" style="font-size:11px;color:${slot.isTaken ? '#ff8888' : '#88ff88'};margin-top:4px;">${slot.half}</div>
+                ${slot.isTaken ? '<div class="slot-calendar-status" style="font-size:9px;color:#ff8888;margin-top:2px;">TAKEN</div>' : '<div class="slot-calendar-status" style="font-size:9px;color:#88ff88;margin-top:2px;">FREE</div>'}
               </div>
             `;
           }).join('')}
