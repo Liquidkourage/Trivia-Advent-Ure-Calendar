@@ -3329,14 +3329,24 @@ app.post('/admin/writer-submissions/:id/publish', requireAdmin, express.urlencod
     if (tok) {
       try {
         const { rows: inviteRows } = await pool.query('SELECT email FROM writer_invites WHERE token=$1', [tok]);
-        if (inviteRows.length) authorEmail = (inviteRows[0].email || '').toLowerCase();
-      } catch {}
+        if (inviteRows.length && inviteRows[0].email) {
+          const email = String(inviteRows[0].email || '').trim().toLowerCase();
+          if (email) authorEmail = email;
+        }
+      } catch (e) {
+        console.error('[publish] Error retrieving author email:', e);
+      }
     }
     const qInsert = await pool.query(
       'INSERT INTO quizzes(title, unlock_at, freeze_at, author, author_blurb, description, author_email) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id',
       [title, unlockUtc, freezeUtc, sres.rows[0].author || null, authorBlurb, description, authorEmail]
     );
     const quizId = qInsert.rows[0].id;
+    if (authorEmail) {
+      console.log(`[publish] Quiz ${quizId} published with author_email: ${authorEmail}`);
+    } else {
+      console.log(`[publish] Quiz ${quizId} published WITHOUT author_email (token: ${tok || 'none'})`);
+    }
     for (let i=0;i<Math.min(10, questions.length);i++) {
       const q = questions[i];
       const text = String(q.text || '').trim();
