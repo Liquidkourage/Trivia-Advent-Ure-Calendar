@@ -3290,6 +3290,20 @@ app.get('/admin/writer-submissions/:id', requireAdmin, async (req, res) => {
       ? `This is a draft (autosaved). The author has not yet clicked "Submit Quiz". Last saved: ${fmtEt(row.updated_at || row.submitted_at)}`
       : `This quiz was submitted by the author on ${fmtEt(row.invite_submitted_at)}.`;
     
+    // Get all existing quizzes to show which slots are taken
+    const { rows: existingQuizzes } = await pool.query('SELECT unlock_at, title FROM quizzes ORDER BY unlock_at ASC');
+    const takenSlots = new Set();
+    const slotInfo = new Map(); // Map of "YYYY-MM-DD-AM" or "YYYY-MM-DD-PM" -> quiz title
+    for (const q of existingQuizzes) {
+      const unlockUtc = new Date(q.unlock_at);
+      const p = utcToEtParts(unlockUtc);
+      const dateKey = `${p.y}-${String(p.m).padStart(2,'0')}-${String(p.d).padStart(2,'0')}`;
+      const half = p.h === 0 ? 'AM' : 'PM';
+      const slotKey = `${dateKey}-${half}`;
+      takenSlots.add(slotKey);
+      slotInfo.set(slotKey, q.title);
+    }
+    
     // Calculate unlock_at from slot_date and slot_half if available
     let unlockAtValue = '';
     if (req.query && req.query.unlock) {
@@ -3300,6 +3314,71 @@ app.get('/admin/writer-submissions/:id', requireAdmin, async (req, res) => {
       const hour = (row.slot_half.toUpperCase() === 'AM') ? '00' : '12';
       unlockAtValue = `${row.slot_date}T${hour}:00`;
     }
+    
+    // Build calendar grid for slot selection (Dec 1-24, AM/PM)
+    const currentYear = new Date().getFullYear();
+    const calendarSlots = [];
+    for (let d = 1; d <= 24; d++) {
+      const dateStr = `${currentYear}-12-${String(d).padStart(2,'0')}`;
+      for (const half of ['AM', 'PM']) {
+        const slotKey = `${dateStr}-${half}`;
+        const isTaken = takenSlots.has(slotKey);
+        const existingTitle = slotInfo.get(slotKey) || '';
+        const hour = half === 'AM' ? '00' : '12';
+        const datetimeValue = `${dateStr}T${hour}:00`;
+        calendarSlots.push({
+          date: dateStr,
+          day: d,
+          half,
+          isTaken,
+          existingTitle,
+          datetimeValue
+        });
+      }
+    }
+    
+    // Build calendar HTML
+    const calendarHtml = `
+      <div style="margin-top:24px;background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:16px;">
+        <h3 style="margin-top:0;color:#ffd700;">Select Timeslot</h3>
+        <p style="opacity:0.8;font-size:14px;margin-bottom:16px;">Click an available slot to auto-fill the unlock time. Green = available, Red = taken.</p>
+        <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:8px;max-width:900px;">
+          ${calendarSlots.map(slot => {
+            const slotId = `slot-${slot.date}-${slot.half}`;
+            const bgColor = slot.isTaken ? '#4a1a1a' : '#1a4a1a';
+            const borderColor = slot.isTaken ? '#ff4444' : '#44ff44';
+            const cursor = slot.isTaken ? 'not-allowed' : 'pointer';
+            const title = slot.isTaken ? `Taken: ${esc(slot.existingTitle)}` : `Available: Dec ${slot.day} ${slot.half}`;
+            return `
+              <div 
+                id="${slotId}"
+                class="slot-btn-calendar"
+                data-datetime="${slot.datetimeValue}"
+                data-taken="${slot.isTaken}"
+                style="
+                  background:${bgColor};
+                  border:2px solid ${borderColor};
+                  border-radius:6px;
+                  padding:8px;
+                  text-align:center;
+                  cursor:${cursor};
+                  opacity:${slot.isTaken ? 0.6 : 1};
+                  transition:all 0.2s;
+                "
+                title="${title}"
+                onclick="${slot.isTaken ? '' : `document.getElementById('unlock_at_input').value='${slot.datetimeValue}'; document.querySelectorAll('.slot-btn-calendar').forEach(el=>{if(el.dataset.taken!=='true'){el.style.transform='scale(1)';el.style.boxShadow='none';}}); this.style.transform='scale(1.05)'; this.style.boxShadow='0 0 8px ${borderColor}';`}"
+                onmouseover="${slot.isTaken ? '' : 'this.style.opacity=1;this.style.transform=\'scale(1.02)\';'}"
+                onmouseout="${slot.isTaken ? '' : 'this.style.opacity=1;this.style.transform=\'scale(1)\';'}"
+              >
+                <div style="font-weight:bold;color:#ffd700;font-size:12px;">Dec ${slot.day}</div>
+                <div style="font-size:11px;color:${slot.isTaken ? '#ff8888' : '#88ff88'};margin-top:4px;">${slot.half}</div>
+                ${slot.isTaken ? '<div style="font-size:9px;color:#ff8888;margin-top:2px;">TAKEN</div>' : '<div style="font-size:9px;color:#88ff88;margin-top:2px;">FREE</div>'}
+              </div>
+            `;
+          }).join('')}
+        </div>
+      </div>
+    `;
     
     const header = await renderHeader(req);
     res.type('html').send(`
@@ -3318,12 +3397,94 @@ app.get('/admin/writer-submissions/:id', requireAdmin, async (req, res) => {
         ${warnHtml}
         <h3 style="margin-top:12px;">Questions</h3>
         ${qHtml || '<div>No questions.</div>'}
-        <form method="post" action="/admin/writer-submissions/${id}/publish" style="margin-top:12px;">
-          <label>Title <input name="title" required style="width:40%"/></label>
-          <label style="margin-left:12px;">Unlock (ET) <input name="unlock_at" type="datetime-local" required value="${unlockAtValue}"/></label>
-          <button type="submit" style="margin-left:12px;">Publish</button>
+        ${calendarHtml}
+        <form method="post" action="/admin/writer-submissions/${id}/publish" id="publishForm" style="margin-top:24px;">
+          <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end;">
+            <div style="flex:1;min-width:300px;">
+              <label style="display:block;margin-bottom:6px;font-weight:600;">Title</label>
+              <input name="title" required style="width:100%;padding:8px;border-radius:6px;border:1px solid #555;background:#0a0a0a;color:#ffd700;"/>
+            </div>
+            <div style="flex:1;min-width:250px;">
+              <label style="display:block;margin-bottom:6px;font-weight:600;">Unlock (ET)</label>
+              <input id="unlock_at_input" name="unlock_at" type="datetime-local" required value="${unlockAtValue}" style="width:100%;padding:8px;border-radius:6px;border:1px solid #555;background:#0a0a0a;color:#ffd700;"/>
+            </div>
+            <div>
+              <button type="submit" class="ta-btn ta-btn-primary" style="margin:0;">Publish Quiz</button>
+            </div>
+          </div>
+          <div id="slotError" style="display:none;margin-top:12px;padding:8px;background:#4a1a1a;border:1px solid #ff4444;border-radius:6px;color:#ff8888;"></div>
         </form>
         <p style="margin-top:16px;"><a href="/admin/writer-submissions" class="ta-btn ta-btn-outline">Back</a></p>
+        <script>
+          (function() {
+            const form = document.getElementById('publishForm');
+            const unlockInput = document.getElementById('unlock_at_input');
+            const errorDiv = document.getElementById('slotError');
+            const takenSlotsData = ${JSON.stringify(Array.from(takenSlots))};
+            const takenSlots = new Set(takenSlotsData);
+            
+            // Check if selected slot is taken
+            function checkSlot() {
+              const value = unlockInput.value;
+              if (!value) {
+                errorDiv.style.display = 'none';
+                return true;
+              }
+              // Convert datetime-local to slot key
+              const parts = value.split('T');
+              const datePart = parts[0];
+              const timePart = parts[1] || '00:00';
+              const hour = parseInt(timePart.split(':')[0]);
+              const half = hour === 0 ? 'AM' : 'PM';
+              const slotKey = datePart + '-' + half;
+              
+              if (takenSlots.has(slotKey)) {
+                errorDiv.innerHTML = '⚠️ This timeslot is already taken! Please select a different slot from the calendar above.';
+                errorDiv.style.display = 'block';
+                return false;
+              } else {
+                errorDiv.style.display = 'none';
+                return true;
+              }
+            }
+            
+            unlockInput.addEventListener('change', checkSlot);
+            unlockInput.addEventListener('input', checkSlot);
+            
+            form.addEventListener('submit', function(e) {
+              if (!checkSlot()) {
+                e.preventDefault();
+                unlockInput.focus();
+                return false;
+              }
+            });
+            
+            // Highlight selected slot in calendar
+            unlockInput.addEventListener('change', function() {
+              const value = unlockInput.value;
+              if (!value) return;
+              const parts = value.split('T');
+              const datePart = parts[0];
+              const timePart = parts[1] || '00:00';
+              const hour = parseInt(timePart.split(':')[0]);
+              const half = hour === 0 ? 'AM' : 'PM';
+              const slotId = 'slot-' + datePart + '-' + half;
+              
+              document.querySelectorAll('.slot-btn-calendar').forEach(function(el) {
+                if (el.dataset.taken !== 'true') {
+                  el.style.transform = 'scale(1)';
+                  el.style.boxShadow = 'none';
+                }
+              });
+              
+              const selectedSlot = document.getElementById(slotId);
+              if (selectedSlot && selectedSlot.dataset.taken !== 'true') {
+                selectedSlot.style.transform = 'scale(1.05)';
+                selectedSlot.style.boxShadow = '0 0 8px #44ff44';
+              }
+            });
+          })();
+        </script>
       </body></html>
     `);
   } catch (e) {
@@ -3344,8 +3505,30 @@ app.post('/admin/writer-submissions/:id/publish', requireAdmin, express.urlencod
     if (!questions.length) return res.status(400).send('Submission has no questions');
     const unlockUtc = etToUtc(unlockInput);
     // Enforce unique slot: prevent duplicate unlock_at
-    const dupe = await pool.query('SELECT id FROM quizzes WHERE unlock_at=$1 LIMIT 1', [unlockUtc]);
-    if (dupe.rows.length) return res.status(400).send('A quiz already exists at this unlock time (ET).');
+    const dupe = await pool.query('SELECT id, title FROM quizzes WHERE unlock_at=$1 LIMIT 1', [unlockUtc]);
+    if (dupe.rows.length) {
+      const unlockEt = utcToEtParts(unlockUtc);
+      const dateStr = `${unlockEt.y}-${String(unlockEt.m).padStart(2,'0')}-${String(unlockEt.d).padStart(2,'0')}`;
+      const timeStr = unlockEt.h === 0 ? 'Midnight (AM)' : 'Noon (PM)';
+      const existingTitle = dupe.rows[0].title || 'Untitled Quiz';
+      const esc = (v) => String(v || '').replace(/&/g,'&amp;').replace(/</g,'&lt;');
+      const header = await renderHeader(req);
+      return res.status(400).send(`
+        ${renderHead('Timeslot Already Taken', false)}
+        <body class="ta-body" style="padding:24px;">
+        ${header}
+          <div style="background:#4a1a1a;border:2px solid #ff4444;border-radius:8px;padding:20px;max-width:600px;margin:40px auto;">
+            <h1 style="color:#ff8888;margin-top:0;">⚠️ Timeslot Already Taken</h1>
+            <p style="color:#ffd700;font-size:18px;margin:16px 0;"><strong>Date:</strong> ${dateStr} at ${timeStr} ET</p>
+            <p style="color:#ccc;margin:16px 0;"><strong>Existing Quiz:</strong> "${esc(existingTitle)}" (ID: ${dupe.rows[0].id})</p>
+            <p style="color:#ff8888;margin-top:24px;">Please select a different timeslot from the calendar.</p>
+            <div style="margin-top:24px;">
+              <a href="/admin/writer-submissions/${id}" class="ta-btn ta-btn-primary">← Go Back</a>
+            </div>
+          </div>
+        </body></html>
+      `);
+    }
     const freezeUtc = new Date(unlockUtc.getTime() + 24*60*60*1000);
     const authorBlurb = (data && typeof data.author_blurb !== 'undefined') ? (String(data.author_blurb || '').trim() || null) : null;
     const description = (data && typeof data.description !== 'undefined') ? (String(data.description || '').trim() || null) : null;
