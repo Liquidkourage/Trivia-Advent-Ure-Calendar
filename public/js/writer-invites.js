@@ -179,10 +179,43 @@
         if (!m) { out.textContent = 'Invalid link'; return; }
         var token = m[1];
         sendBtn.disabled = true;
-        fetch('/admin/writer-invites/' + token + '/resend', { method: 'POST' })
-          .then(function (r) { return r.ok ? 'Sent' : 'Failed'; })
-          .then(function (status) { sendBtn.textContent = status; setTimeout(function(){ sendBtn.textContent='Send now'; sendBtn.disabled=false; }, 1200); })
-          .catch(function(){ sendBtn.textContent = 'Failed'; setTimeout(function(){ sendBtn.textContent='Send now'; sendBtn.disabled=false; }, 1200); });
+        var originalText = sendBtn.textContent;
+        sendBtn.textContent = 'Sending...';
+        fetch('/admin/writer-invites/' + token + '/resend', { 
+          method: 'POST',
+          headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }
+        })
+          .then(function (r) { 
+            if (r.ok) {
+              return r.json().then(function(data) { return { ok: true, message: data.message || 'Sent' }; })
+                .catch(function() { return { ok: true, message: 'Sent' }; });
+            } else {
+              return r.json().then(function(data) { return { ok: false, message: data.error || 'Failed' }; })
+                .catch(function() { return r.text().then(function(text) { return { ok: false, message: text || 'Failed' }; }); });
+            }
+          })
+          .then(function (result) { 
+            sendBtn.textContent = result.ok ? 'Sent' : result.message.substring(0, 20);
+            if (!result.ok) {
+              sendBtn.style.background = '#ff6b6b';
+              console.error('Send failed:', result.message);
+            }
+            setTimeout(function(){ 
+              sendBtn.textContent = originalText; 
+              sendBtn.disabled = false;
+              sendBtn.style.background = '';
+            }, result.ok ? 1200 : 3000); 
+          })
+          .catch(function(err){ 
+            sendBtn.textContent = 'Error'; 
+            sendBtn.style.background = '#ff6b6b';
+            console.error('Send error:', err);
+            setTimeout(function(){ 
+              sendBtn.textContent = originalText; 
+              sendBtn.disabled = false;
+              sendBtn.style.background = '';
+            }, 3000); 
+          });
       }
     }, { once: true });
     resultsPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });

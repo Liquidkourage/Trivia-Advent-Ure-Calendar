@@ -3446,18 +3446,30 @@ app.post('/admin/writer-invites/:token/resend', requireAdmin, async (req, res) =
     try {
       await sendWriterInviteEmail(email, author, link, rows[0].slot_date, rows[0].slot_half);
       await pool.query('UPDATE writer_invites SET sent_at = NOW() WHERE token=$1', [token]);
+      // Check if this is an AJAX request (from the "Send now" button)
+      if (req.headers['x-requested-with'] === 'XMLHttpRequest' || req.headers.accept?.includes('application/json')) {
+        return res.json({ success: true, message: 'Email sent successfully' });
+      }
       res.redirect('/admin/writer-invites/list?msg=Email sent successfully');
     } catch (emailError) {
       console.error('[resend] Email send error for', email, ':', emailError);
       const errorMsg = emailError?.message || String(emailError);
+      let userMessage = `Failed to send email: ${errorMsg}`;
+      
       // Check for common Gmail API errors
       if (errorMsg.includes('Gmail OAuth credentials not configured')) {
-        return res.status(500).send('Email not configured. Please check Gmail OAuth credentials.');
+        userMessage = 'Email not configured. Please check Gmail OAuth credentials.';
+      } else if (errorMsg.includes('invalid_grant') || errorMsg.includes('unauthorized')) {
+        userMessage = 'Gmail authentication failed. Please refresh the OAuth token.';
+      } else if (errorMsg.includes('quota') || errorMsg.includes('rate limit')) {
+        userMessage = 'Gmail rate limit exceeded. Please try again later.';
       }
-      if (errorMsg.includes('invalid_grant') || errorMsg.includes('unauthorized')) {
-        return res.status(500).send('Gmail authentication failed. Please refresh the OAuth token.');
+      
+      // Check if this is an AJAX request (from the "Send now" button)
+      if (req.headers['x-requested-with'] === 'XMLHttpRequest' || req.headers.accept?.includes('application/json')) {
+        return res.status(500).json({ success: false, error: userMessage });
       }
-      return res.status(500).send(`Failed to send email: ${errorMsg}`);
+      return res.status(500).send(userMessage);
     }
   } catch (e) {
     console.error('[resend] Unexpected error:', e);
