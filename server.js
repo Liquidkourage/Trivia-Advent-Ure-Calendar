@@ -5337,6 +5337,8 @@ app.post('/admin/players/grant-admin', requireAdmin, async (req, res) => {
   try {
     const email = String(req.body.email || '').trim().toLowerCase();
     if (!email) return res.status(400).send('Email required');
+    // Ensure they're in players table (should already be, but be safe)
+    await pool.query('INSERT INTO players(email, access_granted_at) VALUES($1, NOW()) ON CONFLICT (email) DO NOTHING', [email]);
     await pool.query('INSERT INTO admins(email) VALUES($1) ON CONFLICT (email) DO NOTHING', [email]);
     res.redirect('/admin/players?msg=Admin granted');
   } catch (e) {
@@ -5425,6 +5427,8 @@ app.post('/admin/players/bulk/grant-admin', requireAdmin, async (req, res) => {
     for (const email of emails) {
       const e = String(email || '').trim().toLowerCase();
       if (!e) continue;
+      // Ensure they're in players table (should already be, but be safe)
+      await pool.query('INSERT INTO players(email, access_granted_at) VALUES($1, NOW()) ON CONFLICT (email) DO NOTHING', [e]);
       await pool.query('INSERT INTO admins(email) VALUES($1) ON CONFLICT (email) DO NOTHING', [e]);
     }
     res.redirect(`/admin/players?msg=${emails.length} admin(s) granted`);
