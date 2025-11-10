@@ -3413,6 +3413,82 @@ app.get('/admin/writer-invites/list', requireAdmin, async (req, res) => {
                 row.style.display = query === '' || text.includes(query) ? '' : 'none';
               });
             });
+            
+            // Email editing functionality
+            document.querySelectorAll('.edit-email-btn').forEach(function(btn) {
+              btn.addEventListener('click', function() {
+                const token = this.getAttribute('data-token');
+                const row = this.closest('tr');
+                const display = row.querySelector('.email-display[data-token="' + token + '"]');
+                const input = row.querySelector('.email-edit[data-token="' + token + '"]');
+                
+                if (display.style.display === 'none') {
+                  // Currently editing - save
+                  const newEmail = input.value.trim();
+                  if (newEmail && !newEmail.match(/^[^@]+@[^@]+\.[^@]+$/)) {
+                    alert('Please enter a valid email address');
+                    return;
+                  }
+                  
+                  btn.disabled = true;
+                  btn.textContent = 'Saving...';
+                  
+                  fetch('/admin/writer-invites/' + token + '/update-email', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: 'email=' + encodeURIComponent(newEmail || '')
+                  })
+                  .then(function(r) {
+                    if (r.ok) {
+                      display.textContent = newEmail || '(no email)';
+                      display.style.display = '';
+                      input.style.display = 'none';
+                      btn.textContent = 'Edit Email';
+                    } else {
+                      return r.text().then(function(text) {
+                        throw new Error(text || 'Failed to update');
+                      });
+                    }
+                  })
+                  .catch(function(err) {
+                    alert('Failed to update email: ' + (err.message || err));
+                    btn.textContent = 'Edit Email';
+                  })
+                  .finally(function() {
+                    btn.disabled = false;
+                  });
+                } else {
+                  // Start editing
+                  display.style.display = 'none';
+                  input.style.display = 'inline-block';
+                  input.focus();
+                  input.select();
+                  btn.textContent = 'Save';
+                }
+              });
+            });
+            
+            // Allow Enter key to save, Escape to cancel
+            document.querySelectorAll('.email-edit').forEach(function(input) {
+              input.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  const token = this.getAttribute('data-token');
+                  const btn = this.closest('tr').querySelector('.edit-email-btn[data-token="' + token + '"]');
+                  if (btn) btn.click();
+                } else if (e.key === 'Escape') {
+                  e.preventDefault();
+                  const token = this.getAttribute('data-token');
+                  const row = this.closest('tr');
+                  const display = row.querySelector('.email-display[data-token="' + token + '"]');
+                  const btn = row.querySelector('.edit-email-btn[data-token="' + token + '"]');
+                  display.style.display = '';
+                  this.style.display = 'none';
+                  this.value = display.textContent === '(no email)' ? '' : display.textContent;
+                  btn.textContent = 'Edit Email';
+                }
+              });
+            });
           })();
         </script>
       </body></html>
