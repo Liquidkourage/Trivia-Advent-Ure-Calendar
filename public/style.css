@@ -303,6 +303,7 @@ body.ta-body{margin:0;background:linear-gradient(180deg,var(--blue-top) 0%, var(
 @media (max-width: 640px){
   .slot-grid{gap:3px;padding:3px}
   .slot-btn{font-size:9px;padding:4px 0;min-height:22px;border-radius:6px;font-weight:800}
+  .ta-door.is-open .ta-door-number{display:none}
 }
 
 @media (max-width: 420px){
