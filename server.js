@@ -3422,6 +3422,10 @@ app.post('/admin/writer-invites/:token/resend', requireAdmin, async (req, res) =
   try {
     const { rows } = await pool.query('SELECT token, author, email, slot_date, slot_half FROM writer_invites WHERE token=$1', [req.params.token]);
     if (!rows.length || !rows[0].email) return res.status(400).send('Invite not found or missing email');
+    // Ensure author is in players table before resending
+    if (rows[0].email) {
+      await ensureAuthorIsPlayer(rows[0].email);
+    }
     const baseUrl = process.env.PUBLIC_BASE_URL || '';
     const link = `${baseUrl}/writer/${rows[0].token}`;
     await sendWriterInviteEmail(rows[0].email, rows[0].author, link, rows[0].slot_date, rows[0].slot_half);
