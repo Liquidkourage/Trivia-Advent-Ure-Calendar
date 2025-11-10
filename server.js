@@ -3267,6 +3267,18 @@ app.get('/admin/writer-submissions/:id', requireAdmin, async (req, res) => {
       </div>`;
     }).join('');
     const warnHtml = warn.length ? `<div style="background:#fff3cd;color:#664d03;border:1px solid #ffecb5;padding:8px;border-radius:6px;margin:8px 0;">${warn.map(esc).join('<br/>')}</div>` : '';
+    
+    // Calculate unlock_at from slot_date and slot_half if available
+    let unlockAtValue = '';
+    if (req.query && req.query.unlock) {
+      unlockAtValue = String(req.query.unlock).replace(' ','T');
+    } else if (row.slot_date && row.slot_half) {
+      // slot_date is YYYY-MM-DD, slot_half is 'AM' or 'PM'
+      // AM = 00:00, PM = 12:00 in Eastern Time
+      const hour = (row.slot_half.toUpperCase() === 'AM') ? '00' : '12';
+      unlockAtValue = `${row.slot_date}T${hour}:00`;
+    }
+    
     const header = await renderHeader(req);
     res.type('html').send(`
       ${renderHead(`Preview Submission #${id}`, false)}
@@ -3274,7 +3286,7 @@ app.get('/admin/writer-submissions/:id', requireAdmin, async (req, res) => {
       ${header}
         <h1>Submission #${id} Preview</h1>
         <div>Author: <strong>${esc(row.author||'')}</strong></div>
-        <div>Slot: ${row.slot_date || ''} ${row.slot_half || ''}</div>
+        <div>Slot: ${row.slot_date || ''} ${row.slot_half || ''}${row.slot_date && row.slot_half ? ' (auto-filled below)' : ''}</div>
         <div>Submitted: ${fmtEt(row.submitted_at)}${row.updated_at ? ` · Updated: ${fmtEt(row.updated_at)}` : ''}</div>
         ${data.description ? `<h3 style="margin-top:12px;">About this quiz</h3><div>${esc(data.description)}</div>` : ''}
         ${data.author_blurb ? `<h3 style="margin-top:12px;">About the author</h3><div>${esc(data.author_blurb)}</div>` : ''}
@@ -3283,7 +3295,7 @@ app.get('/admin/writer-submissions/:id', requireAdmin, async (req, res) => {
         ${qHtml || '<div>No questions.</div>'}
         <form method="post" action="/admin/writer-submissions/${id}/publish" style="margin-top:12px;">
           <label>Title <input name="title" required style="width:40%"/></label>
-          <label style="margin-left:12px;">Unlock (ET) <input name="unlock_at" type="datetime-local" required value="${(req.query && req.query.unlock) ? String(req.query.unlock).replace(' ','T') : ''}"/></label>
+          <label style="margin-left:12px;">Unlock (ET) <input name="unlock_at" type="datetime-local" required value="${unlockAtValue}"/></label>
           <button type="submit" style="margin-left:12px;">Publish</button>
         </form>
         <p style="margin-top:16px;"><a href="/admin/writer-submissions" class="ta-btn ta-btn-outline">Back</a></p>
