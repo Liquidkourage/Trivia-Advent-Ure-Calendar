@@ -3281,6 +3281,15 @@ app.get('/admin/writer-submissions/:id', requireAdmin, async (req, res) => {
     }).join('');
     const warnHtml = warn.length ? `<div style="background:#fff3cd;color:#664d03;border:1px solid #ffecb5;padding:8px;border-radius:6px;margin:8px 0;">${warn.map(esc).join('<br/>')}</div>` : '';
     
+    // Determine if this is a draft (autosave) or actual submission
+    const isDraft = !row.invite_submitted_at;
+    const statusBadge = isDraft 
+      ? '<span style="background:#ff9800;color:#000;padding:4px 8px;border-radius:4px;font-weight:bold;margin-left:8px;">DRAFT</span>'
+      : '<span style="background:#4caf50;color:#fff;padding:4px 8px;border-radius:4px;font-weight:bold;margin-left:8px;">SUBMITTED</span>';
+    const statusText = isDraft 
+      ? `This is a draft (autosaved). The author has not yet clicked "Submit Quiz". Last saved: ${fmtEt(row.updated_at || row.submitted_at)}`
+      : `This quiz was submitted by the author on ${fmtEt(row.invite_submitted_at)}.`;
+    
     // Calculate unlock_at from slot_date and slot_half if available
     let unlockAtValue = '';
     if (req.query && req.query.unlock) {
