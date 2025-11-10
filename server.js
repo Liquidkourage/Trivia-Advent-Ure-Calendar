@@ -69,6 +69,9 @@ import { Pool } from 'pg';
 import nodemailer from 'nodemailer';
 import { google } from 'googleapis';
 import dotenv from 'dotenv';
+import { execSync } from 'child_process';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
 // Avoid timezone library; store UTC in DB and compare in UTC
 
 dotenv.config();
