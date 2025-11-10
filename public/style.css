@@ -378,7 +378,7 @@ body.ta-modal-open{overflow:hidden}
   .ta-calendar-grid{gap:6px 8px;}
   .ta-calendar-grid > *{overflow:visible;}
   .ta-door-slot{width:100%;overflow:hidden;display:flex;justify-content:center;}
-  .ta-door{width:80%!important;max-width:none!important;min-width:0!important;margin:0 auto;flex-shrink:0;}
+  .ta-door{width:80%!important;max-width:none!important;min-width:0!important;margin:0 auto;flex-shrink:0;aspect-ratio:4/3.75;}
   .ta-door-number{font-size:20px;transform:translateY(3px);-webkit-text-stroke:0.5px #D4AF37;text-shadow:0 1px 0 rgba(0,0,0,.7), 0 2px 6px rgba(0,0,0,.45), 0 0 3px rgba(212,175,55,.35);}
   .ta-door-label{font-size:5px}
   .ta-door-front{gap:3px;}
@@ -553,7 +553,7 @@ body.ta-modal-open{overflow:hidden}
   .ta-calendar-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px 10px;max-width:100%;}
   .ta-calendar-grid > *{overflow:visible;}
   .ta-door-slot{width:100%;overflow:hidden;display:flex;justify-content:center;}
-  .ta-door{width:85%!important;max-width:none!important;min-width:0!important;margin:0 auto;flex-shrink:0;}
+  .ta-door{width:85%!important;max-width:none!important;min-width:0!important;margin:0 auto;flex-shrink:0;aspect-ratio:4/3.75;}
   .ta-door-number{font-size:23px;transform:translateY(4px);-webkit-text-stroke:0.5px #D4AF37;text-shadow:0 1px 0 rgba(0,0,0,.7), 0 3px 9px rgba(0,0,0,.45), 0 0 4px rgba(212,175,55,.35);}
   .ta-door-label{font-size:6px;}
   .ta-door-front{gap:4px;}
