@@ -3196,18 +3196,31 @@ app.post('/writer/:token', express.urlencoded({ extended: true }), async (req, r
 app.get('/admin/writer-submissions', requireAdmin, async (req, res) => {
   try {
     const { rows } = await pool.query(`
-      SELECT ws.id, ws.submitted_at, ws.author, ws.data
+      SELECT ws.id, ws.submitted_at, ws.updated_at, ws.author, ws.data, wi.submitted_at as invite_submitted_at
       FROM writer_submissions ws
+      LEFT JOIN writer_invites wi ON wi.token = ws.token
       ORDER BY ws.id DESC
       LIMIT 200
     `);
+    const esc = (v) => String(v || '').replace(/&/g,'&amp;').replace(/</g,'&lt;');
     const list = rows.map(r => {
       let first = '';
       try { first = (r.data?.questions?.[0]?.text) || ''; } catch {}
+      // Determine if this is a draft (autosave) or actual submission
+      const isDraft = !r.invite_submitted_at;
+      const statusBadge = isDraft 
+        ? '<span style="background:#ff9800;color:#000;padding:2px 6px;border-radius:4px;font-size:11px;font-weight:bold;">DRAFT</span>'
+        : '<span style="background:#4caf50;color:#fff;padding:2px 6px;border-radius:4px;font-size:11px;font-weight:bold;">SUBMITTED</span>';
+      const statusText = isDraft 
+        ? `Draft (last saved: ${fmtEt(r.updated_at || r.submitted_at)})`
+        : `Submitted: ${fmtEt(r.invite_submitted_at)}`;
       return `
-        <li style="margin:10px 0;padding:8px;border:1px solid #ddd;border-radius:6px;">
-          <div><strong>ID:</strong> ${r.id} · <strong>Author:</strong> ${r.author} · <strong>Submitted:</strong> ${fmtEt(r.submitted_at)}</div>
-          <div style="margin-top:4px;color:#555;"><em>Preview:</em> ${first ? first.replace(/</g,'&lt;') : '(no preview)'} </div>
+        <li style="margin:10px 0;padding:8px;border:1px solid ${isDraft ? '#ff9800' : '#4caf50'};border-radius:6px;border-left-width:4px;">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+            ${statusBadge}
+            <strong>ID:</strong> ${r.id} · <strong>Author:</strong> ${esc(r.author)} · ${statusText}
+          </div>
+          <div style="margin-top:4px;color:#555;"><em>Preview:</em> ${first ? esc(first) : '(no preview)'} </div>
           <div style="margin-top:8px;"><a href="/admin/writer-submissions/${r.id}">Preview</a></div>
           <form method="post" action="/admin/writer-submissions/${r.id}/publish" style="margin-top:8px;">
             <label>Title <input name="title" required style="width:40%"/></label>
@@ -3284,10 +3297,13 @@ app.get('/admin/writer-submissions/:id', requireAdmin, async (req, res) => {
       ${renderHead(`Preview Submission #${id}`, false)}
       <body class="ta-body" style="padding:24px;">
       ${header}
-        <h1>Submission #${id} Preview</h1>
+        <h1>Submission #${id} Preview ${statusBadge}</h1>
+        <div style="margin:12px 0;padding:8px;background:${isDraft ? 'rgba(255,152,0,0.1)' : 'rgba(76,175,80,0.1)'};border-left:3px solid ${isDraft ? '#ff9800' : '#4caf50'};border-radius:4px;">
+          ${statusText}
+        </div>
         <div>Author: <strong>${esc(row.author||'')}</strong></div>
         <div>Slot: ${row.slot_date || ''} ${row.slot_half || ''}${row.slot_date && row.slot_half ? ' (auto-filled below)' : ''}</div>
-        <div>Submitted: ${fmtEt(row.submitted_at)}${row.updated_at ? ` · Updated: ${fmtEt(row.updated_at)}` : ''}</div>
+        <div>First saved: ${fmtEt(row.submitted_at)}${row.updated_at ? ` · Last updated: ${fmtEt(row.updated_at)}` : ''}</div>
         ${data.description ? `<h3 style="margin-top:12px;">About this quiz</h3><div>${esc(data.description)}</div>` : ''}
         ${data.author_blurb ? `<h3 style="margin-top:12px;">About the author</h3><div>${esc(data.author_blurb)}</div>` : ''}
         ${warnHtml}
