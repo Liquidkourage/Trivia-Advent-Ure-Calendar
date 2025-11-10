@@ -2491,8 +2491,8 @@ app.get('/calendar', async (req, res) => {
             </div>
             <div class="ta-door-back">
               <div class="slot-grid">
-                ${amUnlocked ? `<a class=\"slot-btn unlocked\" href=\"${amHref}\">AM</a>` : `<span class=\"slot-btn ${sAm.unlocked?'unlocked':'locked'}\">AM</span>`}
-                ${pmUnlocked ? `<a class=\"slot-btn unlocked\" href=\"${pmHref}\">PM</a>` : `<span class=\"slot-btn ${sPm.unlocked?'unlocked':'locked'}\">PM</span>`}
+                ${amUnlocked ? `<a class=\"slot-btn unlocked\" href=\"${amHref}\" data-door-slot=\"am\">AM</a>` : `<span class=\"slot-btn ${sAm.unlocked?'unlocked':'locked'}\">AM</span>`}
+                ${pmUnlocked ? `<a class=\"slot-btn unlocked\" href=\"${pmHref}\" data-door-slot=\"pm\">PM</a>` : `<span class=\"slot-btn ${sPm.unlocked?'unlocked':'locked'}\">PM</span>`}
               </div>
             </div>
           </div>
@@ -2526,17 +2526,31 @@ app.get('/calendar', async (req, res) => {
               }
               
               var door = e.currentTarget;
-              // Let slot buttons work normally (they'll navigate)
-              if (e.target && e.target.closest && e.target.closest('.slot-btn')) {
-                // If door was just opened, prevent immediate navigation
-                if (recentlyOpened.has(door)) {
+              
+              // CRITICAL: If door is NOT open, block ALL clicks from reaching buttons
+              var isOpen = door.classList.contains('is-open');
+              if (!isOpen) {
+                // Door is closed - prevent any clicks from reaching buttons
+                if (e.target.closest('.slot-btn')) {
                   e.preventDefault();
                   e.stopPropagation();
                   e.stopImmediatePropagation();
                   return false;
                 }
-                return; // Allow normal button navigation
+              } else {
+                // Door is open - let slot buttons work normally
+                if (e.target && e.target.closest && e.target.closest('.slot-btn')) {
+                  // If door was just opened, prevent immediate navigation
+                  if (recentlyOpened.has(door)) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    e.stopImmediatePropagation();
+                    return false;
+                  }
+                  return; // Allow normal button navigation
+                }
               }
+              
               if (!door.classList.contains('is-unlocked')) return;
               
               isProcessing = true;
@@ -2564,9 +2578,36 @@ app.get('/calendar', async (req, res) => {
             function setupDoors(){
               var doors = document.querySelectorAll('.ta-door');
               doors.forEach(function(d){
+                // Block all clicks on slot buttons when door is closed
+                var slotButtons = d.querySelectorAll('.slot-btn');
+                slotButtons.forEach(function(btn){
+                  btn.addEventListener('click', function(e){
+                    var door = btn.closest('.ta-door');
+                    if (!door || !door.classList.contains('is-open')) {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      e.stopImmediatePropagation();
+                      return false;
+                    }
+                    if (recentlyOpened.has(door)) {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      e.stopImmediatePropagation();
+                      return false;
+                    }
+                  }, true);
+                });
+                
                 // Handle touch events first to prevent double-firing
                 if ('ontouchstart' in window) {
                   d.addEventListener('touchstart', function(e){
+                    // Block touch on buttons when door is closed
+                    if (e.target.closest('.slot-btn')) {
+                      var door = e.target.closest('.ta-door');
+                      if (!door || !door.classList.contains('is-open')) {
+                        return;
+                      }
+                    }
                     if (!e.target.closest('.slot-btn')) {
                       touchStartDoor = d;
                       touchStartTime = Date.now();
@@ -2574,9 +2615,25 @@ app.get('/calendar', async (req, res) => {
                   }, { passive: true });
                   
                   d.addEventListener('touchend', function(e){
+                    // Block touch on buttons when door is closed
+                    if (e.target.closest('.slot-btn')) {
+                      var door = e.target.closest('.ta-door');
+                      if (!door || !door.classList.contains('is-open')) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        return false;
+                      }
+                      if (recentlyOpened.has(door)) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        return false;
+                      }
+                      return; // Let button handle its own navigation
+                    }
+                    
                     var touchDuration = Date.now() - touchStartTime;
                     // Only handle quick taps (not long press or swipe)
-                    if (touchStartDoor === d && touchDuration < 300 && !e.target.closest('.slot-btn')) {
+                    if (touchStartDoor === d && touchDuration < 300) {
                       e.preventDefault();
                       e.stopPropagation();
                       e.stopImmediatePropagation();
@@ -2606,20 +2663,6 @@ app.get('/calendar', async (req, res) => {
                   }, true);
                 }
               });
-              
-              // Prevent clicks on slot buttons if door was recently opened
-              document.addEventListener('click', function(e){
-                if (e.target.closest('.slot-btn')) {
-                  var btn = e.target.closest('.slot-btn');
-                  var door = btn.closest('.ta-door');
-                  if (door && recentlyOpened.has(door)) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    e.stopImmediatePropagation();
-                    return false;
-                  }
-                }
-              }, true);
             }
             
             if (document.readyState === 'loading'){
