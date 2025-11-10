@@ -1090,6 +1090,66 @@ app.get('/account', requireAuth, async (req, res) => {
   }
 });
 
+// Onboarding page - first-time user welcome
+app.get('/onboarding', requireAuth, async (req, res) => {
+  try {
+    const email = (req.session.user.email || '').toLowerCase();
+    const r = await pool.query('SELECT onboarding_complete FROM players WHERE email=$1', [email]);
+    if (r.rows.length && r.rows[0].onboarding_complete === true) {
+      // Already onboarded, redirect to credentials or home
+      const creds = await pool.query('SELECT username, password_set_at FROM players WHERE email=$1', [email]);
+      const p = creds.rows[0] || {};
+      if (!p.username || !p.password_set_at) return res.redirect('/account/credentials');
+      return res.redirect('/');
+    }
+    const header = await renderHeader(req);
+    res.type('html').send(`
+      ${renderHead('Welcome to Trivia Advent-ure', false)}
+      <body class="ta-body">
+      ${header}
+      <main class="ta-main ta-container" style="max-width:720px; margin:0 auto; padding:24px;">
+        <h1 class="ta-page-title">Welcome to Trivia Advent-ure!</h1>
+        <div style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:24px;margin-bottom:24px;">
+          <p style="font-size:18px;line-height:1.6;margin:0 0 16px 0;">
+            We're excited to have you join the community! Here's what you need to know:
+          </p>
+          <ul style="line-height:1.8;margin:0;padding-left:24px;">
+            <li><strong>48 quizzes</strong> unlock twice daily (midnight and noon ET) from December 1–24</li>
+            <li><strong>10 questions per quiz</strong> with immediate feedback and scoring</li>
+            <li><strong>Leaderboards</strong> track your progress and compare with other players</li>
+            <li><strong>Play at your own pace</strong> during each 24-hour window</li>
+          </ul>
+        </div>
+        <form method="post" action="/onboarding">
+          <button type="submit" class="ta-btn ta-btn-primary" style="font-size:18px;padding:14px 32px;">Get Started</button>
+        </form>
+      </main>
+      ${renderFooter(req)}
+      </body></html>
+    `);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to load onboarding');
+  }
+});
+
+app.post('/onboarding', requireAuth, express.urlencoded({ extended: true }), async (req, res) => {
+  try {
+    const email = (req.session.user.email || '').toLowerCase();
+    await pool.query('UPDATE players SET onboarding_complete = true WHERE email = $1', [email]);
+    // Check if they need to set credentials
+    const creds = await pool.query('SELECT username, password_set_at FROM players WHERE email=$1', [email]);
+    const p = creds.rows[0] || {};
+    if (!p.username || !p.password_set_at) {
+      return res.redirect('/account/credentials');
+    }
+    res.redirect('/');
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to complete onboarding');
+  }
+});
+
 // Account credentials: set username and password (first-time prompt)
 app.get('/account/credentials', requireAuth, async (req, res) => {
   try {
