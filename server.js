@@ -3420,20 +3420,48 @@ app.get('/admin/writer-invites/list', requireAdmin, async (req, res) => {
 
 app.post('/admin/writer-invites/:token/resend', requireAdmin, async (req, res) => {
   try {
-    const { rows } = await pool.query('SELECT token, author, email, slot_date, slot_half FROM writer_invites WHERE token=$1', [req.params.token]);
-    if (!rows.length || !rows[0].email) return res.status(400).send('Invite not found or missing email');
-    // Ensure author is in players table before resending
-    if (rows[0].email) {
-      await ensureAuthorIsPlayer(rows[0].email);
+    const token = String(req.params.token || '').trim();
+    const { rows } = await pool.query('SELECT token, author, email, slot_date, slot_half FROM writer_invites WHERE token=$1', [token]);
+    if (!rows.length) {
+      return res.status(404).send('Invite not found');
     }
+    if (!rows[0].email) {
+      return res.status(400).send('Invite has no email address');
+    }
+    
+    const email = rows[0].email;
+    const author = rows[0].author;
+    
+    // Ensure author is in players table before resending
+    try {
+      await ensureAuthorIsPlayer(email);
+    } catch (e) {
+      console.error('[resend] Error ensuring author is player:', e);
+      // Continue anyway - not critical
+    }
+    
     const baseUrl = process.env.PUBLIC_BASE_URL || '';
     const link = `${baseUrl}/writer/${rows[0].token}`;
-    await sendWriterInviteEmail(rows[0].email, rows[0].author, link, rows[0].slot_date, rows[0].slot_half);
-    await pool.query('UPDATE writer_invites SET sent_at = NOW() WHERE token=$1', [rows[0].token]);
-    res.redirect('/admin/writer-invites/list');
+    
+    try {
+      await sendWriterInviteEmail(email, author, link, rows[0].slot_date, rows[0].slot_half);
+      await pool.query('UPDATE writer_invites SET sent_at = NOW() WHERE token=$1', [token]);
+      res.redirect('/admin/writer-invites/list?msg=Email sent successfully');
+    } catch (emailError) {
+      console.error('[resend] Email send error for', email, ':', emailError);
+      const errorMsg = emailError?.message || String(emailError);
+      // Check for common Gmail API errors
+      if (errorMsg.includes('Gmail OAuth credentials not configured')) {
+        return res.status(500).send('Email not configured. Please check Gmail OAuth credentials.');
+      }
+      if (errorMsg.includes('invalid_grant') || errorMsg.includes('unauthorized')) {
+        return res.status(500).send('Gmail authentication failed. Please refresh the OAuth token.');
+      }
+      return res.status(500).send(`Failed to send email: ${errorMsg}`);
+    }
   } catch (e) {
-    console.error(e);
-    res.status(500).send('Failed to resend');
+    console.error('[resend] Unexpected error:', e);
+    res.status(500).send(`Failed to resend: ${e?.message || String(e)}`);
   }
 });
 
