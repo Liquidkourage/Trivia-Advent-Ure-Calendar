@@ -5709,6 +5709,9 @@ app.post('/admin/admins/add', requireAdmin, async (req, res) => {
   try {
     const email = String(req.body.email || '').trim().toLowerCase();
     if (!email) return res.status(400).send('Email required');
+    // Add to players table first (required for authentication and player management)
+    await pool.query('INSERT INTO players(email, access_granted_at) VALUES($1, NOW()) ON CONFLICT (email) DO NOTHING', [email]);
+    // Then add to admins table
     await pool.query('INSERT INTO admins(email) VALUES($1) ON CONFLICT (email) DO NOTHING', [email]);
     res.redirect('/admin/admins');
   } catch (e) {
