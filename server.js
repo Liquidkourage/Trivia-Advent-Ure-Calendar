@@ -3137,7 +3137,35 @@ app.post('/writer/:token', express.urlencoded({ extended: true }), async (req, r
     } else {
       await pool.query('INSERT INTO writer_submissions(token, author, data) VALUES($1,$2,$3)', [invite.token, invite.author, JSON.stringify(payload)]);
     }
+    const isNewSubmission = !existing.rows.length;
     try { await pool.query('UPDATE writer_invites SET submitted_at = COALESCE(submitted_at, NOW()) WHERE token=$1', [invite.token]); } catch {}
+    
+    // Send email notification to all admins when a new submission is made
+    if (isNewSubmission) {
+      try {
+        const adminRows = await pool.query('SELECT email FROM admins ORDER BY email ASC');
+        const baseUrl = process.env.PUBLIC_BASE_URL || '';
+        const submissionUrl = `${baseUrl}/admin/writer-submissions`;
+        const subject = `New Quiz Submission from ${invite.author}`;
+        const text = `A new quiz has been submitted by ${invite.author}.\r\n\r\nView and publish it here:\r\n${submissionUrl}\r\n\r\nQuestions submitted: ${questions.length}`;
+        
+        for (const adminRow of adminRows.rows) {
+          const adminEmail = (adminRow.email || '').toLowerCase();
+          if (adminEmail) {
+            try {
+              await sendPlainEmail(adminEmail, subject, text);
+              console.log('[writer-submit] Notification sent to admin:', adminEmail);
+            } catch (emailErr) {
+              console.error('[writer-submit] Failed to notify admin', adminEmail, ':', emailErr?.message || emailErr);
+            }
+          }
+        }
+      } catch (notifyErr) {
+        console.error('[writer-submit] Error sending admin notifications:', notifyErr);
+        // Don't fail the submission if email fails
+      }
+    }
+    
     const header = await renderHeader(req);
     res.type('html').send(`
       ${renderHead('Submitted', false)}
@@ -3313,6 +3341,24 @@ app.post('/admin/writer-submissions/:id/publish', requireAdmin, express.urlencod
     try {
       if (tok) await pool.query('UPDATE writer_invites SET published_at = NOW(), active = FALSE WHERE token=$1', [tok]);
     } catch {}
+    
+    // Send email notification to writer when quiz is published
+    if (authorEmail) {
+      try {
+        const baseUrl = process.env.PUBLIC_BASE_URL || '';
+        const quizUrl = `${baseUrl}/quiz/${quizId}`;
+        const unlockEt = utcToEtParts(unlockUtc);
+        const unlockDateStr = `${unlockEt.y}-${String(unlockEt.m).padStart(2,'0')}-${String(unlockEt.d).padStart(2,'0')} ${String(unlockEt.h).padStart(2,'0')}:${String(unlockEt.et.getUTCMinutes()).padStart(2,'0')} ET`;
+        const subject = `Your Quiz Has Been Published: ${title}`;
+        const text = `Hi ${sres.rows[0].author || 'there'},\r\n\r\nGreat news! Your quiz "${title}" has been published and is scheduled to unlock on ${unlockDateStr}.\r\n\r\nView your quiz here:\r\n${quizUrl}\r\n\r\nThank you for contributing to Trivia Advent-ure!`;
+        await sendPlainEmail(authorEmail, subject, text);
+        console.log('[publish] Notification sent to writer:', authorEmail);
+      } catch (emailErr) {
+        console.error('[publish] Failed to notify writer', authorEmail, ':', emailErr?.message || emailErr);
+        // Don't fail the publish if email fails
+      }
+    }
+    
     res.redirect(`/quiz/${quizId}`);
   } catch (e) {
     console.error(e);
@@ -4580,43 +4626,102 @@ app.get('/admin/quiz/:id', requireAdmin, async (req, res) => {
     if (qr.rows.length === 0) return res.status(404).send('Not found');
     const quiz = qr.rows[0];
     const qs = await pool.query('SELECT * FROM questions WHERE quiz_id = $1 ORDER BY number ASC', [id]);
-    const list = qs.rows.map(q => `<li><strong>Q${q.number}</strong> ${q.text} <em>(Ans: ${q.answer})</em></li>`).join('');
+    
+    // Format unlock_at for datetime-local input (YYYY-MM-DDTHH:mm in ET)
+    let unlockAtValue = '';
+    if (quiz.unlock_at) {
+      const unlockEt = utcToEtParts(new Date(quiz.unlock_at));
+      unlockAtValue = `${unlockEt.y}-${String(unlockEt.m).padStart(2,'0')}-${String(unlockEt.d).padStart(2,'0')}T${String(unlockEt.h).padStart(2,'0')}:${String(unlockEt.et.getUTCMinutes()).padStart(2,'0')}`;
+    }
+    
+    const esc = (v) => String(v || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+    const list = qs.rows.map(q => `<li><strong>Q${q.number}</strong> ${esc(q.text)} <em>(Ans: ${esc(q.answer)})</em></li>`).join('');
+    
     const header = await renderHeader(req);
   res.type('html').send(`
     ${renderHead(`Edit Quiz #${id}`, true)}
     <body class="ta-body">
     ${header}
-      <main class="ta-main ta-container" style="max-width:900px;">
+      <main class="ta-main ta-container" style="max-width:1000px;">
         ${renderBreadcrumb([ADMIN_CRUMB, { label: 'Quizzes', href: '/admin/quizzes' }, { label: `Quiz #${id}` }])}
         ${renderAdminNav('quizzes')}
         <h1 class="ta-page-title">Edit Quiz #${id}</h1>
         <form method="post" action="/admin/quiz/${id}" class="ta-form-stack">
-          <label class="ta-form-field">Title <input name="title" value="${quiz.title}" required /></label>
-          <label class="ta-form-field">Unlock (ET) <input name="unlock_at" type="datetime-local" /> <small style="opacity:0.7;">Leave blank to keep existing time.</small></label>
+          <div class="ta-form-field">
+            <label>Title <input name="title" value="${esc(quiz.title)}" required style="width:100%;" /></label>
+          </div>
+          <div class="ta-form-field">
+            <label>Author <input name="author" value="${esc(quiz.author || '')}" style="width:100%;" /></label>
+          </div>
+          <div class="ta-form-field">
+            <label>Author Email <input name="author_email" type="email" value="${esc(quiz.author_email || '')}" style="width:100%;" /></label>
+            <small style="opacity:0.7;">Email address of the quiz author (for author participation logic)</small>
+          </div>
+          <div class="ta-form-field">
+            <label>Unlock (ET) <input name="unlock_at" type="datetime-local" value="${unlockAtValue}" style="width:100%;" /></label>
+            <small style="opacity:0.7;">Leave blank to keep existing time. Freeze time will be automatically set to 24 hours after unlock.</small>
+          </div>
+          <div class="ta-form-field">
+            <label>About the Author <textarea name="author_blurb" rows="3" style="width:100%;">${esc(quiz.author_blurb || '')}</textarea></label>
+          </div>
+          <div class="ta-form-field">
+            <label>About this Quiz <textarea name="description" rows="4" style="width:100%;">${esc(quiz.description || '')}</textarea></label>
+          </div>
           <div class="ta-form-actions">
             <button type="submit" class="ta-btn ta-btn-primary">Save Changes</button>
             <a href="/admin/quizzes" class="ta-btn ta-btn-outline">Back to list</a>
           </div>
         </form>
         <section style="margin-top:32px;">
-          <h2 style="margin-bottom:12px;color:#ffd700;">Questions</h2>
-          <ul>${list || '<li>No questions</li>'}</ul>
+          <h2 style="margin-bottom:12px;color:#ffd700;">Questions (${qs.rows.length})</h2>
+          <ul style="list-style:none;padding:0;">${list || '<li>No questions</li>'}</ul>
         </section>
         <section style="margin-top:24px;">
-          <h2 style="margin-bottom:12px;color:#ffd700;">Bulk replace questions</h2>
+          <h2 style="margin-bottom:12px;color:#ffd700;">Edit Individual Questions</h2>
+          <form method="post" action="/admin/quiz/${id}/questions" class="ta-form-stack">
+            ${Array.from({length: 10}, (_, i) => {
+              const n = i + 1;
+              const q = qs.rows.find(q => q.number === n) || null;
+              return `
+                <div style="border:1px solid #444;padding:16px;margin:12px 0;border-radius:8px;background:#1a1a1a;">
+                  <h3 style="margin:0 0 12px 0;color:#ffd700;">Question ${n}</h3>
+                  <div class="ta-form-field">
+                    <label>Category <input name="q${n}_category" value="${esc(q?.category || 'General')}" style="width:100%;" /></label>
+                  </div>
+                  <div class="ta-form-field">
+                    <label>Text <textarea name="q${n}_text" rows="3" style="width:100%;">${esc(q?.text || '')}</textarea></label>
+                  </div>
+                  <div class="ta-form-field">
+                    <label>Answer <input name="q${n}_answer" value="${esc(q?.answer || '')}" style="width:100%;" /></label>
+                  </div>
+                  <div class="ta-form-field">
+                    <label>Ask (optional) <input name="q${n}_ask" value="${esc(q?.ask || '')}" style="width:100%;" /></label>
+                    <small style="opacity:0.7;">Must appear verbatim in the Text field; used as an in-line highlight</small>
+                  </div>
+                </div>
+              `;
+            }).join('')}
+            <div class="ta-form-actions">
+              <button type="submit" class="ta-btn ta-btn-primary">Save All Questions</button>
+            </div>
+          </form>
+        </section>
+        <section style="margin-top:24px;">
+          <h2 style="margin-bottom:12px;color:#ffd700;">Bulk Replace Questions (JSON)</h2>
           <form method="post" action="/admin/quiz/${id}/questions" class="ta-form-stack">
             <textarea name="json" rows="12" placeholder='[
   {"number":1, "text":"...", "answer":"...", "category":"General", "ask":"..."},
   ... 10 items total ...
-]'></textarea>
+]' style="width:100%;font-family:monospace;">${JSON.stringify(qs.rows.map(q => ({ number: q.number, text: q.text, answer: q.answer, category: q.category || 'General', ask: q.ask || null })), null, 2)}</textarea>
             <div class="ta-form-actions">
-              <button type="submit" class="ta-btn ta-btn-outline">Replace Questions</button>
+              <button type="submit" class="ta-btn ta-btn-outline">Replace Questions from JSON</button>
             </div>
           </form>
         </section>
         <section style="margin-top:24px;display:flex;flex-wrap:wrap;gap:12px;">
           <a href="/admin/quiz/${id}/analytics" class="ta-btn ta-btn-success">Analytics</a>
           <a href="/admin/quiz/${id}/grade" class="ta-btn" style="background:#2196f3;color:#fff;border-color:#2196f3;">Grade Responses</a>
+          <a href="/quiz/${id}" class="ta-btn" target="_blank">View Quiz</a>
           <form method="post" action="/admin/quiz/${id}/clone"><button type="submit" class="ta-btn">Clone Quiz</button></form>
           <form method="post" action="/admin/quiz/${id}/delete" onsubmit="return confirm('Delete this quiz? This cannot be undone.');"><button type="submit" class="ta-btn ta-btn-danger">Delete Quiz</button></form>
         </section>
@@ -4634,15 +4739,48 @@ app.post('/admin/quiz/:id', requireAdmin, async (req, res) => {
   try {
     const id = Number(req.params.id);
     const title = String(req.body.title || '').trim();
+    const author = String(req.body.author || '').trim() || null;
+    const authorEmail = String(req.body.author_email || '').trim().toLowerCase() || null;
+    const authorBlurb = String(req.body.author_blurb || '').trim() || null;
+    const description = String(req.body.description || '').trim() || null;
     const unlock = String(req.body.unlock_at || '').trim();
+    
     if (!title) return res.status(400).send('Title required');
+    
+    // Build update query dynamically
+    const updates = ['title=$1'];
+    const values = [title];
+    let paramIndex = 2;
+    
+    if (author !== null) {
+      updates.push(`author=$${paramIndex++}`);
+      values.push(author);
+    }
+    if (authorEmail !== null) {
+      updates.push(`author_email=$${paramIndex++}`);
+      values.push(authorEmail);
+    }
+    if (authorBlurb !== null) {
+      updates.push(`author_blurb=$${paramIndex++}`);
+      values.push(authorBlurb);
+    }
+    if (description !== null) {
+      updates.push(`description=$${paramIndex++}`);
+      values.push(description);
+    }
+    
     if (unlock) {
       const unlockUtc = etToUtc(unlock);
       const freezeUtc = new Date(unlockUtc.getTime() + 24*60*60*1000);
-      await pool.query('UPDATE quizzes SET title=$1, unlock_at=$2, freeze_at=$3 WHERE id=$4', [title, unlockUtc, freezeUtc, id]);
-    } else {
-      await pool.query('UPDATE quizzes SET title=$1 WHERE id=$2', [title, id]);
+      updates.push(`unlock_at=$${paramIndex++}`);
+      updates.push(`freeze_at=$${paramIndex++}`);
+      values.push(unlockUtc, freezeUtc);
     }
+    
+    values.push(id);
+    const query = `UPDATE quizzes SET ${updates.join(', ')} WHERE id=$${paramIndex}`;
+    await pool.query(query, values);
+    
     res.redirect(`/admin/quiz/${id}`);
   } catch (e) {
     console.error(e);
@@ -4654,10 +4792,39 @@ app.post('/admin/quiz/:id/questions', requireAdmin, async (req, res) => {
   try {
     const id = Number(req.params.id);
     const payload = String(req.body.json || '').trim();
-    const arr = JSON.parse(payload);
-    if (!Array.isArray(arr) || arr.length === 0) return res.status(400).send('Invalid JSON');
+    
+    let questions = [];
+    
+    // Check if JSON payload is provided (bulk replace)
+    if (payload) {
+      try {
+        const arr = JSON.parse(payload);
+        if (!Array.isArray(arr)) return res.status(400).send('Invalid JSON: must be an array');
+        questions = arr;
+      } catch (parseErr) {
+        return res.status(400).send('Invalid JSON format: ' + (parseErr?.message || String(parseErr)));
+      }
+    } else {
+      // Parse individual question fields (q1_text, q1_answer, etc.)
+      for (let i = 1; i <= 10; i++) {
+        const text = String(req.body[`q${i}_text`] || '').trim();
+        const answer = String(req.body[`q${i}_answer`] || '').trim();
+        const category = String(req.body[`q${i}_category`] || 'General').trim();
+        const ask = String(req.body[`q${i}_ask`] || '').trim() || null;
+        
+        if (text && answer) {
+          questions.push({ number: i, text, answer, category, ask });
+        }
+      }
+    }
+    
+    if (questions.length === 0) {
+      return res.status(400).send('No valid questions provided');
+    }
+    
+    // Delete existing questions and insert new ones
     await pool.query('DELETE FROM questions WHERE quiz_id = $1', [id]);
-    for (const item of arr) {
+    for (const item of questions) {
       const n = Number(item.number || 0);
       if (!n || !item.text || !item.answer) continue;
       await pool.query('INSERT INTO questions(quiz_id, number, text, answer, category, ask) VALUES($1,$2,$3,$4,$5,$6)', [id, n, String(item.text), String(item.answer), String(item.category || 'General'), item.ask ? String(item.ask) : null]);
@@ -4665,7 +4832,7 @@ app.post('/admin/quiz/:id/questions', requireAdmin, async (req, res) => {
     res.redirect(`/admin/quiz/${id}`);
   } catch (e) {
     console.error(e);
-    res.status(500).send('Failed to replace questions');
+    res.status(500).send('Failed to replace questions: ' + (e?.message || String(e)));
   }
 });
 
