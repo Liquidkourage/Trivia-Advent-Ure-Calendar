@@ -3338,10 +3338,22 @@ app.get('/admin/writer-submissions/:id', requireAdmin, async (req, res) => {
     }
     
     // Build calendar HTML
+    const hasAssignedSlot = row.slot_date && row.slot_half;
+    const assignedSlotKey = hasAssignedSlot ? `${row.slot_date}-${row.slot_half.toUpperCase()}` : null;
+    const assignedSlotTaken = hasAssignedSlot && takenSlots.has(assignedSlotKey);
     const calendarHtml = `
       <div style="margin-top:24px;background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:16px;">
-        <h3 style="margin-top:0;color:#ffd700;">Select Timeslot</h3>
-        <p style="opacity:0.8;font-size:14px;margin-bottom:16px;">Click an available slot to auto-fill the unlock time. Green = available, Red = taken.</p>
+        <h3 style="margin-top:0;color:#ffd700;">${hasAssignedSlot ? 'Assigned Timeslot' : 'Select Timeslot'}</h3>
+        ${hasAssignedSlot ? `
+          <p style="opacity:0.9;font-size:14px;margin-bottom:16px;color:${assignedSlotTaken ? '#ff8888' : '#88ff88'};">
+            ${assignedSlotTaken 
+              ? `⚠️ <strong>Warning:</strong> The assigned slot (${row.slot_date} ${row.slot_half}) is already taken! Please select a different slot.`
+              : `✓ This quiz is assigned to <strong>${row.slot_date} ${row.slot_half}</strong>. Click the calendar to change if needed. Green = available, Red = taken.`
+            }
+          </p>
+        ` : `
+          <p style="opacity:0.8;font-size:14px;margin-bottom:16px;">Click an available slot to auto-fill the unlock time. Green = available, Red = taken.</p>
+        `}
         <style>
           @media (max-width: 768px) {
             .slot-calendar-grid { grid-template-columns: repeat(3, 1fr) !important; gap: 6px !important; }
@@ -3358,10 +3370,13 @@ app.get('/admin/writer-submissions/:id', requireAdmin, async (req, res) => {
         <div class="slot-calendar-grid" style="display:grid;grid-template-columns:repeat(6,1fr);gap:8px;max-width:900px;">
           ${calendarSlots.map(slot => {
             const slotId = `slot-${slot.date}-${slot.half}`;
-            const bgColor = slot.isTaken ? '#4a1a1a' : '#1a4a1a';
-            const borderColor = slot.isTaken ? '#ff4444' : '#44ff44';
+            const slotKey = `${slot.date}-${slot.half}`;
+            const isAssignedSlot = hasAssignedSlot && slotKey === assignedSlotKey;
+            const bgColor = slot.isTaken ? '#4a1a1a' : (isAssignedSlot ? '#1a3a4a' : '#1a4a1a');
+            const borderColor = slot.isTaken ? '#ff4444' : (isAssignedSlot ? '#4488ff' : '#44ff44');
+            const borderWidth = isAssignedSlot ? '3px' : '2px';
             const cursor = slot.isTaken ? 'not-allowed' : 'pointer';
-            const title = slot.isTaken ? `Taken: ${esc(slot.existingTitle)}` : `Available: Dec ${slot.day} ${slot.half}`;
+            const title = slot.isTaken ? `Taken: ${esc(slot.existingTitle)}` : (isAssignedSlot ? `Assigned: Dec ${slot.day} ${slot.half}` : `Available: Dec ${slot.day} ${slot.half}`);
             return `
               <div 
                 id="${slotId}"
@@ -3370,13 +3385,14 @@ app.get('/admin/writer-submissions/:id', requireAdmin, async (req, res) => {
                 data-taken="${slot.isTaken}"
                 style="
                   background:${bgColor};
-                  border:2px solid ${borderColor};
+                  border:${borderWidth} solid ${borderColor};
                   border-radius:6px;
                   padding:8px;
                   text-align:center;
                   cursor:${cursor};
                   opacity:${slot.isTaken ? 0.6 : 1};
                   transition:all 0.2s;
+                  ${isAssignedSlot ? 'box-shadow: 0 0 12px rgba(68,136,255,0.5);' : ''}
                 "
                 title="${title}"
                 onclick="${slot.isTaken ? '' : `document.getElementById('unlock_at_input').value='${slot.datetimeValue}'; document.querySelectorAll('.slot-btn-calendar').forEach(el=>{if(el.dataset.taken!=='true'){el.style.transform='scale(1)';el.style.boxShadow='none';}}); this.style.transform='scale(1.05)'; this.style.boxShadow='0 0 8px ${borderColor}';`}"
@@ -3384,8 +3400,13 @@ app.get('/admin/writer-submissions/:id', requireAdmin, async (req, res) => {
                 onmouseout="${slot.isTaken ? '' : 'this.style.opacity=1;this.style.transform=\'scale(1)\';'}"
               >
                 <div class="slot-calendar-day" style="font-weight:bold;color:#ffd700;font-size:12px;">Dec ${slot.day}</div>
-                <div class="slot-calendar-half" style="font-size:11px;color:${slot.isTaken ? '#ff8888' : '#88ff88'};margin-top:4px;">${slot.half}</div>
-                ${slot.isTaken ? '<div class="slot-calendar-status" style="font-size:9px;color:#ff8888;margin-top:2px;">TAKEN</div>' : '<div class="slot-calendar-status" style="font-size:9px;color:#88ff88;margin-top:2px;">FREE</div>'}
+                <div class="slot-calendar-half" style="font-size:11px;color:${slot.isTaken ? '#ff8888' : (isAssignedSlot ? '#88ccff' : '#88ff88')};margin-top:4px;">${slot.half}</div>
+                ${slot.isTaken 
+                  ? '<div class="slot-calendar-status" style="font-size:9px;color:#ff8888;margin-top:2px;">TAKEN</div>' 
+                  : (isAssignedSlot 
+                    ? '<div class="slot-calendar-status" style="font-size:9px;color:#88ccff;margin-top:2px;font-weight:bold;">ASSIGNED</div>' 
+                    : '<div class="slot-calendar-status" style="font-size:9px;color:#88ff88;margin-top:2px;">FREE</div>')
+                }
               </div>
             `;
           }).join('')}
@@ -3403,7 +3424,18 @@ app.get('/admin/writer-submissions/:id', requireAdmin, async (req, res) => {
           ${statusText}
         </div>
         <div>Author: <strong>${esc(row.author||'')}</strong></div>
-        <div>Slot: ${row.slot_date || ''} ${row.slot_half || ''}${row.slot_date && row.slot_half ? ' (auto-filled below)' : ''}</div>
+        ${row.slot_date && row.slot_half ? `
+          <div style="margin:12px 0;padding:12px;background:rgba(76,175,80,0.15);border:2px solid #4caf50;border-radius:6px;">
+            <div style="font-weight:bold;color:#4caf50;font-size:16px;margin-bottom:4px;">✓ Assigned Slot</div>
+            <div style="color:#ffd700;font-size:18px;"><strong>${row.slot_date} ${row.slot_half}</strong> ET</div>
+            <div style="color:#aaa;font-size:13px;margin-top:4px;">This quiz is pre-assigned to this timeslot. The unlock time has been auto-filled below.</div>
+          </div>
+        ` : `
+          <div style="margin:12px 0;padding:12px;background:rgba(255,152,0,0.15);border:2px solid #ff9800;border-radius:6px;">
+            <div style="font-weight:bold;color:#ff9800;font-size:16px;margin-bottom:4px;">⚠ No Slot Assigned</div>
+            <div style="color:#ccc;font-size:14px;">This writer invite was not assigned a specific slot. Please select a timeslot from the calendar below.</div>
+          </div>
+        `}
         <div>First saved: ${fmtEt(row.submitted_at)}${row.updated_at ? ` · Last updated: ${fmtEt(row.updated_at)}` : ''}</div>
         ${data.description ? `<h3 style="margin-top:12px;">About this quiz</h3><div>${esc(data.description)}</div>` : ''}
         ${data.author_blurb ? `<h3 style="margin-top:12px;">About the author</h3><div>${esc(data.author_blurb)}</div>` : ''}
