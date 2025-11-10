@@ -399,6 +399,10 @@ setInterval(async () => {
     for (const row of rows) {
       const link = `${baseUrl}/writer/${row.token}`;
       try {
+        // Ensure author is in players table before sending email
+        if (row.email) {
+          await ensureAuthorIsPlayer(row.email);
+        }
         await sendWriterInviteEmail(row.email, row.author, link, row.slot_date, row.slot_half);
         await pool.query('UPDATE writer_invites SET sent_at = NOW() WHERE token=$1', [row.token]);
         console.log('[invite] sent to', row.email, 'for', row.author);
@@ -2818,6 +2822,24 @@ app.post('/admin/upload-quiz', requireAdmin, async (req, res) => {
   }
 });
 
+// Helper function to ensure author is in players table
+async function ensureAuthorIsPlayer(email) {
+  if (!email) return;
+  const emailLower = String(email).trim().toLowerCase();
+  if (!emailLower) return;
+  try {
+    // Check if player exists
+    const { rows } = await pool.query('SELECT 1 FROM players WHERE email=$1', [emailLower]);
+    if (rows.length === 0) {
+      // Add to players table
+      await pool.query('INSERT INTO players(email, access_granted_at) VALUES($1, NOW()) ON CONFLICT (email) DO NOTHING', [emailLower]);
+      console.log('[writer-invite] Added author to players table:', emailLower);
+    }
+  } catch (e) {
+    console.error('[writer-invite] Error ensuring author is player:', e);
+  }
+}
+
 // --- Admin: create writer invite (returns unique link) ---
 app.post('/admin/writer-invite', requireAdmin, express.urlencoded({ extended: true }), async (req, res) => {
   try {
@@ -2827,6 +2849,12 @@ app.post('/admin/writer-invite', requireAdmin, express.urlencoded({ extended: tr
     const slotHalf = String(req.body.slotHalf || '').trim().toUpperCase() || null; // 'AM'|'PM'
     const sendAtRaw = String(req.body.sendAt || '').trim() || null; // ET string "YYYY-MM-DD HH:mm"
     if (!author) return res.status(400).send('Missing author');
+    
+    // Ensure author is in players table if email is provided
+    if (email) {
+      await ensureAuthorIsPlayer(email);
+    }
+    
     const token = crypto.randomBytes(16).toString('hex');
     // Parse sendAt (ET) -> UTC if provided
     let sendAtUtc = null;
