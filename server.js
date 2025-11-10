@@ -2515,7 +2515,16 @@ app.get('/calendar', async (req, res) => {
           (function(){
             var recentlyOpened = new Set();
             var touchStartDoor = null;
+            var touchStartTime = 0;
+            var isProcessing = false;
+            
             function handleDoorClick(e){
+              if (isProcessing) {
+                e.preventDefault();
+                e.stopPropagation();
+                return false;
+              }
+              
               var door = e.currentTarget;
               // Let slot buttons work normally (they'll navigate)
               if (e.target && e.target.closest && e.target.closest('.slot-btn')) {
@@ -2529,6 +2538,9 @@ app.get('/calendar', async (req, res) => {
                 return; // Allow normal button navigation
               }
               if (!door.classList.contains('is-unlocked')) return;
+              
+              isProcessing = true;
+              
               // Toggle door open/closed (works on both mobile and desktop)
               var wasOpen = door.classList.contains('is-open');
               document.querySelectorAll('.ta-door.is-open').forEach(function(x){ 
@@ -2539,11 +2551,16 @@ app.get('/calendar', async (req, res) => {
                 door.classList.add('is-open');
                 // Mark as recently opened to prevent immediate button clicks
                 recentlyOpened.add(door);
+                // Longer delay for mobile to ensure animation completes
                 setTimeout(function(){
                   recentlyOpened.delete(door);
-                }, 500);
+                  isProcessing = false;
+                }, 800);
+              } else {
+                isProcessing = false;
               }
             }
+            
             function setupDoors(){
               var doors = document.querySelectorAll('.ta-door');
               doors.forEach(function(d){
@@ -2552,33 +2569,59 @@ app.get('/calendar', async (req, res) => {
                   d.addEventListener('touchstart', function(e){
                     if (!e.target.closest('.slot-btn')) {
                       touchStartDoor = d;
+                      touchStartTime = Date.now();
                     }
                   }, { passive: true });
+                  
                   d.addEventListener('touchend', function(e){
-                    if (touchStartDoor === d && !e.target.closest('.slot-btn')) {
+                    var touchDuration = Date.now() - touchStartTime;
+                    // Only handle quick taps (not long press or swipe)
+                    if (touchStartDoor === d && touchDuration < 300 && !e.target.closest('.slot-btn')) {
                       e.preventDefault();
                       e.stopPropagation();
+                      e.stopImmediatePropagation();
                       handleDoorClick(e);
-                      touchStartDoor = null;
-                      // Prevent click event from firing
+                      // Block click event for longer
                       setTimeout(function(){
                         touchStartDoor = null;
-                      }, 100);
+                      }, 300);
+                    } else {
+                      touchStartDoor = null;
                     }
                   }, { passive: false });
+                  
+                  // Also prevent click on touch devices
+                  d.addEventListener('click', function(e){
+                    if (touchStartDoor === d || recentlyOpened.has(d)) {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      e.stopImmediatePropagation();
+                      return false;
+                    }
+                  }, true);
+                } else {
+                  // Use click for desktop
+                  d.addEventListener('click', function(e){
+                    handleDoorClick(e);
+                  }, true);
                 }
-                // Use click for desktop and as fallback
-                d.addEventListener('click', function(e){
-                  // Skip if this was already handled by touch
-                  if (touchStartDoor === d) {
+              });
+              
+              // Prevent clicks on slot buttons if door was recently opened
+              document.addEventListener('click', function(e){
+                if (e.target.closest('.slot-btn')) {
+                  var btn = e.target.closest('.slot-btn');
+                  var door = btn.closest('.ta-door');
+                  if (door && recentlyOpened.has(door)) {
                     e.preventDefault();
                     e.stopPropagation();
-                    return;
+                    e.stopImmediatePropagation();
+                    return false;
                   }
-                  handleDoorClick(e);
-                }, true);
-              });
+                }
+              }, true);
             }
+            
             if (document.readyState === 'loading'){
               document.addEventListener('DOMContentLoaded', setupDoors);
             } else {
