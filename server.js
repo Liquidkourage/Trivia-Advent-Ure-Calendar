@@ -4305,6 +4305,10 @@ app.get('/quiz/:id', async (req, res) => {
           </div>
         </div>
       </form>`;
+      // Show edit button for admins even when they can play
+      if (isAdmin) {
+        form += `<div style="margin-top:16px;"><a href="/quiz/${id}/edit" class="ta-btn ta-btn-primary">Edit Quiz (Admin)</a></div>`;
+      }
     } else if (isAuthor) {
       const editLink = locked ? `<div style="margin-top:16px;"><a href="/quiz/${id}/edit" class="ta-btn ta-btn-primary">Edit Quiz</a></div>` : '';
       form = authorMessage + editLink;
