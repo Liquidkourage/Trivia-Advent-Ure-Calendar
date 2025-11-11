@@ -4281,15 +4281,21 @@ app.get('/quiz/:id', async (req, res) => {
     let existingLockedId = null;
     const quizAuthorEmail = (quiz.author_email || '').toLowerCase();
     const isAuthor = !!quizAuthorEmail && !!email && quizAuthorEmail === email;
-    if (loggedIn && !isAuthor) {
-      const erows = await pool.query('SELECT question_id, response_text, locked FROM responses WHERE quiz_id=$1 AND user_email=$2', [id, email]);
-      erows.rows.forEach(r => {
-        existingMap.set(r.question_id, r.response_text);
-        if (r.locked === true) existingLockedId = r.question_id;
-      });
+    // In preview mode, treat admin as a regular logged-in player (not author)
+    const effectiveIsAuthor = previewAsPlayer ? false : isAuthor;
+    const effectiveLoggedIn = previewAsPlayer ? true : loggedIn;
+    if (effectiveLoggedIn && !effectiveIsAuthor) {
+      // In preview mode, don't load actual responses (admin viewing as player)
+      if (!previewAsPlayer) {
+        const erows = await pool.query('SELECT question_id, response_text, locked FROM responses WHERE quiz_id=$1 AND user_email=$2', [id, email]);
+        erows.rows.forEach(r => {
+          existingMap.set(r.question_id, r.response_text);
+          if (r.locked === true) existingLockedId = r.question_id;
+        });
+      }
     }
     const recap = String(req.query.recap || '') === '1';
-    const allowRecapLink = loggedIn && !isAuthor;
+    const allowRecapLink = effectiveLoggedIn && !effectiveIsAuthor;
     if (recap && loggedIn && !isAuthor) {
       const { rows: gr } = await pool.query(
         'SELECT q.id AS qid, q.number, q.text, q.answer, r.response_text, r.points, r.locked, COALESCE(r.flagged,false) AS flagged FROM questions q LEFT JOIN responses r ON r.question_id=q.id AND r.user_email=$1 WHERE q.quiz_id=$2 ORDER BY q.number ASC',
@@ -4359,7 +4365,7 @@ app.get('/quiz/:id', async (req, res) => {
     const averageFooter = averageSource === 'override'
       ? 'An admin set this value manually.'
       : (averageCount ? 'This will update as more players finish.' : 'Once players begin submitting, your score will update automatically.');
-    const authorMessage = isAuthor ? `
+    const authorMessage = effectiveIsAuthor ? `
       <div style="margin:16px 0;padding:18px;border-radius:10px;border:1px solid rgba(255,255,255,0.18);background:rgba(0,0,0,0.35);">
         <h3 style="margin:0 0 8px 0;color:#ffd700;">Author participation</h3>
         <p style="margin:0;line-height:1.6;">
@@ -4373,7 +4379,7 @@ app.get('/quiz/:id', async (req, res) => {
     let form;
     if (locked) {
       form = '<p>This quiz is locked until unlock time (ET).</p>';
-      if (isAuthor) form += authorMessage;
+      if (effectiveIsAuthor) form += authorMessage;
       // Show edit button for admins even when locked
       if (isAdmin && !isAuthor) {
         form += `<div style="margin-top:16px;"><a href="/quiz/${id}/edit" class="ta-btn ta-btn-primary">Edit Quiz (Admin)</a></div>`;
@@ -4428,7 +4434,7 @@ app.get('/quiz/:id', async (req, res) => {
       if (showAdminFeatures) {
         form += `<div style="margin-top:16px;"><a href="/quiz/${id}/edit" class="ta-btn ta-btn-primary">Edit Quiz (Admin)</a></div>`;
       }
-    } else if (isAuthor && !previewAsPlayer) {
+    } else if (effectiveIsAuthor && !previewAsPlayer) {
       const editLink = locked ? `<div style="margin-top:16px;"><a href="/quiz/${id}/edit" class="ta-btn ta-btn-primary">Edit Quiz</a></div>` : '';
       form = authorMessage + editLink;
       // If author is also admin, show admin edit link even after unlock
