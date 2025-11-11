@@ -4356,6 +4356,161 @@ app.get('/quiz/:id', async (req, res) => {
   }
 });
 
+// --- Author: edit published quiz (until unlock) ---
+app.get('/quiz/:id/edit', requireAuth, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const { rows: qr } = await pool.query('SELECT * FROM quizzes WHERE id = $1', [id]);
+    if (qr.length === 0) return res.status(404).send('Quiz not found');
+    const quiz = qr[0];
+    
+    // Check if quiz is locked (not yet unlocked)
+    const nowUtc = new Date();
+    const unlockUtc = new Date(quiz.unlock_at);
+    const locked = nowUtc < unlockUtc;
+    
+    if (!locked) {
+      return res.status(403).send('This quiz has already unlocked. Only admins can edit unlocked quizzes.');
+    }
+    
+    // Check if user is the author
+    const email = String(req.session.user ? (req.session.user.email || '') : '').toLowerCase();
+    const quizAuthorEmail = (quiz.author_email || '').toLowerCase();
+    const isAuthor = !!quizAuthorEmail && !!email && quizAuthorEmail === email;
+    
+    if (!isAuthor) {
+      return res.status(403).send('You are not authorized to edit this quiz. Only the quiz author can edit before unlock.');
+    }
+    
+    const { rows: qs } = await pool.query('SELECT * FROM questions WHERE quiz_id = $1 ORDER BY number ASC', [id]);
+    const esc = (v) => String(v || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+    const header = await renderHeader(req);
+    
+    res.type('html').send(`
+      ${renderHead(`Edit Quiz #${id}`, false)}
+      <body class="ta-body" style="padding:24px;">
+      ${header}
+        <main class="ta-main ta-container" style="max-width:900px;">
+          <h1 class="ta-page-title">Edit Your Quiz</h1>
+          <p style="margin-bottom:16px;opacity:0.8;">You can edit this quiz until it unlocks. After unlock, only admins can make changes.</p>
+          <form method="post" action="/quiz/${id}/edit" class="ta-form-stack">
+            <div class="ta-form-field">
+              <label>Title <input name="title" value="${esc(quiz.title)}" required style="width:100%;" /></label>
+            </div>
+            <div class="ta-form-field">
+              <label>About the Author <textarea name="author_blurb" rows="3" style="width:100%;">${esc(quiz.author_blurb || '')}</textarea></label>
+            </div>
+            <div class="ta-form-field">
+              <label>About this Quiz <textarea name="description" rows="4" style="width:100%;">${esc(quiz.description || '')}</textarea></label>
+            </div>
+            <h2 style="margin-top:32px;margin-bottom:12px;color:#ffd700;">Questions (${qs.rows.length})</h2>
+            ${Array.from({length: 10}, (_, i) => {
+              const n = i + 1;
+              const q = qs.rows.find(q => q.number === n) || null;
+              return `
+                <div style="border:1px solid #444;padding:16px;margin:12px 0;border-radius:8px;background:#1a1a1a;">
+                  <h3 style="margin:0 0 12px 0;color:#ffd700;">Question ${n}</h3>
+                  <div class="ta-form-field">
+                    <label>Category <input name="q${n}_category" value="${esc(q?.category || 'General')}" style="width:100%;" /></label>
+                  </div>
+                  <div class="ta-form-field">
+                    <label>Text <textarea name="q${n}_text" rows="3" style="width:100%;">${esc(q?.text || '')}</textarea></label>
+                  </div>
+                  <div class="ta-form-field">
+                    <label>Answer <input name="q${n}_answer" value="${esc(q?.answer || '')}" style="width:100%;" /></label>
+                  </div>
+                  <div class="ta-form-field">
+                    <label>Ask (optional) <input name="q${n}_ask" value="${esc(q?.ask || '')}" style="width:100%;" /></label>
+                    <small style="opacity:0.7;">Must appear verbatim in the Text field; used as an in-line highlight</small>
+                  </div>
+                </div>
+              `;
+            }).join('')}
+            <div class="ta-form-actions">
+              <button type="submit" class="ta-btn ta-btn-primary">Save Changes</button>
+              <a href="/quiz/${id}" class="ta-btn ta-btn-outline">Cancel</a>
+            </div>
+          </form>
+        </main>
+        ${renderFooter(req)}
+      </body></html>
+    `);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to load edit page');
+  }
+});
+
+app.post('/quiz/:id/edit', requireAuth, express.urlencoded({ extended: true }), async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const { rows: qr } = await pool.query('SELECT * FROM quizzes WHERE id = $1', [id]);
+    if (qr.length === 0) return res.status(404).send('Quiz not found');
+    const quiz = qr[0];
+    
+    // Check if quiz is locked (not yet unlocked)
+    const nowUtc = new Date();
+    const unlockUtc = new Date(quiz.unlock_at);
+    const locked = nowUtc < unlockUtc;
+    
+    if (!locked) {
+      return res.status(403).send('This quiz has already unlocked. Only admins can edit unlocked quizzes.');
+    }
+    
+    // Check if user is the author
+    const email = String(req.session.user ? (req.session.user.email || '') : '').toLowerCase();
+    const quizAuthorEmail = (quiz.author_email || '').toLowerCase();
+    const isAuthor = !!quizAuthorEmail && !!email && quizAuthorEmail === email;
+    
+    if (!isAuthor) {
+      return res.status(403).send('You are not authorized to edit this quiz.');
+    }
+    
+    // Update quiz metadata
+    const title = String(req.body.title || '').trim();
+    const authorBlurb = String(req.body.author_blurb || '').trim() || null;
+    const description = String(req.body.description || '').trim() || null;
+    
+    if (!title) return res.status(400).send('Title required');
+    
+    await pool.query(
+      'UPDATE quizzes SET title=$1, author_blurb=$2, description=$3 WHERE id=$4',
+      [title, authorBlurb, description, id]
+    );
+    
+    // Update questions
+    const questions = [];
+    for (let i = 1; i <= 10; i++) {
+      const text = String(req.body[`q${i}_text`] || '').trim();
+      const answer = String(req.body[`q${i}_answer`] || '').trim();
+      const category = String(req.body[`q${i}_category`] || 'General').trim();
+      const ask = String(req.body[`q${i}_ask`] || '').trim() || null;
+      
+      if (text && answer) {
+        questions.push({ number: i, text, answer, category, ask });
+      }
+    }
+    
+    if (questions.length === 0) {
+      return res.status(400).send('At least one question is required');
+    }
+    
+    // Delete existing questions and insert new ones
+    await pool.query('DELETE FROM questions WHERE quiz_id = $1', [id]);
+    for (const q of questions) {
+      await pool.query(
+        'INSERT INTO questions(quiz_id, number, text, answer, category, ask) VALUES($1,$2,$3,$4,$5,$6)',
+        [id, q.number, q.text, q.answer, q.category, q.ask]
+      );
+    }
+    
+    res.redirect(`/quiz/${id}?msg=Quiz updated successfully`);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to save changes');
+  }
+});
+
 // Player flags a response for manual review
 app.post('/quiz/:id/flag', requireAuth, async (req, res) => {
   try {
