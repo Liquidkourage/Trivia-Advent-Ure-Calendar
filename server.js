@@ -4405,6 +4405,20 @@ app.get('/quiz/:id', async (req, res) => {
           const checked = existingLockedId === q.id ? 'checked' : '';
           const disable = nowUtc >= freezeUtc ? 'disabled' : '';
           const required = (q.number === 1 && !(nowUtc >= freezeUtc)) ? 'required' : '';
+          // Highlight the "ask" text within the question text
+          let highlightedText = String(q.text || '');
+          const ask = String(q.ask || '').trim();
+          if (ask) {
+            try {
+              // Escape special regex characters in ask text
+              const escapedAsk = ask.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+              const re = new RegExp(escapedAsk, 'gi');
+              highlightedText = highlightedText.replace(re, '<mark>$&</mark>');
+            } catch (e) {
+              // If regex fails, just use original text
+              console.error('Error highlighting ask text:', e);
+            }
+          }
           return `
           <div class=\"quiz-card\" data-question-num=\"${q.number}\" data-question-id=\"${q.id}\">
             <div class=\"quiz-qhead\">
@@ -4414,7 +4428,7 @@ app.get('/quiz/:id', async (req, res) => {
               </div>
               <label class=\"quiz-lock\"><input type=\"radio\" name=\"locked\" value=\"${q.id}\" ${checked} ${disable} ${required}/> Lock this question</label>
             </div>
-            <div class=\"quiz-text\">${q.text}</div>
+            <div class=\"quiz-text\">${highlightedText}</div>
             <div class=\"quiz-answer\">
               <label>Your answer <input name=\"q${q.number}\" data-question-id=\"${q.id}\" value=\"${val.replace(/\"/g,'&quot;')}\" ${disable} autocomplete=\"off\"/></label>
             </div>
