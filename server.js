@@ -3624,19 +3624,48 @@ app.post('/admin/writer-submissions/:id/publish', requireAdmin, express.urlencod
     const unlockUtc = etToUtc(unlockInput);
     const tok = sres.rows[0] && sres.rows[0].token;
     let authorEmail = null;
+    let assignedSlotDate = null;
+    let assignedSlotHalf = null;
     if (tok) {
       try {
-        const { rows: inviteRows } = await pool.query('SELECT email FROM writer_invites WHERE token=$1', [tok]);
-        if (inviteRows.length && inviteRows[0].email) {
-          const email = String(inviteRows[0].email || '').trim().toLowerCase();
-          if (email) authorEmail = email;
+        const { rows: inviteRows } = await pool.query('SELECT email, slot_date, slot_half FROM writer_invites WHERE token=$1', [tok]);
+        if (inviteRows.length) {
+          if (inviteRows[0].email) {
+            const email = String(inviteRows[0].email || '').trim().toLowerCase();
+            if (email) authorEmail = email;
+          }
+          assignedSlotDate = inviteRows[0].slot_date;
+          assignedSlotHalf = inviteRows[0].slot_half;
         }
       } catch (e) {
-        console.error('[publish] Error retrieving author email:', e);
+        console.error('[publish] Error retrieving writer invite:', e);
       }
     }
+    // Check if this unlock time matches the assigned slot
+    const unlockEt = utcToEtParts(unlockUtc);
+    const unlockDateStr = `${unlockEt.y}-${String(unlockEt.m).padStart(2,'0')}-${String(unlockEt.d).padStart(2,'0')}`;
+    const unlockHalf = unlockEt.h === 0 ? 'AM' : 'PM';
+    let isAssignedSlot = false;
+    if (assignedSlotDate && assignedSlotHalf) {
+      // Normalize assignedSlotDate to YYYY-MM-DD string
+      let assignedDateStr = '';
+      if (assignedSlotDate instanceof Date) {
+        assignedDateStr = `${assignedSlotDate.getFullYear()}-${String(assignedSlotDate.getMonth() + 1).padStart(2,'0')}-${String(assignedSlotDate.getDate()).padStart(2,'0')}`;
+      } else {
+        assignedDateStr = String(assignedSlotDate).trim();
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(assignedDateStr)) {
+          const d = new Date(assignedDateStr);
+          if (!isNaN(d.getTime())) {
+            assignedDateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+          }
+        }
+      }
+      const assignedHalf = String(assignedSlotHalf || '').trim().toUpperCase();
+      isAssignedSlot = (assignedDateStr === unlockDateStr && assignedHalf === unlockHalf);
+      console.log(`[publish] Slot check: assigned=${assignedDateStr} ${assignedHalf}, unlock=${unlockDateStr} ${unlockHalf}, match=${isAssignedSlot}`);
+    }
     // Enforce unique slot: prevent duplicate unlock_at
-    // BUT: if the existing quiz has the same author_email OR same author name, it's likely the same quiz being republished - allow it
+    // BUT: if the existing quiz has the same author_email OR same author name OR this is the writer's assigned slot, allow it
     const dupe = await pool.query('SELECT id, title, author, author_email FROM quizzes WHERE unlock_at=$1 LIMIT 1', [unlockUtc]);
     if (dupe.rows.length) {
       const existingQuiz = dupe.rows[0];
@@ -3644,16 +3673,16 @@ app.post('/admin/writer-submissions/:id/publish', requireAdmin, express.urlencod
       const existingAuthorName = (existingQuiz.author || '').trim().toLowerCase();
       const submissionAuthorName = (sres.rows[0].author || '').trim().toLowerCase();
       
-      // Check if this is the same writer's quiz by email OR by author name
+      // Check if this is the same writer's quiz by email OR by author name OR if this is their assigned slot
       const emailMatch = authorEmail && existingAuthorEmail && authorEmail === existingAuthorEmail;
       const nameMatch = submissionAuthorName && existingAuthorName && submissionAuthorName === existingAuthorName;
       
-      console.log(`[publish] Duplicate slot check: existing quiz ${existingQuiz.id}, author_email match: ${emailMatch}, author name match: ${nameMatch}`);
+      console.log(`[publish] Duplicate slot check: existing quiz ${existingQuiz.id}, author_email match: ${emailMatch}, author name match: ${nameMatch}, is assigned slot: ${isAssignedSlot}`);
       console.log(`[publish] Submission author: "${sres.rows[0].author}", email: ${authorEmail || 'none'}`);
       console.log(`[publish] Existing quiz author: "${existingQuiz.author}", email: ${existingAuthorEmail || 'none'}`);
       
-      // If author emails match OR author names match, this is likely a republish - allow updating the existing quiz
-      if (emailMatch || nameMatch) {
+      // If author emails match OR author names match OR this is the writer's assigned slot, allow updating the existing quiz
+      if (emailMatch || nameMatch || isAssignedSlot) {
         console.log(`[publish] Found existing quiz ${existingQuiz.id} at same slot with matching author. Updating instead of creating new.`);
         // Update existing quiz instead of creating new one
         const freezeUtc = new Date(unlockUtc.getTime() + 24*60*60*1000);
