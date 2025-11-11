@@ -3221,12 +3221,7 @@ app.get('/admin/writer-submissions', requireAdmin, async (req, res) => {
             <strong>ID:</strong> ${r.id} · <strong>Author:</strong> ${esc(r.author)} · ${statusText}
           </div>
           <div style="margin-top:4px;color:#555;"><em>Preview:</em> ${first ? esc(first) : '(no preview)'} </div>
-          <div style="margin-top:8px;"><a href="/admin/writer-submissions/${r.id}">Preview</a></div>
-          <form method="post" action="/admin/writer-submissions/${r.id}/publish" style="margin-top:8px;">
-            <label>Title <input name="title" required style="width:40%"/></label>
-            <label style="margin-left:12px;">Unlock (ET) <input name="unlock_at" type="datetime-local" required/></label>
-            <button type="submit" style="margin-left:12px;">Publish</button>
-          </form>
+          <div style="margin-top:8px;"><a href="/admin/writer-submissions/${r.id}" class="ta-btn ta-btn-primary">Preview & Publish</a></div>
         </li>
       `;
     }).join('');
