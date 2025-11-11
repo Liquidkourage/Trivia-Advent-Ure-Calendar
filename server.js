@@ -4580,10 +4580,10 @@ app.get('/quiz/:id/edit', requireAuth, async (req, res) => {
             <div class="ta-form-field">
               <label>About this Quiz <textarea name="description" rows="4" style="width:100%;">${esc(quiz.description || '')}</textarea></label>
             </div>
-            <h2 style="margin-top:32px;margin-bottom:12px;color:#ffd700;">Questions (${qs.rows.length})</h2>
+            <h2 style="margin-top:32px;margin-bottom:12px;color:#ffd700;">Questions (${qs.length})</h2>
             ${Array.from({length: 10}, (_, i) => {
               const n = i + 1;
-              const q = qs.rows.find(q => q.number === n) || null;
+              const q = qs.find(q => q.number === n) || null;
               return `
                 <div style="border:1px solid #444;padding:16px;margin:12px 0;border-radius:8px;background:#1a1a1a;">
                   <h3 style="margin:0 0 12px 0;color:#ffd700;">Question ${n}</h3>
