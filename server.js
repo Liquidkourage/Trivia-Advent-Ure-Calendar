@@ -4299,7 +4299,8 @@ app.get('/quiz/:id', async (req, res) => {
         </div>
       </form>`;
     } else if (isAuthor) {
-      form = authorMessage;
+      const editLink = locked ? `<div style="margin-top:16px;"><a href="/quiz/${id}/edit" class="ta-btn ta-btn-primary">Edit Quiz</a></div>` : '';
+      form = authorMessage + editLink;
     } else {
       form = '<p>Please sign in to play.</p>';
     }
