@@ -3474,7 +3474,7 @@ app.get('/admin/writer-submissions/:id', requireAdmin, async (req, res) => {
           <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end;">
             <div style="flex:1;min-width:300px;">
               <label style="display:block;margin-bottom:6px;font-weight:600;">Title</label>
-              <input name="title" required style="width:100%;padding:8px;border-radius:6px;border:1px solid #555;background:#0a0a0a;color:#ffd700;"/>
+              <input name="title" required value="${esc(generateDefaultTitle(row, data, unlockAtValue))}" style="width:100%;padding:8px;border-radius:6px;border:1px solid #555;background:#0a0a0a;color:#ffd700;"/>
             </div>
             <div style="flex:1;min-width:250px;">
               <label style="display:block;margin-bottom:6px;font-weight:600;">Unlock (ET)</label>
