@@ -3622,34 +3622,6 @@ app.post('/admin/writer-submissions/:id/publish', requireAdmin, express.urlencod
     const questions = Array.isArray(data?.questions) ? data.questions : [];
     if (!questions.length) return res.status(400).send('Submission has no questions');
     const unlockUtc = etToUtc(unlockInput);
-    // Enforce unique slot: prevent duplicate unlock_at
-    const dupe = await pool.query('SELECT id, title FROM quizzes WHERE unlock_at=$1 LIMIT 1', [unlockUtc]);
-    if (dupe.rows.length) {
-      const unlockEt = utcToEtParts(unlockUtc);
-      const dateStr = `${unlockEt.y}-${String(unlockEt.m).padStart(2,'0')}-${String(unlockEt.d).padStart(2,'0')}`;
-      const timeStr = unlockEt.h === 0 ? 'Midnight (AM)' : 'Noon (PM)';
-      const existingTitle = dupe.rows[0].title || 'Untitled Quiz';
-      const esc = (v) => String(v || '').replace(/&/g,'&amp;').replace(/</g,'&lt;');
-      const header = await renderHeader(req);
-      return res.status(400).send(`
-        ${renderHead('Timeslot Already Taken', false)}
-        <body class="ta-body" style="padding:24px;">
-        ${header}
-          <div style="background:#4a1a1a;border:2px solid #ff4444;border-radius:8px;padding:20px;max-width:600px;margin:40px auto;">
-            <h1 style="color:#ff8888;margin-top:0;">⚠️ Timeslot Already Taken</h1>
-            <p style="color:#ffd700;font-size:18px;margin:16px 0;"><strong>Date:</strong> ${dateStr} at ${timeStr} ET</p>
-            <p style="color:#ccc;margin:16px 0;"><strong>Existing Quiz:</strong> "${esc(existingTitle)}" (ID: ${dupe.rows[0].id})</p>
-            <p style="color:#ff8888;margin-top:24px;">Please select a different timeslot from the calendar.</p>
-            <div style="margin-top:24px;">
-              <a href="/admin/writer-submissions/${id}" class="ta-btn ta-btn-primary">← Go Back</a>
-            </div>
-          </div>
-        </body></html>
-      `);
-    }
-    const freezeUtc = new Date(unlockUtc.getTime() + 24*60*60*1000);
-    const authorBlurb = (data && typeof data.author_blurb !== 'undefined') ? (String(data.author_blurb || '').trim() || null) : null;
-    const description = (data && typeof data.description !== 'undefined') ? (String(data.description || '').trim() || null) : null;
     const tok = sres.rows[0] && sres.rows[0].token;
     let authorEmail = null;
     if (tok) {
@@ -3663,6 +3635,70 @@ app.post('/admin/writer-submissions/:id/publish', requireAdmin, express.urlencod
         console.error('[publish] Error retrieving author email:', e);
       }
     }
+    // Enforce unique slot: prevent duplicate unlock_at
+    // BUT: if the existing quiz has the same author_email, it's likely the same quiz being republished - allow it
+    const dupe = await pool.query('SELECT id, title, author_email FROM quizzes WHERE unlock_at=$1 LIMIT 1', [unlockUtc]);
+    if (dupe.rows.length) {
+      const existingQuiz = dupe.rows[0];
+      const existingAuthorEmail = (existingQuiz.author_email || '').toLowerCase();
+      // If author emails match, this is likely a republish - allow updating the existing quiz
+      if (authorEmail && existingAuthorEmail && authorEmail === existingAuthorEmail) {
+        console.log(`[publish] Found existing quiz ${existingQuiz.id} at same slot with matching author_email. Updating instead of creating new.`);
+        // Update existing quiz instead of creating new one
+        const freezeUtc = new Date(unlockUtc.getTime() + 24*60*60*1000);
+        const authorBlurb = (data && typeof data.author_blurb !== 'undefined') ? (String(data.author_blurb || '').trim() || null) : null;
+        const description = (data && typeof data.description !== 'undefined') ? (String(data.description || '').trim() || null) : null;
+        await pool.query(
+          'UPDATE quizzes SET title=$1, freeze_at=$2, author=$3, author_blurb=$4, description=$5 WHERE id=$6',
+          [title, freezeUtc, sres.rows[0].author || null, authorBlurb, description, existingQuiz.id]
+        );
+        // Delete old questions and insert new ones
+        await pool.query('DELETE FROM questions WHERE quiz_id=$1', [existingQuiz.id]);
+        for (let i=0;i<Math.min(10, questions.length);i++) {
+          const q = questions[i];
+          const text = String(q.text || '').trim();
+          const answer = String(q.answer || '').trim();
+          const category = String(q.category || 'General').trim();
+          const ask = (q.ask && String(q.ask).trim()) || null;
+          if (!text || !answer) continue;
+          await pool.query(
+            'INSERT INTO questions(quiz_id, number, text, answer, category, ask) VALUES($1,$2,$3,$4,$5,$6)',
+            [existingQuiz.id, i+1, text, answer, category, ask]
+          );
+        }
+        // mark published and deactivate token
+        try {
+          if (tok) await pool.query('UPDATE writer_invites SET published_at = NOW(), active = FALSE WHERE token=$1', [tok]);
+        } catch {}
+        res.redirect(`/quiz/${existingQuiz.id}`);
+        return;
+      }
+      // Different author or no author match - block duplicate slot
+      const unlockEt = utcToEtParts(unlockUtc);
+      const dateStr = `${unlockEt.y}-${String(unlockEt.m).padStart(2,'0')}-${String(unlockEt.d).padStart(2,'0')}`;
+      const timeStr = unlockEt.h === 0 ? 'Midnight (AM)' : 'Noon (PM)';
+      const existingTitle = existingQuiz.title || 'Untitled Quiz';
+      const esc = (v) => String(v || '').replace(/&/g,'&amp;').replace(/</g,'&lt;');
+      const header = await renderHeader(req);
+      return res.status(400).send(`
+        ${renderHead('Timeslot Already Taken', false)}
+        <body class="ta-body" style="padding:24px;">
+        ${header}
+          <div style="background:#4a1a1a;border:2px solid #ff4444;border-radius:8px;padding:20px;max-width:600px;margin:40px auto;">
+            <h1 style="color:#ff8888;margin-top:0;">⚠️ Timeslot Already Taken</h1>
+            <p style="color:#ffd700;font-size:18px;margin:16px 0;"><strong>Date:</strong> ${dateStr} at ${timeStr} ET</p>
+            <p style="color:#ccc;margin:16px 0;"><strong>Existing Quiz:</strong> "${esc(existingTitle)}" (ID: ${existingQuiz.id})</p>
+            <p style="color:#ff8888;margin-top:24px;">Please select a different timeslot from the calendar.</p>
+            <div style="margin-top:24px;">
+              <a href="/admin/writer-submissions/${id}" class="ta-btn ta-btn-primary">← Go Back</a>
+            </div>
+          </div>
+        </body></html>
+      `);
+    }
+    const freezeUtc = new Date(unlockUtc.getTime() + 24*60*60*1000);
+    const authorBlurb = (data && typeof data.author_blurb !== 'undefined') ? (String(data.author_blurb || '').trim() || null) : null;
+    const description = (data && typeof data.description !== 'undefined') ? (String(data.description || '').trim() || null) : null;
     const qInsert = await pool.query(
       'INSERT INTO quizzes(title, unlock_at, freeze_at, author, author_blurb, description, author_email) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id',
       [title, unlockUtc, freezeUtc, sres.rows[0].author || null, authorBlurb, description, authorEmail]
