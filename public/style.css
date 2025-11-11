@@ -435,7 +435,7 @@ body.ta-modal-open{overflow:hidden}
 .quiz-lock{font-size:22px}
 .quiz-lock input{transform:scale(2.1);transform-origin:left center;margin-right:12px}
 .quiz-text{font-size:26px;line-height:1.72;margin-bottom:14px}
-.quiz-text mark{background:#ffd700;color:#000;padding:2px 4px;border-radius:3px;font-weight:600}
+.quiz-text mark{color:#ffd700;font-weight:bold;background:transparent}
 .quiz-answer input[type="text"], .quiz-answer input{width:100%;max-width:none;padding:18px 20px;border-radius:12px;border:1px solid rgba(255,255,255,.25);background:rgba(0,0,0,.15);color:#fff;font-size:24px}
 .quiz-actions{margin-top:14px}
 .quiz-submit{padding:10px 16px;border-radius:10px;background:linear-gradient(90deg,var(--gold) 0%,var(--gold-2) 100%);color:#111;border:0;font-weight:800}
