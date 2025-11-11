@@ -3412,7 +3412,25 @@ app.get('/admin/writer-submissions/:id', requireAdmin, async (req, res) => {
     
     // Build calendar HTML
     const hasAssignedSlot = row.slot_date && row.slot_half;
-    const assignedSlotKey = hasAssignedSlot ? `${row.slot_date}-${row.slot_half.toUpperCase()}` : null;
+    // Normalize assignedSlotKey to match the format used in client-side validation (YYYY-MM-DD-AM/PM)
+    let assignedSlotKey = null;
+    if (hasAssignedSlot) {
+      // Normalize slot_date to YYYY-MM-DD string
+      let dateStr = '';
+      if (row.slot_date instanceof Date) {
+        dateStr = `${row.slot_date.getUTCFullYear()}-${String(row.slot_date.getUTCMonth() + 1).padStart(2,'0')}-${String(row.slot_date.getUTCDate()).padStart(2,'0')}`;
+      } else {
+        dateStr = String(row.slot_date).trim();
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+          const d = new Date(dateStr);
+          if (!isNaN(d.getTime())) {
+            dateStr = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
+          }
+        }
+      }
+      const half = String(row.slot_half || '').trim().toUpperCase();
+      assignedSlotKey = `${dateStr}-${half}`;
+    }
     const assignedSlotTaken = hasAssignedSlot && takenSlots.has(assignedSlotKey);
     const calendarHtml = `
       <div style="margin-top:24px;background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:16px;">
@@ -3549,16 +3567,20 @@ app.get('/admin/writer-submissions/:id', requireAdmin, async (req, res) => {
                 errorDiv.style.display = 'none';
                 return true;
               }
-              // Convert datetime-local to slot key
+              // Convert datetime-local to slot key (format: YYYY-MM-DD-AM or YYYY-MM-DD-PM)
               const parts = value.split('T');
-              const datePart = parts[0];
+              const datePart = parts[0]; // Already in YYYY-MM-DD format
               const timePart = parts[1] || '00:00';
               const hour = parseInt(timePart.split(':')[0]);
               const half = hour === 0 ? 'AM' : 'PM';
               const slotKey = datePart + '-' + half;
               
+              // Debug logging
+              console.log('[client] Checking slot:', { value, datePart, hour, half, slotKey, assignedSlotKey, match: slotKey === assignedSlotKey, isTaken: takenSlots.has(slotKey) });
+              
               // Allow the slot if it's the assigned slot, even if it's taken
               if (assignedSlotKey && slotKey === assignedSlotKey) {
+                console.log('[client] Allowing assigned slot even though it may be taken');
                 errorDiv.style.display = 'none';
                 return true;
               }
