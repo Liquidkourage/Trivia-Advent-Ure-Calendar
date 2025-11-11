@@ -3309,13 +3309,35 @@ app.get('/admin/writer-submissions/:id', requireAdmin, async (req, res) => {
     if (req.query && req.query.unlock) {
       unlockAtValue = String(req.query.unlock).replace(' ','T');
     } else if (row.slot_date && row.slot_half) {
-      // slot_date is YYYY-MM-DD, slot_half is 'AM' or 'PM'
+      // slot_date might be a Date object or string (YYYY-MM-DD)
+      // Normalize to YYYY-MM-DD string format
+      let dateStr = '';
+      if (row.slot_date instanceof Date) {
+        const year = row.slot_date.getFullYear();
+        const month = String(row.slot_date.getMonth() + 1).padStart(2, '0');
+        const day = String(row.slot_date.getDate()).padStart(2, '0');
+        dateStr = `${year}-${month}-${day}`;
+      } else {
+        // Already a string, use it directly
+        dateStr = String(row.slot_date).trim();
+        // If it's in a different format, try to parse it
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+          const d = new Date(dateStr);
+          if (!isNaN(d.getTime())) {
+            const year = d.getFullYear();
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            dateStr = `${year}-${month}-${day}`;
+          }
+        }
+      }
+      
       // Normalize slot_half: trim whitespace and convert to uppercase
       const slotHalf = String(row.slot_half || '').trim().toUpperCase();
       // AM = 00:00, PM = 12:00 in Eastern Time
       const hour = (slotHalf === 'AM') ? '00' : '12';
-      unlockAtValue = `${row.slot_date}T${hour}:00`;
-      console.log(`[preview] Auto-filled unlock_at: ${unlockAtValue} from slot_date=${row.slot_date}, slot_half=${row.slot_half} (normalized: ${slotHalf})`);
+      unlockAtValue = `${dateStr}T${hour}:00`;
+      console.log(`[preview] Auto-filled unlock_at: ${unlockAtValue} from slot_date=${row.slot_date} (formatted: ${dateStr}), slot_half=${row.slot_half} (normalized: ${slotHalf})`);
     } else {
       console.log(`[preview] No slot data to auto-fill. slot_date=${row.slot_date}, slot_half=${row.slot_half}`);
     }
