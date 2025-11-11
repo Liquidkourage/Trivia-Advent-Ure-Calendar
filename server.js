@@ -4364,22 +4364,26 @@ app.get('/quiz/:id/edit', requireAuth, async (req, res) => {
     if (qr.length === 0) return res.status(404).send('Quiz not found');
     const quiz = qr[0];
     
+    // Check if user is admin
+    const isAdmin = await isAdminUser(req);
+    
     // Check if quiz is locked (not yet unlocked)
     const nowUtc = new Date();
     const unlockUtc = new Date(quiz.unlock_at);
     const locked = nowUtc < unlockUtc;
     
-    if (!locked) {
+    // Authors can only edit before unlock; admins can edit anytime
+    if (!isAdmin && !locked) {
       return res.status(403).send('This quiz has already unlocked. Only admins can edit unlocked quizzes.');
     }
     
-    // Check if user is the author
+    // Check if user is the author (or admin)
     const email = String(req.session.user ? (req.session.user.email || '') : '').toLowerCase();
     const quizAuthorEmail = (quiz.author_email || '').toLowerCase();
     const isAuthor = !!quizAuthorEmail && !!email && quizAuthorEmail === email;
     
-    if (!isAuthor) {
-      return res.status(403).send('You are not authorized to edit this quiz. Only the quiz author can edit before unlock.');
+    if (!isAdmin && !isAuthor) {
+      return res.status(403).send('You are not authorized to edit this quiz. Only the quiz author (before unlock) or admins can edit.');
     }
     
     const { rows: qs } = await pool.query('SELECT * FROM questions WHERE quiz_id = $1 ORDER BY number ASC', [id]);
@@ -4448,21 +4452,25 @@ app.post('/quiz/:id/edit', requireAuth, express.urlencoded({ extended: true }), 
     if (qr.length === 0) return res.status(404).send('Quiz not found');
     const quiz = qr[0];
     
+    // Check if user is admin
+    const isAdmin = await isAdminUser(req);
+    
     // Check if quiz is locked (not yet unlocked)
     const nowUtc = new Date();
     const unlockUtc = new Date(quiz.unlock_at);
     const locked = nowUtc < unlockUtc;
     
-    if (!locked) {
+    // Authors can only edit before unlock; admins can edit anytime
+    if (!isAdmin && !locked) {
       return res.status(403).send('This quiz has already unlocked. Only admins can edit unlocked quizzes.');
     }
     
-    // Check if user is the author
+    // Check if user is the author (or admin)
     const email = String(req.session.user ? (req.session.user.email || '') : '').toLowerCase();
     const quizAuthorEmail = (quiz.author_email || '').toLowerCase();
     const isAuthor = !!quizAuthorEmail && !!email && quizAuthorEmail === email;
     
-    if (!isAuthor) {
+    if (!isAdmin && !isAuthor) {
       return res.status(403).send('You are not authorized to edit this quiz.');
     }
     
