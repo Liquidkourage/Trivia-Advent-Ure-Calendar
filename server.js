@@ -4232,15 +4232,25 @@ app.post('/quiz/:id/autosave', requireAuth, express.json(), async (req, res) => 
     }
     const { locked, answers } = req.body;
     
-    // Save answers
+    // Save answers - only save non-empty responses or update existing ones
     for (const [qNum, answerText] of Object.entries(answers || {})) {
+      const trimmedText = String(answerText || '').trim();
       const { rows: qRows } = await pool.query('SELECT id FROM questions WHERE quiz_id=$1 AND number=$2', [id, Number(qNum)]);
       if (qRows.length > 0) {
         const questionId = qRows[0].id;
-        await pool.query(
-          'INSERT INTO responses (quiz_id, question_id, user_email, response_text, locked) VALUES ($1, $2, $3, $4, false) ON CONFLICT (user_email, question_id) DO UPDATE SET response_text=$4, created_at=NOW()',
-          [id, questionId, email, String(answerText || '')]
+        // Check if a response already exists
+        const { rows: existing } = await pool.query(
+          'SELECT response_text FROM responses WHERE quiz_id=$1 AND question_id=$2 AND user_email=$3',
+          [id, questionId, email]
         );
+        
+        // Only create/update if there's content OR if a response already exists (to allow clearing)
+        if (trimmedText || existing.length > 0) {
+          await pool.query(
+            'INSERT INTO responses (quiz_id, question_id, user_email, response_text, locked) VALUES ($1, $2, $3, $4, false) ON CONFLICT (user_email, question_id) DO UPDATE SET response_text=$4, created_at=CASE WHEN $4 != \'\' THEN NOW() ELSE responses.created_at END',
+            [id, questionId, email, trimmedText]
+          );
+        }
       }
     }
     
