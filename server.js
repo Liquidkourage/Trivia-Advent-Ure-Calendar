@@ -3310,9 +3310,14 @@ app.get('/admin/writer-submissions/:id', requireAdmin, async (req, res) => {
       unlockAtValue = String(req.query.unlock).replace(' ','T');
     } else if (row.slot_date && row.slot_half) {
       // slot_date is YYYY-MM-DD, slot_half is 'AM' or 'PM'
+      // Normalize slot_half: trim whitespace and convert to uppercase
+      const slotHalf = String(row.slot_half || '').trim().toUpperCase();
       // AM = 00:00, PM = 12:00 in Eastern Time
-      const hour = (row.slot_half.toUpperCase() === 'AM') ? '00' : '12';
+      const hour = (slotHalf === 'AM') ? '00' : '12';
       unlockAtValue = `${row.slot_date}T${hour}:00`;
+      console.log(`[preview] Auto-filled unlock_at: ${unlockAtValue} from slot_date=${row.slot_date}, slot_half=${row.slot_half} (normalized: ${slotHalf})`);
+    } else {
+      console.log(`[preview] No slot data to auto-fill. slot_date=${row.slot_date}, slot_half=${row.slot_half}`);
     }
     
     // Build calendar grid for slot selection (Dec 1-24, AM/PM)
