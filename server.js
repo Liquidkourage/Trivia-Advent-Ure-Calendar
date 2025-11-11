@@ -3249,25 +3249,26 @@ app.get('/admin/writer-submissions', requireAdmin, async (req, res) => {
 });
 
 // Helper function to generate a default title for a quiz submission
+// Uses only author name and date/time (the only reliable information)
 function generateDefaultTitle(row, data, unlockAtValue) {
-  // Try to extract a title from the description (first sentence or first 50 chars)
-  if (data && data.description) {
-    const desc = String(data.description).trim();
-    if (desc) {
-      // Try to get first sentence (up to period, exclamation, or question mark)
-      const firstSentence = desc.match(/^[^.!?]+[.!?]?/);
-      if (firstSentence && firstSentence[0].length <= 60) {
-        return firstSentence[0].trim();
-      }
-      // Otherwise use first 50 characters
-      if (desc.length <= 60) {
-        return desc;
-      }
-      return desc.substring(0, 57).trim() + '...';
+  // Use author name and date if both available
+  if (unlockAtValue && row.author) {
+    try {
+      const datePart = unlockAtValue.split('T')[0];
+      const [year, month, day] = datePart.split('-');
+      const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 
+                          'July', 'August', 'September', 'October', 'November', 'December'];
+      const monthName = monthNames[parseInt(month) - 1];
+      const timePart = unlockAtValue.split('T')[1] || '00:00';
+      const hour = parseInt(timePart.split(':')[0]);
+      const timeLabel = hour === 0 ? 'AM' : 'PM';
+      return `${row.author}'s Quiz - ${monthName} ${parseInt(day)} ${timeLabel}`;
+    } catch (e) {
+      // If date parsing fails, continue to next fallback
     }
   }
   
-  // Fallback: Use author name and date if available
+  // If we have date but no author
   if (unlockAtValue) {
     try {
       const datePart = unlockAtValue.split('T')[0];
@@ -3275,20 +3276,21 @@ function generateDefaultTitle(row, data, unlockAtValue) {
       const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 
                           'July', 'August', 'September', 'October', 'November', 'December'];
       const monthName = monthNames[parseInt(month) - 1];
-      if (row.author) {
-        return `${row.author}'s Quiz - ${monthName} ${parseInt(day)}`;
-      }
-      return `${monthName} ${parseInt(day)} Quiz`;
+      const timePart = unlockAtValue.split('T')[1] || '00:00';
+      const hour = parseInt(timePart.split(':')[0]);
+      const timeLabel = hour === 0 ? 'AM' : 'PM';
+      return `${monthName} ${parseInt(day)} ${timeLabel} Quiz`;
     } catch (e) {
       // If date parsing fails, continue to next fallback
     }
   }
   
-  // Final fallback: Author name or generic
+  // If we only have author
   if (row.author) {
     return `${row.author}'s Quiz`;
   }
   
+  // Final fallback
   return 'Untitled Quiz';
 }
 
