@@ -4273,6 +4273,8 @@ app.get('/quiz/:id', async (req, res) => {
     const locked = nowUtc < unlockUtc;
     const status = locked ? 'Locked' : (nowUtc >= freezeUtc ? 'Finalized' : 'Unlocked');
     const loggedIn = !!req.session.user || req.session.isAdmin === true;
+    const isAdmin = await isAdminUser(req);
+    const previewAsPlayer = req.query.preview === 'player' && isAdmin; // Admin can preview as player
     const email = String(req.session.user ? (req.session.user.email || '') : (req.session.isAdmin === true ? getAdminEmail() : '')).toLowerCase();
     let existingMap = new Map();
     let existingLockedId = null;
@@ -4424,20 +4426,20 @@ app.get('/quiz/:id', async (req, res) => {
           </div>
         </div>
       </form>`;
-      // Show edit button for admins even when they can play
-      if (isAdmin) {
+      // Show edit button for admins even when they can play (unless previewing as player)
+      if (showAdminFeatures) {
         form += `<div style="margin-top:16px;"><a href="/quiz/${id}/edit" class="ta-btn ta-btn-primary">Edit Quiz (Admin)</a></div>`;
       }
-    } else if (isAuthor) {
+    } else if (isAuthor && !previewAsPlayer) {
       const editLink = locked ? `<div style="margin-top:16px;"><a href="/quiz/${id}/edit" class="ta-btn ta-btn-primary">Edit Quiz</a></div>` : '';
       form = authorMessage + editLink;
       // If author is also admin, show admin edit link even after unlock
-      if (isAdmin && !locked) {
+      if (showAdminFeatures && !locked) {
         form += `<div style="margin-top:16px;"><a href="/quiz/${id}/edit" class="ta-btn ta-btn-primary">Edit Quiz (Admin)</a></div>`;
       }
     } else {
-      // Show edit button for admins
-      const adminEditLink = isAdmin ? `<div style="margin-top:16px;"><a href="/quiz/${id}/edit" class="ta-btn ta-btn-primary">Edit Quiz (Admin)</a></div>` : '';
+      // Show edit button for admins (unless previewing as player)
+      const adminEditLink = showAdminFeatures ? `<div style="margin-top:16px;"><a href="/quiz/${id}/edit" class="ta-btn ta-btn-primary">Edit Quiz (Admin)</a></div>` : '';
       form = '<p>Please sign in to play.</p>' + adminEditLink;
     }
     const et = utcToEtParts(unlockUtc);
