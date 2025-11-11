@@ -4380,11 +4380,11 @@ app.get('/quiz/:id', async (req, res) => {
     if (locked) {
       form = '<p>This quiz is locked until unlock time (ET).</p>';
       if (effectiveIsAuthor) form += authorMessage;
-      // Show edit button for admins even when locked
-      if (isAdmin && !isAuthor) {
+      // Show edit button for admins even when locked (unless previewing as player)
+      if (showAdminFeatures && !effectiveIsAuthor) {
         form += `<div style="margin-top:16px;"><a href="/quiz/${id}/edit" class="ta-btn ta-btn-primary">Edit Quiz (Admin)</a></div>`;
       }
-    } else if (loggedIn && !isAuthor) {
+    } else if (effectiveLoggedIn && !effectiveIsAuthor) {
       form = `
       ${existingMap.size > 0 ? `<div style="padding:8px 10px;border:1px solid #ddd;border-radius:6px;background:#fafafa;margin-bottom:10px;">You've started this quiz. <a href="/quiz/${id}?recap=1">View recap</a>.</div>` : ''}
       <div id="quiz-progress" style="margin-bottom:20px;padding:12px;background:#1a1a1a;border:1px solid #333;border-radius:8px;">
