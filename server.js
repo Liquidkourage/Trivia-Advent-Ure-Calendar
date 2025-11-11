@@ -3636,21 +3636,34 @@ app.post('/admin/writer-submissions/:id/publish', requireAdmin, express.urlencod
       }
     }
     // Enforce unique slot: prevent duplicate unlock_at
-    // BUT: if the existing quiz has the same author_email, it's likely the same quiz being republished - allow it
-    const dupe = await pool.query('SELECT id, title, author_email FROM quizzes WHERE unlock_at=$1 LIMIT 1', [unlockUtc]);
+    // BUT: if the existing quiz has the same author_email OR same author name, it's likely the same quiz being republished - allow it
+    const dupe = await pool.query('SELECT id, title, author, author_email FROM quizzes WHERE unlock_at=$1 LIMIT 1', [unlockUtc]);
     if (dupe.rows.length) {
       const existingQuiz = dupe.rows[0];
       const existingAuthorEmail = (existingQuiz.author_email || '').toLowerCase();
-      // If author emails match, this is likely a republish - allow updating the existing quiz
-      if (authorEmail && existingAuthorEmail && authorEmail === existingAuthorEmail) {
-        console.log(`[publish] Found existing quiz ${existingQuiz.id} at same slot with matching author_email. Updating instead of creating new.`);
+      const existingAuthorName = (existingQuiz.author || '').trim().toLowerCase();
+      const submissionAuthorName = (sres.rows[0].author || '').trim().toLowerCase();
+      
+      // Check if this is the same writer's quiz by email OR by author name
+      const emailMatch = authorEmail && existingAuthorEmail && authorEmail === existingAuthorEmail;
+      const nameMatch = submissionAuthorName && existingAuthorName && submissionAuthorName === existingAuthorName;
+      
+      console.log(`[publish] Duplicate slot check: existing quiz ${existingQuiz.id}, author_email match: ${emailMatch}, author name match: ${nameMatch}`);
+      console.log(`[publish] Submission author: "${sres.rows[0].author}", email: ${authorEmail || 'none'}`);
+      console.log(`[publish] Existing quiz author: "${existingQuiz.author}", email: ${existingAuthorEmail || 'none'}`);
+      
+      // If author emails match OR author names match, this is likely a republish - allow updating the existing quiz
+      if (emailMatch || nameMatch) {
+        console.log(`[publish] Found existing quiz ${existingQuiz.id} at same slot with matching author. Updating instead of creating new.`);
         // Update existing quiz instead of creating new one
         const freezeUtc = new Date(unlockUtc.getTime() + 24*60*60*1000);
         const authorBlurb = (data && typeof data.author_blurb !== 'undefined') ? (String(data.author_blurb || '').trim() || null) : null;
         const description = (data && typeof data.description !== 'undefined') ? (String(data.description || '').trim() || null) : null;
+        // Update author_email if we have it and the existing quiz doesn't
+        const updateAuthorEmail = authorEmail && !existingAuthorEmail ? authorEmail : existingQuiz.author_email;
         await pool.query(
-          'UPDATE quizzes SET title=$1, freeze_at=$2, author=$3, author_blurb=$4, description=$5 WHERE id=$6',
-          [title, freezeUtc, sres.rows[0].author || null, authorBlurb, description, existingQuiz.id]
+          'UPDATE quizzes SET title=$1, freeze_at=$2, author=$3, author_blurb=$4, description=$5, author_email=$6 WHERE id=$7',
+          [title, freezeUtc, sres.rows[0].author || null, authorBlurb, description, updateAuthorEmail, existingQuiz.id]
         );
         // Delete old questions and insert new ones
         await pool.query('DELETE FROM questions WHERE quiz_id=$1', [existingQuiz.id]);
