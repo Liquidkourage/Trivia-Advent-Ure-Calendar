@@ -4356,7 +4356,7 @@ app.get('/quiz/:id', async (req, res) => {
     }
 
     let authorAverageInfo = null;
-    if (isAuthor) {
+    if (effectiveIsAuthor) {
       authorAverageInfo = await computeAuthorAveragePoints(pool, id, quizAuthorEmail);
     }
     const averagePoints = authorAverageInfo ? authorAverageInfo.average : 0;
