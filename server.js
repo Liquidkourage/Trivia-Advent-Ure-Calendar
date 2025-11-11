@@ -3208,20 +3208,26 @@ app.get('/admin/writer-submissions', requireAdmin, async (req, res) => {
       try { first = (r.data?.questions?.[0]?.text) || ''; } catch {}
       // Determine if this is a draft (autosave) or actual submission
       const isDraft = !r.invite_submitted_at;
+      const bgColor = isDraft ? '#2a1a0a' : '#0a2a1a';
+      const borderColor = isDraft ? '#ff9800' : '#4caf50';
+      const accentColor = isDraft ? '#ff9800' : '#4caf50';
       const statusBadge = isDraft 
-        ? '<span style="background:#ff9800;color:#000;padding:2px 6px;border-radius:4px;font-size:11px;font-weight:bold;">DRAFT</span>'
-        : '<span style="background:#4caf50;color:#fff;padding:2px 6px;border-radius:4px;font-size:11px;font-weight:bold;">SUBMITTED</span>';
+        ? '<span style="background:#ff9800;color:#000;padding:6px 12px;border-radius:6px;font-size:14px;font-weight:800;text-transform:uppercase;letter-spacing:1px;box-shadow:0 2px 8px rgba(255,152,0,0.4);">⚠️ DRAFT</span>'
+        : '<span style="background:#4caf50;color:#fff;padding:6px 12px;border-radius:6px;font-size:14px;font-weight:800;text-transform:uppercase;letter-spacing:1px;box-shadow:0 2px 8px rgba(76,175,80,0.4);">✓ SUBMITTED</span>';
       const statusText = isDraft 
-        ? `Draft (last saved: ${fmtEt(r.updated_at || r.submitted_at)})`
-        : `Submitted: ${fmtEt(r.invite_submitted_at)}`;
+        ? `<span style="color:#ffaa44;font-weight:600;">Draft - Last saved: ${fmtEt(r.updated_at || r.submitted_at)}</span>`
+        : `<span style="color:#66ff88;font-weight:600;">Submitted: ${fmtEt(r.invite_submitted_at)}</span>`;
       return `
-        <li style="margin:10px 0;padding:8px;border:1px solid ${isDraft ? '#ff9800' : '#4caf50'};border-radius:6px;border-left-width:4px;">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+        <li style="margin:16px 0;padding:16px;background:${bgColor};border:3px solid ${borderColor};border-radius:8px;border-left-width:8px;box-shadow:0 4px 12px rgba(0,0,0,0.3);">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap;">
             ${statusBadge}
-            <strong>ID:</strong> ${r.id} · <strong>Author:</strong> ${esc(r.author)} · ${statusText}
+            <div style="flex:1;min-width:200px;">
+              <div style="font-size:16px;font-weight:700;color:#fff;margin-bottom:4px;"><strong>ID:</strong> ${r.id} · <strong>Author:</strong> ${esc(r.author)}</div>
+              <div style="font-size:14px;margin-top:4px;">${statusText}</div>
+            </div>
           </div>
-          <div style="margin-top:4px;color:#555;"><em>Preview:</em> ${first ? esc(first) : '(no preview)'} </div>
-          <div style="margin-top:8px;"><a href="/admin/writer-submissions/${r.id}" class="ta-btn ta-btn-primary">Preview & Publish</a></div>
+          <div style="margin-top:12px;padding:8px;background:rgba(0,0,0,0.3);border-radius:4px;color:#aaa;font-size:13px;"><em>Preview:</em> ${first ? esc(first.substring(0, 150)) + (first.length > 150 ? '...' : '') : '(no preview)'} </div>
+          <div style="margin-top:12px;"><a href="/admin/writer-submissions/${r.id}" class="ta-btn ta-btn-primary" style="font-weight:600;padding:10px 20px;">Preview & Publish</a></div>
         </li>
       `;
     }).join('');
