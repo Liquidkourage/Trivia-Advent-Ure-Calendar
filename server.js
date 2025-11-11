@@ -4376,6 +4376,9 @@ app.get('/quiz/:id', async (req, res) => {
       </div>
     ` : '';
 
+    // Check if user is admin (but respect preview mode)
+    const showAdminFeatures = isAdmin && !previewAsPlayer;
+
     let form;
     if (locked) {
       form = '<p>This quiz is locked until unlock time (ET).</p>';
