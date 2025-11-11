@@ -4313,25 +4313,34 @@ app.get('/quiz/:id', async (req, res) => {
       <body class="ta-body">
         ${header}
         <main class="ta-main ta-container-wide">
-          <div class="ta-quiz-hero">
-            <div class="ta-quiz-hero-top">
-              <h1 class="ta-quiz-title">${quiz.title}</h1>
-              ${quiz.author ? `<div class="ta-quiz-subtitle">By ${quiz.author}</div>` : ''}
+          ${locked ? `
+            <div class="ta-quiz-hero">
+              <div class="ta-quiz-hero-top">
+                ${quiz.author ? `<div class="ta-quiz-subtitle" style="font-size:32px;color:#ffd700;">By ${quiz.author}</div>` : ''}
+              </div>
             </div>
-            <div class="ta-quiz-hero-body">
-              ${(quiz.author || quiz.author_blurb) ? `<div class=\"meta-panel\"><h4>About the author</h4><span class=\"author-name\">${quiz.author || ''}</span><div style=\"opacity:.9;\">${quiz.author_blurb || ''}</div></div>` : ''}
-              ${quiz.description ? `<div class=\"desc-panel\"><h4 style=\"margin:0 0 8px 0;color:var(--gold);\">About this quiz</h4>${quiz.description}</div>` : ''}
+            ${subnav}
+          ` : `
+            <div class="ta-quiz-hero">
+              <div class="ta-quiz-hero-top">
+                <h1 class="ta-quiz-title">${quiz.title}</h1>
+                ${quiz.author ? `<div class="ta-quiz-subtitle">By ${quiz.author}</div>` : ''}
+              </div>
+              <div class="ta-quiz-hero-body">
+                ${(quiz.author || quiz.author_blurb) ? `<div class=\"meta-panel\"><h4>About the author</h4><span class=\"author-name\">${quiz.author || ''}</span><div style=\"opacity:.9;\">${quiz.author_blurb || ''}</div></div>` : ''}
+                ${quiz.description ? `<div class=\"desc-panel\"><h4 style=\"margin:0 0 8px 0;color:var(--gold);\">About this quiz</h4>${quiz.description}</div>` : ''}
+              </div>
             </div>
-          </div>
-          ${subnav}
-          <section class="rules-panel">
-            <h4>How scoring works</h4>
-            <ul class="rules-list">
-              <li>Lock exactly one question. If your locked answer is correct, you earn <strong>5 points</strong>; if incorrect, it earns <strong>0</strong>. The locked question <em>does not affect</em> your streak.</li>
-              <li>For all other questions, correct answers build a streak: <strong>+1, then +2, then +3…</strong>. A wrong/blank answer resets the streak to 0.</li>
-              <li>You may change your lock until grading/finalization.</li>
-            </ul>
-          </section>
+            ${subnav}
+            <section class="rules-panel">
+              <h4>How scoring works</h4>
+              <ul class="rules-list">
+                <li>Lock exactly one question. If your locked answer is correct, you earn <strong>5 points</strong>; if incorrect, it earns <strong>0</strong>. The locked question <em>does not affect</em> your streak.</li>
+                <li>For all other questions, correct answers build a streak: <strong>+1, then +2, then +3…</strong>. A wrong/blank answer resets the streak to 0.</li>
+                <li>You may change your lock until grading/finalization.</li>
+              </ul>
+            </section>
+          `}
           ${form}
           <p style="margin-top:16px;"><a href="/calendar" class="ta-btn ta-btn-outline">Back to Calendar</a></p>
         </main>
