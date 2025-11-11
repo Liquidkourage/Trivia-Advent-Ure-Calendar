@@ -4248,10 +4248,17 @@ app.get('/quiz/:id', async (req, res) => {
       </div>
     ` : '';
 
+    // Check if user is admin
+    const isAdmin = await isAdminUser(req);
+    
     let form;
     if (locked) {
       form = '<p>This quiz is locked until unlock time (ET).</p>';
       if (isAuthor) form += authorMessage;
+      // Show edit button for admins even when locked
+      if (isAdmin && !isAuthor) {
+        form += `<div style="margin-top:16px;"><a href="/quiz/${id}/edit" class="ta-btn ta-btn-primary">Edit Quiz (Admin)</a></div>`;
+      }
     } else if (loggedIn && !isAuthor) {
       form = `
       ${existingMap.size > 0 ? `<div style="padding:8px 10px;border:1px solid #ddd;border-radius:6px;background:#fafafa;margin-bottom:10px;">You've started this quiz. <a href="/quiz/${id}?recap=1">View recap</a>.</div>` : ''}
@@ -4301,9 +4308,12 @@ app.get('/quiz/:id', async (req, res) => {
     } else if (isAuthor) {
       const editLink = locked ? `<div style="margin-top:16px;"><a href="/quiz/${id}/edit" class="ta-btn ta-btn-primary">Edit Quiz</a></div>` : '';
       form = authorMessage + editLink;
+      // If author is also admin, show admin edit link even after unlock
+      if (isAdmin && !locked) {
+        form += `<div style="margin-top:16px;"><a href="/quiz/${id}/edit" class="ta-btn ta-btn-primary">Edit Quiz (Admin)</a></div>`;
+      }
     } else {
-      // Check if user is admin and show edit link
-      const isAdmin = await isAdminUser(req);
+      // Show edit button for admins
       const adminEditLink = isAdmin ? `<div style="margin-top:16px;"><a href="/quiz/${id}/edit" class="ta-btn ta-btn-primary">Edit Quiz (Admin)</a></div>` : '';
       form = '<p>Please sign in to play.</p>' + adminEditLink;
     }
