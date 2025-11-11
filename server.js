@@ -4395,8 +4395,8 @@ app.get('/quiz/:id/edit', requireAuth, async (req, res) => {
       <body class="ta-body" style="padding:24px;">
       ${header}
         <main class="ta-main ta-container" style="max-width:900px;">
-          <h1 class="ta-page-title">Edit Your Quiz</h1>
-          <p style="margin-bottom:16px;opacity:0.8;">You can edit this quiz until it unlocks. After unlock, only admins can make changes.</p>
+          <h1 class="ta-page-title">${isAdmin ? 'Edit Quiz' : 'Edit Your Quiz'}</h1>
+          <p style="margin-bottom:16px;opacity:0.8;">${isAdmin ? 'Admin: You can edit this quiz at any time.' : 'You can edit this quiz until it unlocks. After unlock, only admins can make changes.'}</p>
           <form method="post" action="/quiz/${id}/edit" class="ta-form-stack">
             <div class="ta-form-field">
               <label>Title <input name="title" value="${esc(quiz.title)}" required style="width:100%;" /></label>
