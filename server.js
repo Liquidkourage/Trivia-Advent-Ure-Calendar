@@ -4447,11 +4447,25 @@ app.get('/quiz/:id', async (req, res) => {
     const dateStr = `${et.y}-${String(et.m).padStart(2,'0')}-${String(et.d).padStart(2,'0')}`;
     const header = await renderHeader(req);
     const subnav = renderQuizSubnav(id, 'quiz', { allowRecap: allowRecapLink });
+    
+    // Add preview mode banner for admins
+    const previewBanner = previewAsPlayer ? `
+      <div style="background:#1a3a4a;border:2px solid #4488ff;border-radius:8px;padding:12px;margin-bottom:20px;display:flex;justify-content:space-between;align-items:center;">
+        <div style="color:#88ccff;font-weight:bold;">👁️ Preview Mode: Viewing as Player</div>
+        <a href="/quiz/${id}" class="ta-btn ta-btn-outline" style="padding:6px 12px;font-size:14px;">Exit Preview</a>
+      </div>
+    ` : (isAdmin ? `
+      <div style="background:#1a1a1a;border:1px solid #444;border-radius:6px;padding:8px;margin-bottom:16px;text-align:right;">
+        <a href="/quiz/${id}?preview=player" class="ta-btn ta-btn-outline" style="padding:4px 12px;font-size:13px;">👁️ Preview as Player</a>
+      </div>
+    ` : '');
+    
     res.type('html').send(`
       ${renderHead(`Quiz ${id}`, false)}
       <body class="ta-body">
         ${header}
         <main class="ta-main ta-container-wide">
+          ${previewBanner}
           ${locked ? `
             <div class="ta-quiz-hero">
               <div class="ta-quiz-hero-top">
