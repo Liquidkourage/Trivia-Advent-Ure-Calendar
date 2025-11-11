@@ -4369,9 +4369,6 @@ app.get('/quiz/:id', async (req, res) => {
       </div>
     ` : '';
 
-    // Check if user is admin
-    const isAdmin = await isAdminUser(req);
-    
     let form;
     if (locked) {
       form = '<p>This quiz is locked until unlock time (ET).</p>';
