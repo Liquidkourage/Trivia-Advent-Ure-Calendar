@@ -3648,21 +3648,33 @@ app.post('/admin/writer-submissions/:id/publish', requireAdmin, express.urlencod
     let isAssignedSlot = false;
     if (assignedSlotDate && assignedSlotHalf) {
       // Normalize assignedSlotDate to YYYY-MM-DD string
+      // slot_date from PostgreSQL DATE type can come as a Date object or string
       let assignedDateStr = '';
       if (assignedSlotDate instanceof Date) {
-        assignedDateStr = `${assignedSlotDate.getFullYear()}-${String(assignedSlotDate.getMonth() + 1).padStart(2,'0')}-${String(assignedSlotDate.getDate()).padStart(2,'0')}`;
+        // Date object - use UTC methods to avoid timezone issues
+        assignedDateStr = `${assignedSlotDate.getUTCFullYear()}-${String(assignedSlotDate.getUTCMonth() + 1).padStart(2,'0')}-${String(assignedSlotDate.getUTCDate()).padStart(2,'0')}`;
       } else {
+        // String - could be YYYY-MM-DD or other format
         assignedDateStr = String(assignedSlotDate).trim();
+        // If it's not already YYYY-MM-DD, try to parse it
         if (!/^\d{4}-\d{2}-\d{2}$/.test(assignedDateStr)) {
+          // Try parsing as ISO date string or other format
           const d = new Date(assignedDateStr);
           if (!isNaN(d.getTime())) {
-            assignedDateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+            // Use UTC to avoid timezone shifts
+            assignedDateStr = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
+          } else {
+            console.error(`[publish] Could not parse assignedSlotDate: ${assignedSlotDate}`);
           }
         }
       }
       const assignedHalf = String(assignedSlotHalf || '').trim().toUpperCase();
       isAssignedSlot = (assignedDateStr === unlockDateStr && assignedHalf === unlockHalf);
       console.log(`[publish] Slot check: assigned=${assignedDateStr} ${assignedHalf}, unlock=${unlockDateStr} ${unlockHalf}, match=${isAssignedSlot}`);
+      console.log(`[publish] Raw assignedSlotDate type: ${typeof assignedSlotDate}, value: ${assignedSlotDate}`);
+      console.log(`[publish] Raw assignedSlotHalf: ${assignedSlotHalf}`);
+    } else {
+      console.log(`[publish] No assigned slot data: slot_date=${assignedSlotDate}, slot_half=${assignedSlotHalf}`);
     }
     // Enforce unique slot: prevent duplicate unlock_at
     // BUT: if the existing quiz has the same author_email OR same author name OR this is the writer's assigned slot, allow it
