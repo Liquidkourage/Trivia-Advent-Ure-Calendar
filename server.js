@@ -3540,6 +3540,7 @@ app.get('/admin/writer-submissions/:id', requireAdmin, async (req, res) => {
             const errorDiv = document.getElementById('slotError');
             const takenSlotsData = ${JSON.stringify(Array.from(takenSlots))};
             const takenSlots = new Set(takenSlotsData);
+            const assignedSlotKey = ${hasAssignedSlot ? JSON.stringify(assignedSlotKey) : 'null'};
             
             // Check if selected slot is taken
             function checkSlot() {
@@ -3555,6 +3556,12 @@ app.get('/admin/writer-submissions/:id', requireAdmin, async (req, res) => {
               const hour = parseInt(timePart.split(':')[0]);
               const half = hour === 0 ? 'AM' : 'PM';
               const slotKey = datePart + '-' + half;
+              
+              // Allow the slot if it's the assigned slot, even if it's taken
+              if (assignedSlotKey && slotKey === assignedSlotKey) {
+                errorDiv.style.display = 'none';
+                return true;
+              }
               
               if (takenSlots.has(slotKey)) {
                 errorDiv.innerHTML = '⚠️ This timeslot is already taken! Please select a different slot from the calendar above.';
