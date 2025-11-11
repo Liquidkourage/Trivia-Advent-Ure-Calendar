@@ -4302,7 +4302,10 @@ app.get('/quiz/:id', async (req, res) => {
       const editLink = locked ? `<div style="margin-top:16px;"><a href="/quiz/${id}/edit" class="ta-btn ta-btn-primary">Edit Quiz</a></div>` : '';
       form = authorMessage + editLink;
     } else {
-      form = '<p>Please sign in to play.</p>';
+      // Check if user is admin and show edit link
+      const isAdmin = await isAdminUser(req);
+      const adminEditLink = isAdmin ? `<div style="margin-top:16px;"><a href="/quiz/${id}/edit" class="ta-btn ta-btn-primary">Edit Quiz (Admin)</a></div>` : '';
+      form = '<p>Please sign in to play.</p>' + adminEditLink;
     }
     const et = utcToEtParts(unlockUtc);
     const slot = et.h === 0 ? 'AM' : 'PM';
