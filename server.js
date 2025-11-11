@@ -4270,11 +4270,12 @@ app.get('/quiz/:id', async (req, res) => {
     const unlockUtc = new Date(quiz.unlock_at);
     const freezeUtc = new Date(quiz.freeze_at);
     const { rows: qs } = await pool.query('SELECT * FROM questions WHERE quiz_id = $1 ORDER BY number ASC', [id]);
-    const locked = nowUtc < unlockUtc;
-    const status = locked ? 'Locked' : (nowUtc >= freezeUtc ? 'Finalized' : 'Unlocked');
-    const loggedIn = !!req.session.user || req.session.isAdmin === true;
     const isAdmin = await isAdminUser(req);
     const previewAsPlayer = req.query.preview === 'player' && isAdmin; // Admin can preview as player
+    // In preview mode, simulate the quiz as unlocked so admin can see what players will see
+    const locked = previewAsPlayer ? false : (nowUtc < unlockUtc);
+    const status = locked ? 'Locked' : (nowUtc >= freezeUtc ? 'Finalized' : 'Unlocked');
+    const loggedIn = !!req.session.user || req.session.isAdmin === true;
     const email = String(req.session.user ? (req.session.user.email || '') : (req.session.isAdmin === true ? getAdminEmail() : '')).toLowerCase();
     let existingMap = new Map();
     let existingLockedId = null;
@@ -4463,7 +4464,7 @@ app.get('/quiz/:id', async (req, res) => {
         ${header}
         <main class="ta-main ta-container-wide">
           ${previewBanner}
-          ${locked ? `
+          ${locked && !previewAsPlayer ? `
             <div class="ta-quiz-hero">
               <div class="ta-quiz-hero-top">
                 ${quiz.author ? `<div class="ta-quiz-subtitle" style="font-size:32px;color:#ffd700;">By ${quiz.author}</div>` : ''}
