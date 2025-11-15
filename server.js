@@ -7036,11 +7036,6 @@ app.get('/faq', async (req, res) => {
         </div>
 
         <div class="faq-section" style="margin-bottom:32px;">
-          <h2 style="color:#ffd700;margin-bottom:16px;">How are winners selected?</h2>
-          <p style="opacity:0.9;line-height:1.6;margin-bottom:16px;">There are no winners, only players with a love of trivia and a charitable heart.</p>
-        </div>
-
-        <div class="faq-section" style="margin-bottom:32px;">
           <h2 style="color:#ffd700;margin-bottom:16px;">Who creates the quizzes?</h2>
           <p style="opacity:0.9;line-height:1.6;margin-bottom:16px;">Each quiz was written by a trivia professional or enthusiast. 48 quizzes, 48 authors who you'll learn about when their quiz becomes available.</p>
         </div>
