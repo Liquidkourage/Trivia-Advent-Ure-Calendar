@@ -1817,7 +1817,7 @@ app.get('/public', async (req, res) => {
             <div style="text-align:center;">
               <div style="font-size:36px;margin-bottom:8px;">📊</div>
               <h3 style="color:#ffd700;margin:0 0 8px 0;font-size:18px;">Instant Feedback</h3>
-              <p style="margin:0;opacity:0.8;line-height:1.5;">Get immediate recaps with answers, points, and detailed breakdowns after each quiz.</p>
+              <p style="margin:0;opacity:0.8;line-height:1.5;">Get immediate recaps with answers and points after each quiz.</p>
             </div>
             <div style="text-align:center;">
               <div style="font-size:36px;margin-bottom:8px;">👥</div>
@@ -1831,7 +1831,7 @@ app.get('/public', async (req, res) => {
           <h3 class="ta-section-title" style="margin-top:0;">How It Works</h3>
           <ul class="ta-list" style="font-size:16px;line-height:1.8;">
             <li><strong>10 questions per quiz</strong> covering a variety of topics and difficulty levels</li>
-            <li><strong>Immediate recap</strong> on submit with answers, points, and explanations</li>
+            <li><strong>Immediate recap</strong> on submit with answers and points</li>
             <li><strong>Per-quiz leaderboard</strong> freezes 24 hours after unlock for fair competition</li>
             <li><strong>Overall standings</strong> keep updating as players complete quizzes throughout December</li>
             <li><strong>Play anytime</strong> during the 24-hour window for each quiz slot</li>
