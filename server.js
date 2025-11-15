@@ -6969,4 +6969,111 @@ app.post('/admin/announcements', requireAdmin, express.urlencoded({ extended: tr
   }
 });
 
+// --- FAQ Page ---
+app.get('/faq', async (req, res) => {
+  const header = await renderHeader(req);
+  res.type('html').send(`
+    ${renderHead('FAQ', false)}
+    <body class="ta-body" style="padding:24px;">
+      ${header}
+      <div style="max-width:800px;margin:0 auto;">
+        <h1 style="color:#ffd700;margin-bottom:24px;">Frequently Asked Questions</h1>
+
+        <div class="faq-section" style="margin-bottom:32px;">
+          <h2 style="color:#ffd700;margin-bottom:16px;">What is Trivia Advent-ure Calendar?</h2>
+          <p style="opacity:0.9;line-height:1.6;margin-bottom:16px;">More or less, yeah! It's like an advent calendar, but instead of chocolates or small gifts behind each door, you get daily trivia quizzes to solve.</p>
+        </div>
+
+        <div class="faq-section" style="margin-bottom:32px;">
+          <h2 style="color:#ffd700;margin-bottom:16px;">How does the event work?</h2>
+          <p style="opacity:0.9;line-height:1.6;margin-bottom:16px;">From December 1st through December 24th, quizzes will unlock every 12 hours (at midnight and noon Eastern). So that's 48 total quizzes written by 48 different authors in 48 different topics.</p>
+        </div>
+
+        <div class="faq-section" style="margin-bottom:32px;">
+          <h2 style="color:#ffd700;margin-bottom:16px;">When does the event run?</h2>
+          <p style="opacity:0.9;line-height:1.6;margin-bottom:16px;">[ANSWER NEEDED]</p>
+        </div>
+
+        <div class="faq-section" style="margin-bottom:32px;">
+          <h2 style="color:#ffd700;margin-bottom:16px;">When do quizzes become available?</h2>
+          <p style="opacity:0.9;line-height:1.6;margin-bottom:16px;">Quizzes unlock every 12 hours (at midnight and noon Eastern) from December 1st through December 24th.</p>
+        </div>
+
+        <div class="faq-section" style="margin-bottom:32px;">
+          <h2 style="color:#ffd700;margin-bottom:16px;">How do I participate?</h2>
+          <p style="opacity:0.9;line-height:1.6;margin-bottom:16px;">This is a fundraising venture, so players receive access by making a donation to the Calendar's Ko-Fi page. Suggested donation is $25 per player, but we operate under a "donate what you can" model so that players can enjoy the experience regardless of economic situation.</p>
+        </div>
+
+        <div class="faq-section" style="margin-bottom:32px;">
+          <h2 style="color:#ffd700;margin-bottom:16px;">Do I need to create an account?</h2>
+          <p style="opacity:0.9;line-height:1.6;margin-bottom:16px;">After you make a donation, you'll receive an email with a special link to grant you access to the site. From there, you can let us know if you've donated so that you can play, as a gift for someone else to play, or both! You'll be prompted to set a username and password during this process.</p>
+        </div>
+
+        <div class="faq-section" style="margin-bottom:32px;">
+          <h2 style="color:#ffd700;margin-bottom:16px;">Is participation free?</h2>
+          <p style="opacity:0.9;line-height:1.6;margin-bottom:16px;">This is a fundraising venture, so participation requires a donation to the Calendar's Ko-Fi page. We operate under a "donate what you can" model - suggested donation is $25 per player, but you can contribute any amount that works for your situation.</p>
+        </div>
+
+        <div class="faq-section" style="margin-bottom:32px;">
+          <h2 style="color:#ffd700;margin-bottom:16px;">How do I play a quiz?</h2>
+          <p style="opacity:0.9;line-height:1.6;margin-bottom:16px;">Access the Calendar page and you'll see 24 numbered boxes, representing each day from December 1 to December 24. Each door unlocks at the start of each day, giving you access to that day's AM quiz, and at noon that day's PM quiz. Each quiz is 10 questions, presented all at once.</p>
+        </div>
+
+        <div class="faq-section" style="margin-bottom:32px;">
+          <h2 style="color:#ffd700;margin-bottom:16px;">How are answers scored?</h2>
+          <p style="opacity:0.9;line-height:1.6;margin-bottom:16px;">Answers are compared to the official correct answer and to any other matching responses. The Advent-ure team will regularly check responses, making grading decisions for every response. Answers are marked either correct or incorrect; no partial credit.</p>
+          <p style="opacity:0.9;line-height:1.6;margin-bottom:16px;">Scoring works like this: Most questions are worth points based on consecutive correct answers (1 point for the first correct answer, 2 points for the second consecutive correct, 3 for the third, and so on). Some questions are "locked" and worth 5 points each when answered correctly. Incorrect answers reset your streak to zero. Quiz authors also receive bonus points based on how well players perform on their quizzes.</p>
+        </div>
+
+        <div class="faq-section" style="margin-bottom:32px;">
+          <h2 style="color:#ffd700;margin-bottom:16px;">Can I change my answers?</h2>
+          <p style="opacity:0.9;line-height:1.6;margin-bottom:16px;">Once a response is submitted, there's no way to amend your answer(s). Read closely, make sure you answer the question being asked, and double-check your answers before submitting.</p>
+        </div>
+
+        <div class="faq-section" style="margin-bottom:32px;">
+          <h2 style="color:#ffd700;margin-bottom:16px;">Can I participate in multiple quizzes?</h2>
+          <p style="opacity:0.9;line-height:1.6;margin-bottom:16px;">Every quiz is available (after it unlocks) for every registered player.</p>
+        </div>
+
+        <div class="faq-section" style="margin-bottom:32px;">
+          <h2 style="color:#ffd700;margin-bottom:16px;">Are there prizes?</h2>
+          <p style="opacity:0.9;line-height:1.6;margin-bottom:16px;">As this is a fundraising venture and a massive trivia undertaking without proctors or cheat prevention tools, there is no equitable way to ensure that high-scoring players are competing fairly. For that reason, the only "prize" is pride at how you ended up on the leaderboards.</p>
+        </div>
+
+        <div class="faq-section" style="margin-bottom:32px;">
+          <h2 style="color:#ffd700;margin-bottom:16px;">How are winners selected?</h2>
+          <p style="opacity:0.9;line-height:1.6;margin-bottom:16px;">There are no winners, only players with a love of trivia and a charitable heart.</p>
+        </div>
+
+        <div class="faq-section" style="margin-bottom:32px;">
+          <h2 style="color:#ffd700;margin-bottom:16px;">Who creates the quizzes?</h2>
+          <p style="opacity:0.9;line-height:1.6;margin-bottom:16px;">Each quiz was written by a trivia professional or enthusiast. 48 quizzes, 48 authors who you'll learn about when their quiz becomes available.</p>
+        </div>
+
+        <div class="faq-section" style="margin-bottom:32px;">
+          <h2 style="color:#ffd700;margin-bottom:16px;">What types of questions can I expect?</h2>
+          <p style="opacity:0.9;line-height:1.6;margin-bottom:16px;">The sky's the limit on what to expect. Since we have dozens of guest writers, quizzes may vary wildly in topic, difficulty, voice, etc. Each quiz is intended to have a single theme, however, and many quizzes will naturally feature ideas around the holiday season.</p>
+        </div>
+
+        <div class="faq-section" style="margin-bottom:32px;">
+          <h2 style="color:#ffd700;margin-bottom:16px;">What if I have technical difficulties?</h2>
+          <p style="opacity:0.9;line-height:1.6;margin-bottom:16px;">This site is under active development, so we anticipate there may be technical issues. Any such issues should be brought to the attention of the Trivia Advent-ure Calendar team, and we will work to resolve those issues ASAP.</p>
+        </div>
+
+        <div class="faq-section" style="margin-bottom:32px;">
+          <h2 style="color:#ffd700;margin-bottom:16px;">Can I play on mobile devices?</h2>
+          <p style="opacity:0.9;line-height:1.6;margin-bottom:16px;">The site is designed to work from any browser on any device, but if you find any issues with accessing the calendar from a mobile device, please let us know!</p>
+        </div>
+
+        <div class="faq-section" style="margin-bottom:32px;">
+          <h2 style="color:#ffd700;margin-bottom:16px;">What time zone are the quiz times in?</h2>
+          <p style="opacity:0.9;line-height:1.6;margin-bottom:16px;">The calendar runs on Eastern Standard Time.</p>
+        </div>
+
+      </div>
+      ${renderFooter(req)}
+    </body>
+  `);
+});
+
 // ... (rest of the code remains unchanged)
