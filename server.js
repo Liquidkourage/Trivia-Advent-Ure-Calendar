@@ -7047,7 +7047,7 @@ app.get('/faq', async (req, res) => {
 
         <div class="faq-section" style="margin-bottom:32px;">
           <h2 style="color:#ffd700;margin-bottom:16px;">What if I have technical difficulties?</h2>
-          <p style="opacity:0.9;line-height:1.6;margin-bottom:16px;">This site is under active development, so we anticipate there may be technical issues. Any such issues should be brought to the attention of the Trivia Advent-ure Calendar team, and we will work to resolve those issues ASAP.</p>
+          <p style="opacity:0.9;line-height:1.6;margin-bottom:16px;">This site is under active development, so we anticipate there may be technical issues. Any such issues should be brought to the attention of the Trivia Advent-ure Calendar team at <a href="mailto:Trivia.Adventure12124@gmail.com">Trivia.Adventure12124@gmail.com</a>, and we will work to resolve those issues ASAP.</p>
         </div>
 
         <div class="faq-section" style="margin-bottom:32px;">
