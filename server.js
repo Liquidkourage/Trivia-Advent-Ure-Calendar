@@ -7017,7 +7017,7 @@ app.get('/faq', async (req, res) => {
         <div class="faq-section" style="margin-bottom:32px;">
           <h2 style="color:#ffd700;margin-bottom:16px;">How are answers scored?</h2>
           <p style="opacity:0.9;line-height:1.6;margin-bottom:16px;">Answers are compared to the official correct answer and to any other matching responses. The Advent-ure team will regularly check responses, making grading decisions for every response. Answers are marked either correct or incorrect; no partial credit.</p>
-          <p style="opacity:0.9;line-height:1.6;margin-bottom:16px;">Scoring works like this: Most questions are worth points based on consecutive correct answers (1 point for the first correct answer, 2 points for the second consecutive correct, 3 for the third, and so on). Some questions are "locked" and worth 5 points each when answered correctly. Incorrect answers reset your streak to zero. Quiz authors also receive bonus points based on how well players perform on their quizzes.</p>
+          <p style="opacity:0.9;line-height:1.6;margin-bottom:16px;">Scoring works like this: Most questions are worth points based on consecutive correct answers (1 point for the first correct answer, 2 points for the second consecutive correct, 3 for the third, and so on). Each player can choose one question per quiz to "lock" - that question is worth a flat 5 points when answered correctly and doesn't interrupt your streak. Incorrect answers reset your streak to zero. Quiz authors also receive bonus points based on how well players perform on their quizzes.</p>
         </div>
 
         <div class="faq-section" style="margin-bottom:32px;">
