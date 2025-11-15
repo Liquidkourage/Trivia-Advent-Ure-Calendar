@@ -999,9 +999,9 @@ app.get('/account', requireAuth, async (req, res) => {
         <main class="ta-main">
           <div class="account-page">
             <div class="account-header">
-              <h1 class="ta-page-title">Account Settings</h1>
+          <h1 class="ta-page-title">Account Settings</h1>
               ${req.query.msg ? `<div class="account-alert">${req.query.msg}</div>` : ''}
-            </div>
+              </div>
             <div class="account-layout">
               <section class="account-card account-summary">
                 <h2>Account Overview</h2>
@@ -1019,69 +1019,69 @@ app.get('/account', requireAuth, async (req, res) => {
                   <h2>Profile &amp; Security</h2>
                   <div class="account-actions">
                     <a class="account-action" href="/account/credentials">
-                      <div>
-                        <strong>Edit Profile</strong>
+              <div>
+                <strong>Edit Profile</strong>
                         <small>Change username and password</small>
                       </div>
                       <span aria-hidden="true">›</span>
-                    </a>
-                  </div>
-                </section>
+              </a>
+            </div>
+          </section>
                 <section class="account-card">
                   <h2>Activity &amp; Data</h2>
                   <div class="account-actions">
                     <a class="account-action" href="/player">
                       <div>
-                        <strong>My Dashboard</strong>
+                <strong>My Dashboard</strong>
                         <small>View your stats and recent quizzes</small>
                       </div>
                       <span aria-hidden="true">›</span>
-                    </a>
+              </a>
                     <a class="account-action" href="/account/history">
                       <div>
-                        <strong>Quiz History</strong>
+                <strong>Quiz History</strong>
                         <small>View all your quiz attempts</small>
                       </div>
                       <span aria-hidden="true">›</span>
-                    </a>
+              </a>
                     <a class="account-action" href="/account/export">
                       <div>
-                        <strong>Export Data</strong>
+                <strong>Export Data</strong>
                         <small>Download your quiz data (CSV/JSON)</small>
                       </div>
                       <span aria-hidden="true">›</span>
-                    </a>
+              </a>
                     <a class="account-action" href="/calendar">
                       <div>
-                        <strong>Calendar</strong>
+                <strong>Calendar</strong>
                         <small>Browse and play quizzes</small>
                       </div>
                       <span aria-hidden="true">›</span>
-                    </a>
-                  </div>
-                </section>
+              </a>
+            </div>
+          </section>
                 <section class="account-card">
                   <h2>Communication</h2>
                   <div class="account-actions">
                     <a class="account-action" href="/account/preferences">
                       <div>
-                        <strong>Email Preferences</strong>
+                <strong>Email Preferences</strong>
                         <small>Manage notification settings</small>
                       </div>
                       <span aria-hidden="true">›</span>
-                    </a>
-                  </div>
-                </section>
+              </a>
+            </div>
+          </section>
                 <section class="account-card">
                   <h2>Danger Zone</h2>
                   <p>Permanently delete your account and all associated data. This action cannot be undone.</p>
                   <a href="/account/delete" class="account-action account-action--danger">
                     <strong>Delete Account</strong>
                   </a>
-                </section>
+          </section>
               </div>
-            </div>
-          </div>
+              </div>
+              </div>
         </main>
         ${renderFooter(req)}
       </body></html>
@@ -1124,11 +1124,11 @@ app.get('/onboarding', requireAuth, async (req, res) => {
             <li><strong>Leaderboards</strong> track your progress and compare with other players</li>
             <li><strong>Play at your own pace</strong> during each 24-hour window</li>
           </ul>
-        </div>
+            </div>
         <form method="post" action="/onboarding">
           <button type="submit" class="ta-btn ta-btn-primary" style="font-size:18px;padding:14px 32px;">Get Started</button>
         </form>
-      </main>
+        </main>
       ${renderFooter(req)}
       </body></html>
     `);
@@ -1945,8 +1945,8 @@ app.get('/admin/calendar', requireAdmin, async (req, res) => {
                   <th style="padding:10px 12px;text-align:left;">PM Slot</th>
                 </tr>
               </thead>
-              <tbody>${htmlRows}</tbody>
-            </table>
+          <tbody>${htmlRows}</tbody>
+        </table>
           </div>
         </main>
         ${renderFooter(req)}
@@ -2389,9 +2389,9 @@ app.get('/login', async (req, res) => {
                       <div class="login-form-footer">
                         <a class="login-link" href="/login?magic=1#magic-link-card">Forgot your password?</a>
                       </div>
-                    </form>
+          </form>
                   </div>
-                  ${showMagic ? `
+          ${showMagic ? `
                     <div class="login-card login-card--secondary" id="magic-link-card">
                       <h2 class="login-card__title">Prefer a magic link?</h2>
                       <p class="login-card__text">We&rsquo;ll email you a one-time link you can use on any device.</p>
@@ -2399,14 +2399,14 @@ app.get('/login', async (req, res) => {
                         <div class="login-field">
                           <label for="login-email">Email</label>
                           <input id="login-email" name="email" type="email" required autocomplete="email" />
-                        </div>
+        </div>
                         <button type="submit" class="ta-btn ta-btn-outline login-submit">Send magic link</button>
                       </form>
                       <p class="login-hint">Check spam if you don&rsquo;t see the email after a minute.</p>
                     </div>
                   ` : ''}
                 </div>
-              `}
+      `}
               <div class="login-links">
                 <a href="/" class="ta-btn ta-btn-outline">Return home</a>
                 ${ADMIN_PIN_ENABLED ? '<a href="/admin/pin" class="ta-btn ta-btn-outline">Admin PIN access</a>' : ''}
@@ -2766,9 +2766,9 @@ app.get('/admin/upload-quiz', requireAdmin, async (req, res) => {
           <label class="ta-form-field">Description<textarea name="description" rows="3"></textarea></label>
           <label class="ta-form-field">Unlock (ET) <input name="unlock_at" type="datetime-local" required /></label>
           <fieldset class="ta-fieldset">
-            <legend>Questions (10)</legend>
-            ${Array.from({length:10}, (_,i)=>{
-              const n=i+1;
+          <legend>Questions (10)</legend>
+          ${Array.from({length:10}, (_,i)=>{
+            const n=i+1;
               return `<div class="ta-question-block">
                 <div class="ta-question-header"><strong>Question ${n}</strong></div>
                 <label class="ta-form-field">Text <input name="q${n}_text" required /></label>
@@ -2778,13 +2778,13 @@ app.get('/admin/upload-quiz', requireAdmin, async (req, res) => {
                   <label>Ask <input name="q${n}_ask"/></label>
                 </div>
               </div>`;
-            }).join('')}
-          </fieldset>
+          }).join('')}
+        </fieldset>
           <div class="ta-form-actions">
             <button type="submit" class="ta-btn ta-btn-primary">Create Quiz</button>
             <a href="/admin/quizzes" class="ta-btn ta-btn-outline">Cancel</a>
           </div>
-        </form>
+      </form>
       </main>
       ${renderFooter(req)}
     </body></html>
@@ -4238,10 +4238,10 @@ app.post('/quiz/:id/autosave', requireAuth, express.json(), async (req, res) => 
         
         // Only create/update if there's content OR if a response already exists (to allow clearing)
         if (trimmedText || existing.length > 0) {
-          await pool.query(
+        await pool.query(
             'INSERT INTO responses (quiz_id, question_id, user_email, response_text, locked) VALUES ($1, $2, $3, $4, false) ON CONFLICT (user_email, question_id) DO UPDATE SET response_text=$4, created_at=CASE WHEN $4 != \'\' THEN NOW() ELSE responses.created_at END',
             [id, questionId, email, trimmedText]
-          );
+        );
         }
       }
     }
@@ -4289,11 +4289,11 @@ app.get('/quiz/:id', async (req, res) => {
     if (effectiveLoggedIn && !effectiveIsAuthor) {
       // In preview mode, don't load actual responses (admin viewing as player)
       if (!previewAsPlayer) {
-        const erows = await pool.query('SELECT question_id, response_text, locked FROM responses WHERE quiz_id=$1 AND user_email=$2', [id, email]);
-        erows.rows.forEach(r => {
-          existingMap.set(r.question_id, r.response_text);
-          if (r.locked === true) existingLockedId = r.question_id;
-        });
+      const erows = await pool.query('SELECT question_id, response_text, locked FROM responses WHERE quiz_id=$1 AND user_email=$2', [id, email]);
+      erows.rows.forEach(r => {
+        existingMap.set(r.question_id, r.response_text);
+        if (r.locked === true) existingLockedId = r.question_id;
+      });
       }
     }
     const recap = String(req.query.recap || '') === '1';
@@ -4343,14 +4343,14 @@ app.get('/quiz/:id', async (req, res) => {
             <div class="ta-table-wrapper">
               <table class="ta-table">
                 <thead>
-                  <tr><th>#</th><th>Question</th><th>Your answer</th><th>Correct answer</th><th>Points</th><th>Actions</th></tr>
+            <tr><th>#</th><th>Question</th><th>Your answer</th><th>Correct answer</th><th>Points</th><th>Actions</th></tr>
                 </thead>
                 <tbody>
-                  ${rowsHtml}
+            ${rowsHtml}
                 </tbody>
-              </table>
+          </table>
             </div>
-            <p style="margin-top:16px;"><a href="/calendar" class="ta-btn ta-btn-outline">Back to Calendar</a></p>
+          <p style="margin-top:16px;"><a href="/calendar" class="ta-btn ta-btn-outline">Back to Calendar</a></p>
           </main>
           ${renderFooter(req)}
         </body></html>
@@ -4497,25 +4497,25 @@ app.get('/quiz/:id', async (req, res) => {
             </div>
             ${subnav}
           ` : `
-            <div class="ta-quiz-hero">
-              <div class="ta-quiz-hero-top">
-                <h1 class="ta-quiz-title">${quiz.title}</h1>
-                ${quiz.author ? `<div class="ta-quiz-subtitle">By ${quiz.author}</div>` : ''}
-              </div>
-              <div class="ta-quiz-hero-body">
-                ${(quiz.author || quiz.author_blurb) ? `<div class=\"meta-panel\"><h4>About the author</h4><span class=\"author-name\">${quiz.author || ''}</span><div style=\"opacity:.9;\">${quiz.author_blurb || ''}</div></div>` : ''}
-                ${quiz.description ? `<div class=\"desc-panel\"><h4 style=\"margin:0 0 8px 0;color:var(--gold);\">About this quiz</h4>${quiz.description}</div>` : ''}
-              </div>
+          <div class="ta-quiz-hero">
+            <div class="ta-quiz-hero-top">
+              <h1 class="ta-quiz-title">${quiz.title}</h1>
+              ${quiz.author ? `<div class="ta-quiz-subtitle">By ${quiz.author}</div>` : ''}
             </div>
+            <div class="ta-quiz-hero-body">
+              ${(quiz.author || quiz.author_blurb) ? `<div class=\"meta-panel\"><h4>About the author</h4><span class=\"author-name\">${quiz.author || ''}</span><div style=\"opacity:.9;\">${quiz.author_blurb || ''}</div></div>` : ''}
+              ${quiz.description ? `<div class=\"desc-panel\"><h4 style=\"margin:0 0 8px 0;color:var(--gold);\">About this quiz</h4>${quiz.description}</div>` : ''}
+            </div>
+          </div>
             ${subnav}
-            <section class="rules-panel">
-              <h4>How scoring works</h4>
-              <ul class="rules-list">
-                <li>Lock exactly one question. If your locked answer is correct, you earn <strong>5 points</strong>; if incorrect, it earns <strong>0</strong>. The locked question <em>does not affect</em> your streak.</li>
-                <li>For all other questions, correct answers build a streak: <strong>+1, then +2, then +3…</strong>. A wrong/blank answer resets the streak to 0.</li>
-                <li>You may change your lock until grading/finalization.</li>
-              </ul>
-            </section>
+          <section class="rules-panel">
+            <h4>How scoring works</h4>
+            <ul class="rules-list">
+              <li>Lock exactly one question. If your locked answer is correct, you earn <strong>5 points</strong>; if incorrect, it earns <strong>0</strong>. The locked question <em>does not affect</em> your streak.</li>
+              <li>For all other questions, correct answers build a streak: <strong>+1, then +2, then +3…</strong>. A wrong/blank answer resets the streak to 0.</li>
+              <li>You may change your lock until grading/finalization.</li>
+            </ul>
+          </section>
           `}
           ${form}
           <p style="margin-top:16px;"><a href="/calendar" class="ta-btn ta-btn-outline">Back to Calendar</a></p>
@@ -4854,11 +4854,11 @@ app.get('/quiz/:id/leaderboard', async (req, res) => {
                 <tbody>
                   ${tableRows || '<tr><td colspan="4" style="padding:16px;text-align:center;opacity:0.75;">No submissions yet.</td></tr>'}
                 </tbody>
-              </table>
+        </table>
             </div>
             ${syntheticNote}
           </section>
-          <p style="margin-top:16px;"><a href="/quiz/${id}" class="ta-btn ta-btn-outline">Back to Quiz</a> <a href="/calendar" class="ta-btn ta-btn-outline" style="margin-left:8px;">Calendar</a></p>
+        <p style="margin-top:16px;"><a href="/quiz/${id}" class="ta-btn ta-btn-outline">Back to Quiz</a> <a href="/calendar" class="ta-btn ta-btn-outline" style="margin-left:8px;">Calendar</a></p>
         </main>
         ${renderFooter(req)}
       </body></html>
@@ -5049,7 +5049,7 @@ app.get('/leaderboard', async (req, res) => {
                 <tbody>
                   ${tableRows || '<tr><td colspan="4" style="padding:16px;text-align:center;opacity:0.75;">No submissions yet.</td></tr>'}
                 </tbody>
-              </table>
+        </table>
             </div>
             <p style="margin-top:12px;font-size:13px;opacity:0.75;">Players who authored quizzes receive an automatic average (or a manual override) noted in the details column.</p>
           </section>
@@ -5069,10 +5069,10 @@ app.post('/quiz/:id/submit', requireAuthOrAdmin, async (req, res) => {
     // Prevent changes after freeze
     const qinfo = await pool.query('SELECT freeze_at, author_email FROM quizzes WHERE id=$1', [id]);
     if (!qinfo.rows.length) return res.status(404).send('Quiz not found');
-    const freezeUtc = new Date(qinfo.rows[0].freeze_at);
-    if (new Date() >= freezeUtc) {
-      return res.redirect(`/quiz/${id}?recap=1`);
-    }
+      const freezeUtc = new Date(qinfo.rows[0].freeze_at);
+      if (new Date() >= freezeUtc) {
+        return res.redirect(`/quiz/${id}?recap=1`);
+      }
     const authorEmail = (qinfo.rows[0].author_email || '').toLowerCase();
     const email = (req.session.user && req.session.user.email ? req.session.user.email : getAdminEmail()).toLowerCase();
     if (authorEmail && authorEmail === email) {
@@ -5196,24 +5196,24 @@ app.get('/admin/quizzes', requireAdmin, async (req, res) => {
             <div class="ta-admin-toolbar__filters">
               <input type="text" id="quiz-search" class="ta-input" placeholder="Search by title or ID…" />
               <select id="status-filter" class="ta-input">
-                <option value="">All Statuses</option>
-                <option value="locked">Locked</option>
-                <option value="active">Active</option>
-                <option value="finalized">Finalized</option>
-              </select>
+              <option value="">All Statuses</option>
+              <option value="locked">Locked</option>
+              <option value="active">Active</option>
+              <option value="finalized">Finalized</option>
+            </select>
               <button onclick="clearFilters()" class="ta-btn ta-btn-outline">Clear</button>
-            </div>
           </div>
+        </div>
           <div id="bulk-quiz-actions" class="ta-admin-bulk" style="display:none;">
             <div class="ta-admin-bulk__header"><strong>Bulk actions (<span id="selected-quiz-count">0</span> selected)</strong></div>
             <div class="ta-admin-bulk__buttons">
               <button onclick="bulkQuizAction('delete')" class="ta-btn ta-btn-danger">Delete Selected</button>
               <button onclick="bulkQuizAction('export')" class="ta-btn ta-btn-success">Export Selected</button>
-            </div>
           </div>
+        </div>
           <div class="ta-table-wrapper">
             <table class="ta-table" id="quiz-table">
-              <thead>
+          <thead>
                 <tr>
                   <th><input type="checkbox" id="select-all-quizzes" onchange="toggleAllQuizzes(this)" /></th>
                   <th>ID</th>
@@ -5222,12 +5222,12 @@ app.get('/admin/quizzes', requireAdmin, async (req, res) => {
                   <th>Freeze</th>
                   <th>Last graded</th>
                   <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${items || '<tr><td colspan="7">No quizzes</td></tr>'}
-              </tbody>
-            </table>
+            </tr>
+          </thead>
+          <tbody>
+            ${items || '<tr><td colspan="7">No quizzes</td></tr>'}
+          </tbody>
+        </table>
           </div>
         </main>
         ${renderFooter(req)}
@@ -5411,7 +5411,7 @@ app.get('/admin/quiz/:id', requireAdmin, async (req, res) => {
 ]' style="width:100%;font-family:monospace;">${JSON.stringify(qs.rows.map(q => ({ number: q.number, text: q.text, answer: q.answer, category: q.category || 'General', ask: q.ask || null })), null, 2)}</textarea>
             <div class="ta-form-actions">
               <button type="submit" class="ta-btn ta-btn-outline">Replace Questions from JSON</button>
-            </div>
+        </div>
           </form>
         </section>
         <section style="margin-top:24px;display:flex;flex-wrap:wrap;gap:12px;">
@@ -5423,8 +5423,8 @@ app.get('/admin/quiz/:id', requireAdmin, async (req, res) => {
         </section>
       </main>
       ${renderFooter(req)}
-    </body></html>
-  `);
+      </body></html>
+    `);
   } catch (e) {
     console.error(e);
     res.status(500).send('Failed to load quiz');
@@ -5494,7 +5494,7 @@ app.post('/admin/quiz/:id/questions', requireAdmin, async (req, res) => {
     // Check if JSON payload is provided (bulk replace)
     if (payload) {
       try {
-        const arr = JSON.parse(payload);
+    const arr = JSON.parse(payload);
         if (!Array.isArray(arr)) return res.status(400).send('Invalid JSON: must be an array');
         questions = arr;
       } catch (parseErr) {
@@ -6972,11 +6972,11 @@ app.post('/admin/announcements', requireAdmin, express.urlencoded({ extended: tr
 
 // --- Contact Page ---
 app.get('/contact', async (req, res) => {
-  const header = await renderHeader(req);
-  res.type('html').send(`
+    const header = await renderHeader(req);
+    res.type('html').send(`
     ${renderHead('Contact Us', false)}
     <body class="ta-body" style="padding:24px;">
-      ${header}
+        ${header}
       <div style="max-width:600px;margin:0 auto;">
         <h1 style="color:#ffd700;margin-bottom:24px;">Contact Us</h1>
 
@@ -7004,8 +7004,8 @@ app.get('/contact', async (req, res) => {
           </div>
 
           <button type="submit" class="ta-btn ta-btn-primary" style="width:100%;padding:12px;font-size:16px;">Send Message</button>
-        </form>
-      </div>
+              </form>
+          </div>
       ${renderFooter(req)}
     </body>
   `);
@@ -7021,8 +7021,8 @@ app.post('/contact', express.urlencoded({ extended: true }), async (req, res) =>
           <h1>Error</h1>
           <p>All fields are required. Please go back and fill out the complete form.</p>
           <a href="/contact" class="ta-btn ta-btn-outline">Try Again</a>
-        </body></html>
-      `);
+      </body></html>
+    `);
     }
 
     // Send email to the team
@@ -7063,7 +7063,7 @@ app.post('/contact', express.urlencoded({ extended: true }), async (req, res) =>
         <a href="/contact" class="ta-btn ta-btn-outline">Try Again</a>
       </body></html>
     `);
-  }
+}
 });
 
 // --- FAQ Page ---
