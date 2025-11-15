@@ -34,7 +34,7 @@ body.ta-body{margin:0;background:linear-gradient(180deg,var(--blue-top) 0%, var(
 .ta-title{font-family:"Bebas Neue", Inter, system-ui, sans-serif;font-size:28px;letter-spacing:1px;color:var(--gold)}
 .ta-nav{display:flex;align-items:center;gap:12px}
 .ta-nav .ta-user{font-weight:600;color:rgba(255,255,255,0.85);display:inline-flex;align-items:center;gap:6px}
-.ta-nav a{color:var(--snow);text-decoration:none;padding:8px 12px;border-radius:999px;transition:background 0.2s ease,color 0.2s ease;display:inline-flex;align-items:center;gap:6px;font-weight:600}
+.ta-nav a{color:var(--gold);text-decoration:none;padding:8px 12px;border-radius:999px;transition:background 0.2s ease,color 0.2s ease;display:inline-flex;align-items:center;gap:6px;font-weight:600}
 .ta-nav a:hover{color:#111;background:linear-gradient(90deg,var(--gold) 0%,var(--gold-2) 100%)}
 .ta-menu-toggle{display:none;flex-direction:column;justify-content:space-around;width:32px;height:32px;background:transparent;border:none;cursor:pointer;padding:0;z-index:11}
 .ta-menu-toggle span{width:100%;height:3px;background:var(--gold);border-radius:2px;transition:all 0.3s ease;transform-origin:center}
@@ -50,7 +50,7 @@ body.ta-body{margin:0;background:linear-gradient(180deg,var(--blue-top) 0%, var(
 .ta-footer-subtitle{opacity:0.75;font-size:14px}
 .ta-footer-links{flex:1 1 360px;display:grid;grid-template-columns:repeat(3,minmax(140px,1fr));gap:12px 28px}
 .ta-footer-section h4{margin:0 0 6px 0;font-size:13px;text-transform:uppercase;letter-spacing:0.6px;color:rgba(255,255,255,0.65)}
-.ta-footer-links a{display:block;color:rgba(255,255,255,0.85);text-decoration:none;padding:3px 0;font-weight:500;line-height:1.4}
+.ta-footer-links a{display:block;color:var(--gold);text-decoration:none;padding:3px 0;font-weight:500;line-height:1.4}
 .ta-footer-links a:hover{color:var(--gold)}
 .ta-footer-charities{display:flex;flex-direction:column;gap:10px;align-items:flex-start;flex:0 0 auto;min-width:160px}
 .ta-footer-charities span{font-weight:600;font-size:13px;opacity:0.75;text-transform:uppercase;letter-spacing:0.6px}
@@ -67,16 +67,16 @@ body.ta-body{margin:0;background:linear-gradient(180deg,var(--blue-top) 0%, var(
   .ta-footer-charities{flex-direction:row;align-items:center;gap:12px}
 }
 .ta-breadcrumbs{display:flex;align-items:center;gap:8px;font-size:14px;margin:0 0 16px 0;opacity:0.85}
-.ta-breadcrumbs a{color:rgba(255,255,255,0.85);text-decoration:none;font-weight:600}
+.ta-breadcrumbs a{color:var(--gold);text-decoration:none;font-weight:600}
 .ta-breadcrumbs a:hover{color:var(--gold)}
 .ta-breadcrumbs span{color:rgba(255,255,255,0.65)}
 .ta-breadcrumbs-sep{color:rgba(255,255,255,0.35)}
 .ta-subnav{display:flex;align-items:center;gap:12px;margin:16px 0 24px 0;background:rgba(0,0,0,0.25);border:1px solid rgba(255,255,255,0.08);border-radius:999px;padding:6px}
-.ta-subnav__link{padding:8px 16px;border-radius:999px;text-decoration:none;color:rgba(255,255,255,0.8);font-weight:600;transition:background 0.2s ease,color 0.2s ease}
+.ta-subnav__link{padding:8px 16px;border-radius:999px;text-decoration:none;color:var(--gold);font-weight:600;transition:background 0.2s ease,color 0.2s ease}
 .ta-subnav__link:hover{color:#111;background:linear-gradient(90deg,var(--gold) 0%,var(--gold-2) 100%)}
 .ta-subnav__link.is-active{color:#111;background:linear-gradient(90deg,var(--gold) 0%,var(--gold-2) 100%);box-shadow:0 6px 16px rgba(0,0,0,0.25)}
 .ta-admin-nav{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:20px;background:rgba(0,0,0,0.25);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:8px}
-.ta-admin-nav__link{padding:8px 14px;border-radius:8px;text-decoration:none;color:rgba(255,255,255,0.75);font-weight:600;transition:background 0.2s ease,color 0.2s ease}
+.ta-admin-nav__link{padding:8px 14px;border-radius:8px;text-decoration:none;color:var(--gold);font-weight:600;transition:background 0.2s ease,color 0.2s ease}
 .ta-admin-nav__link:hover{color:#111;background:linear-gradient(90deg,var(--gold) 0%,var(--gold-2) 100%)}
 .ta-admin-nav__link.is-active{color:#111;background:linear-gradient(90deg,var(--gold) 0%,var(--gold-2) 100%);box-shadow:0 4px 12px rgba(0,0,0,0.25)}
 .ta-admin-toolbar{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;margin:12px 0 16px 0}
