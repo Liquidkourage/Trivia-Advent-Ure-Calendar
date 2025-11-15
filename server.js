@@ -565,7 +565,7 @@ function utcToEtParts(d){
 // Helper function to generate HTML head with viewport meta tag
 function renderHead(title, includeFavicon = true) {
   const favicon = includeFavicon ? '<link rel="icon" href="/favicon.svg" type="image/svg+xml">' : '';
-  return `<html><head><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>${title}</title><link rel="stylesheet" href="/style.css?v=${ASSET_VERSION}">${favicon}</head>`;
+  return `<html style="background:linear-gradient(180deg,#0f1d5a 0%, #15124a 60%, #0b1338 100%);background-color:#0b1338;min-height:100%;"><head><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>${title}</title><style>html,body{margin:0;padding:0;background:linear-gradient(180deg,#0f1d5a 0%, #15124a 60%, #0b1338 100%);background-color:#0b1338;min-height:100vh;}</style><link rel="stylesheet" href="/style.css?v=${ASSET_VERSION}">${favicon}</head>`;
 }
 
 // Helper function to generate consistent header HTML across all pages
