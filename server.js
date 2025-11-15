@@ -1643,13 +1643,21 @@ async function processKofiDonation(body, skipSecretCheck = false) {
   // Ko-fi format: data.type, data.email, data.timestamp
   // Also support direct body.type, body.email, etc.
   const type = (parsedData?.type || body.type || body.data?.type || '').toLowerCase();
-  const email = (parsedData?.email || body.email || body.data?.email || '').trim();
+  const emailRaw = (parsedData?.email || body.email || body.data?.email || '').trim();
   const createdAtStr = parsedData?.timestamp || body.created_at || body.timestamp || body.data?.created_at || body.data?.timestamp;
   
-  console.log('[Ko-fi] Parsed data - type:', type, 'email:', email, 'timestamp:', createdAtStr);
+  console.log('[Ko-fi] Parsed data - type:', type, 'email:', emailRaw, 'timestamp:', createdAtStr);
   
-  if (!email) {
+  if (!emailRaw) {
     return { success: false, error: 'No email' };
+  }
+  
+  // Validate and normalize email
+  const email = emailRaw.toLowerCase();
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) {
+    console.error('[Ko-fi] Invalid email format:', email);
+    return { success: false, error: 'Invalid email format' };
   }
   if (type !== 'donation') {
     return { success: false, error: 'Ignored', ignored: true };
@@ -1668,7 +1676,7 @@ async function processKofiDonation(body, skipSecretCheck = false) {
 
   // Optionally auto-send magic link
   const token = crypto.randomBytes(24).toString('base64url');
-  const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
+  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours to match email message
   await pool.query('INSERT INTO magic_tokens(token,email,expires_at,used) VALUES($1,$2,$3,false)', [token, email, expiresAt]);
   console.log('[Ko-fi] Magic token created for:', email);
   
@@ -1705,7 +1713,7 @@ app.get('/webhooks/kofi', (req, res) => {
 });
 
 // POST handler for actual webhook
-app.post('/webhooks/kofi', async (req, res) => {
+app.post('/webhooks/kofi', express.json(), async (req, res) => {
   try {
     console.log('[Ko-fi Webhook] Received request');
     console.log('[Ko-fi Webhook] Headers:', JSON.stringify(req.headers, null, 2));
@@ -1719,6 +1727,13 @@ app.post('/webhooks/kofi', async (req, res) => {
       }
     }
     const body = req.body || {};
+    
+    // Ensure we have a body to process
+    if (!body || (typeof body === 'object' && Object.keys(body).length === 0)) {
+      console.log('[Ko-fi Webhook] Empty body received');
+      return res.status(400).send('Empty body');
+    }
+    
     const result = await processKofiDonation(body);
     
     if (!result.success) {
@@ -1732,7 +1747,10 @@ app.post('/webhooks/kofi', async (req, res) => {
     res.status(200).send('OK');
   } catch (e) {
     console.error('[Ko-fi Webhook] Error:', e);
-    res.status(200).send('OK'); // respond OK to avoid retries storms
+    console.error('[Ko-fi Webhook] Stack:', e.stack);
+    // Always respond OK to avoid retry storms from Ko-fi
+    // Errors are logged above for debugging
+    res.status(200).send('OK');
   }
 });
 
