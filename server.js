@@ -6981,17 +6981,12 @@ app.get('/faq', async (req, res) => {
 
         <div class="faq-section" style="margin-bottom:32px;">
           <h2 style="color:#ffd700;margin-bottom:16px;">What is Trivia Advent-ure Calendar?</h2>
-          <p style="opacity:0.9;line-height:1.6;margin-bottom:16px;">More or less, yeah! It's like an advent calendar, but instead of chocolates or small gifts behind each door, you get daily trivia quizzes to solve.</p>
+          <p style="opacity:0.9;line-height:1.6;margin-bottom:16px;">Trivia Advent-ure Calendar is a daily trivia event that runs throughout December, featuring 48 unique quiz challenges created by different authors. Each day brings new trivia questions to test your knowledge while supporting charitable causes.</p>
         </div>
 
         <div class="faq-section" style="margin-bottom:32px;">
           <h2 style="color:#ffd700;margin-bottom:16px;">How does the event work?</h2>
           <p style="opacity:0.9;line-height:1.6;margin-bottom:16px;">From December 1st through December 24th, quizzes will unlock every 12 hours (at midnight and noon Eastern). So that's 48 total quizzes written by 48 different authors in 48 different topics.</p>
-        </div>
-
-        <div class="faq-section" style="margin-bottom:32px;">
-          <h2 style="color:#ffd700;margin-bottom:16px;">When does the event run?</h2>
-          <p style="opacity:0.9;line-height:1.6;margin-bottom:16px;">[ANSWER NEEDED]</p>
         </div>
 
         <div class="faq-section" style="margin-bottom:32px;">
