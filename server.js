@@ -7006,7 +7006,7 @@ app.get('/faq', async (req, res) => {
 
         <div class="faq-section" style="margin-bottom:32px;">
           <h2 style="color:#ffd700;margin-bottom:16px;">Is participation free?</h2>
-          <p style="opacity:0.9;line-height:1.6;margin-bottom:16px;">This is a fundraising venture, so participation requires a donation to the Calendar's Ko-Fi page. We operate under a "donate what you can" model - suggested donation is $25 per player, but you can contribute any amount that works for your situation.</p>
+          <p style="opacity:0.9;line-height:1.6;margin-bottom:16px;">This is a fundraising venture, so participation requires a donation to the Calendar's Ko-Fi page. We operate under a "donate what you can" model - suggested donation is $25 per player, but you can contribute any amount that works for your situation. We also have a gifting process where donors can purchase access for others.</p>
         </div>
 
         <div class="faq-section" style="margin-bottom:32px;">
