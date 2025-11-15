@@ -634,7 +634,7 @@ function renderFooter(req) {
             <div class="ta-footer-section">
               <h4>Support</h4>
               <a href="https://ko-fi.com/triviaadvent" target="_blank" rel="noopener noreferrer">Donate on Ko-fi</a>
-              <a href="/public#faq">FAQ</a>
+              <a href="/faq">FAQ</a>
             </div>
           </div>
           <div class="ta-footer-charities">
