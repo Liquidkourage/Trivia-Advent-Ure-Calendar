@@ -635,6 +635,7 @@ function renderFooter(req) {
               <h4>Support</h4>
               <a href="https://ko-fi.com/triviaadvent" target="_blank" rel="noopener noreferrer">Donate on Ko-fi</a>
               <a href="/faq">FAQ</a>
+              <a href="/contact">Contact</a>
             </div>
           </div>
           <div class="ta-footer-charities">
@@ -6966,6 +6967,102 @@ app.post('/admin/announcements', requireAdmin, express.urlencoded({ extended: tr
   } catch (e) {
     console.error('Error sending announcements:', e);
     res.status(500).send('Failed to send announcements');
+  }
+});
+
+// --- Contact Page ---
+app.get('/contact', async (req, res) => {
+  const header = await renderHeader(req);
+  res.type('html').send(`
+    ${renderHead('Contact Us', false)}
+    <body class="ta-body" style="padding:24px;">
+      ${header}
+      <div style="max-width:600px;margin:0 auto;">
+        <h1 style="color:#ffd700;margin-bottom:24px;">Contact Us</h1>
+
+        <p style="opacity:0.9;margin-bottom:24px;">Have a question, feedback, or need help? We'd love to hear from you! Fill out the form below and we'll get back to you as soon as possible.</p>
+
+        <form method="post" action="/contact" style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:24px;">
+          <div style="margin-bottom:20px;">
+            <label style="display:block;margin-bottom:8px;font-weight:bold;color:#ffd700;">Name *</label>
+            <input type="text" name="name" required style="width:100%;padding:10px;border-radius:6px;border:1px solid #444;background:#2a2a2a;color:#fff;font-size:16px;" placeholder="Your full name" />
+          </div>
+
+          <div style="margin-bottom:20px;">
+            <label style="display:block;margin-bottom:8px;font-weight:bold;color:#ffd700;">Email *</label>
+            <input type="email" name="email" required style="width:100%;padding:10px;border-radius:6px;border:1px solid #444;background:#2a2a2a;color:#fff;font-size:16px;" placeholder="your.email@example.com" />
+          </div>
+
+          <div style="margin-bottom:20px;">
+            <label style="display:block;margin-bottom:8px;font-weight:bold;color:#ffd700;">Subject *</label>
+            <input type="text" name="subject" required style="width:100%;padding:10px;border-radius:6px;border:1px solid #444;background:#2a2a2a;color:#fff;font-size:16px;" placeholder="What's this about?" />
+          </div>
+
+          <div style="margin-bottom:24px;">
+            <label style="display:block;margin-bottom:8px;font-weight:bold;color:#ffd700;">Message *</label>
+            <textarea name="message" required rows="6" style="width:100%;padding:10px;border-radius:6px;border:1px solid #444;background:#2a2a2a;color:#fff;font-size:16px;font-family:inherit;resize:vertical;" placeholder="Tell us what's on your mind..."></textarea>
+          </div>
+
+          <button type="submit" class="ta-btn ta-btn-primary" style="width:100%;padding:12px;font-size:16px;">Send Message</button>
+        </form>
+      </div>
+      ${renderFooter(req)}
+    </body>
+  `);
+});
+
+app.post('/contact', express.urlencoded({ extended: true }), async (req, res) => {
+  try {
+    const { name, email, subject, message } = req.body;
+
+    if (!name || !email || !subject || !message) {
+      return res.status(400).send(`
+        <html><body style="font-family: system-ui; padding:24px;">
+          <h1>Error</h1>
+          <p>All fields are required. Please go back and fill out the complete form.</p>
+          <a href="/contact" class="ta-btn ta-btn-outline">Try Again</a>
+        </body></html>
+      `);
+    }
+
+    // Send email to the team
+    const emailContent = `
+      New contact form submission from Trivia Advent-ure Calendar:
+
+      From: ${name} <${email}>
+      Subject: ${subject}
+
+      Message:
+      ${message}
+
+      ---
+      Sent via contact form at ${new Date().toISOString()}
+    `;
+
+    await sendHTMLEmail('Trivia.Adventure12124@gmail.com', `Contact Form: ${subject}`, `<pre>${emailContent.replace(/\n/g, '<br>')}</pre>`);
+
+    res.type('html').send(`
+      ${renderHead('Message Sent', false)}
+      <body class="ta-body" style="padding:24px;">
+        ${await renderHeader(req)}
+        <div style="max-width:600px;margin:0 auto;text-align:center;">
+          <h1 style="color:#ffd700;margin-bottom:24px;">Message Sent!</h1>
+          <p style="opacity:0.9;margin-bottom:24px;">Thank you for contacting us! We've received your message and will get back to you as soon as possible.</p>
+          <a href="/" class="ta-btn ta-btn-primary">Return Home</a>
+        </div>
+        ${renderFooter(req)}
+      </body>
+    `);
+
+  } catch (error) {
+    console.error('Contact form error:', error);
+    res.status(500).send(`
+      <html><body style="font-family: system-ui; padding:24px;">
+        <h1>Error</h1>
+        <p>Sorry, there was an error sending your message. Please try again later or email us directly at <a href="mailto:Trivia.Adventure12124@gmail.com">Trivia.Adventure12124@gmail.com</a></p>
+        <a href="/contact" class="ta-btn ta-btn-outline">Try Again</a>
+      </body></html>
+    `);
   }
 });
 
