@@ -1816,6 +1816,7 @@ app.get('/public', async (req, res) => {
         
         <div style="display:flex;gap:16px;justify-content:center;margin:32px 0;flex-wrap:wrap;">
           <a class="ta-btn ta-btn-primary" href="/calendar" style="font-size:18px;padding:14px 28px;">View Calendar</a>
+          <a class="ta-btn ta-btn-primary" href="https://ko-fi.com/triviaadvent" target="_blank" rel="noopener noreferrer" style="font-size:18px;padding:14px 28px;">Get Started</a>
           <a class="ta-btn ta-btn-outline" href="/login" style="font-size:18px;padding:14px 28px;">Login to Play</a>
         </div>
         
