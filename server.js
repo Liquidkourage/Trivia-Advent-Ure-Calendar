@@ -1179,7 +1179,6 @@ app.get('/account/credentials', requireAuth, async (req, res) => {
           </div>
           <button type="submit">Save</button>
         </form>
-        <p style="margin-top:16px;"><a href="/calendar" class="ta-btn ta-btn-outline">Skip for now</a></p>
       </main>
       </body></html>
     `);
@@ -2113,9 +2112,20 @@ app.get('/player', requireAuth, async (req, res) => {
   const adminEmail = getAdminEmail();
   const email = (req.session.user.email || '').toLowerCase();
   if (email === adminEmail) return res.redirect('/admin');
+  const isAdmin = await isAdminUser(req);
+  
+  // Check if user needs to complete setup (unless admin)
+  if (!isAdmin) {
+    const setupCheck = await pool.query('SELECT onboarding_complete, username, password_set_at FROM players WHERE email=$1', [email]);
+    if (setupCheck.rows.length) {
+      const p = setupCheck.rows[0];
+      if (!p.onboarding_complete) return res.redirect('/onboarding');
+      if (!p.username || !p.password_set_at) return res.redirect('/account/credentials');
+    }
+  }
+  
   let needsPassword = false;
   let displayName = '';
-  const isAdmin = await isAdminUser(req);
   try {
     const pr = await pool.query('SELECT username, password_set_at FROM players WHERE email=$1', [email]);
     needsPassword = pr.rows.length && !pr.rows[0].password_set_at;
@@ -2489,13 +2499,24 @@ app.post('/admin/pin', (req, res) => {
 // --- Calendar ---
 app.get('/calendar', async (req, res) => {
   try {
+    const email = req.session.user ? (req.session.user.email || '').toLowerCase() : '';
+    const isAdmin = await isAdminUser(req);
+    
+    // If logged in but not admin, check if they need to complete setup
+    if (email && !isAdmin) {
+      const setupCheck = await pool.query('SELECT onboarding_complete, username, password_set_at FROM players WHERE email=$1', [email]);
+      if (setupCheck.rows.length) {
+        const p = setupCheck.rows[0];
+        if (!p.onboarding_complete) return res.redirect('/onboarding');
+        if (!p.username || !p.password_set_at) return res.redirect('/account/credentials');
+      }
+    }
+    
     const { rows: quizzes } = await pool.query('SELECT * FROM quizzes ORDER BY unlock_at ASC, id ASC');
     const nowUtc = new Date();
-    const email = req.session.user ? (req.session.user.email || '').toLowerCase() : '';
     let completedSet = new Set();
     let needsPassword = false;
     let displayName = '';
-    const isAdmin = await isAdminUser(req);
     if (email) {
       const { rows: c } = await pool.query('SELECT DISTINCT quiz_id FROM responses WHERE user_email = $1', [email]);
       c.forEach(r => completedSet.add(Number(r.quiz_id)));
