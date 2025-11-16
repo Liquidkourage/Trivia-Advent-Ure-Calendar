@@ -6324,6 +6324,9 @@ app.post('/admin/send-link', requireAdmin, async (req, res) => {
     // Ensure email exists in players table (needed for admins too)
     await pool.query('INSERT INTO players(email, access_granted_at) VALUES($1, NOW()) ON CONFLICT (email) DO NOTHING', [email]);
     
+    // Delete any existing unused tokens for this email to prevent conflicts
+    await pool.query('DELETE FROM magic_tokens WHERE email = $1 AND used = false', [email]);
+    
     const token = crypto.randomBytes(24).toString('base64url');
     const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
     await pool.query('INSERT INTO magic_tokens(token,email,expires_at,used) VALUES($1,$2,$3,false)', [token, email, expiresAt]);
