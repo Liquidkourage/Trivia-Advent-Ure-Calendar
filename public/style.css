@@ -257,6 +257,9 @@ body.ta-body a:hover{color:#ffd27f;text-decoration:underline;}
   .ta-table-wrapper{overflow-x:auto;-webkit-overflow-scrolling:touch;width:100%;margin:16px 0}
   .ta-table-wrapper table{min-width:600px;white-space:nowrap}
   .ta-table-wrapper table th,.ta-table-wrapper table td{white-space:nowrap;max-width:none}
+  /* Leaderboard details column - stack on tablet */
+  .leaderboard-details-cell{display:flex;flex-direction:column;gap:2px;line-height:1.4}
+  .leaderboard-detail{display:block;white-space:nowrap}
   .ta-quiz-title{font-size:36px}
   .ta-page-title{font-size:32px}
   h1{font-size:28px}
@@ -279,6 +282,9 @@ body.ta-body a:hover{color:#ffd27f;text-decoration:underline;}
   table{font-size:12px}
   table th,table td{padding:6px 4px;word-wrap:break-word;overflow-wrap:break-word;max-width:150px}
   .ta-table-wrapper table th,.ta-table-wrapper table td{max-width:none;white-space:nowrap}
+  /* Leaderboard details column - stack on mobile */
+  .leaderboard-details-cell{display:flex;flex-direction:column;gap:2px;line-height:1.4}
+  .leaderboard-detail{display:block;white-space:nowrap}
   .ta-actions{flex-direction:column}
   .ta-actions .ta-btn{width:100%;margin-left:0!important;margin-top:0;min-height:44px;font-size:16px;padding:12px 16px}
   .ta-header-inner{flex-direction:row;align-items:center;gap:8px;padding:10px 12px}
