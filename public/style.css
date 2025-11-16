@@ -38,11 +38,14 @@ body.ta-body a:hover{color:#ffd27f;text-decoration:underline;}
 .ta-nav .ta-user{font-weight:600;color:rgba(255,255,255,0.85);display:inline-flex;align-items:center;gap:6px}
 .ta-nav a{color:var(--gold);text-decoration:none;padding:8px 12px;border-radius:999px;transition:background 0.2s ease,color 0.2s ease;display:inline-flex;align-items:center;gap:6px;font-weight:600}
 .ta-nav a:hover{color:#111;background:linear-gradient(90deg,var(--gold) 0%,var(--gold-2) 100%)}
-.ta-menu-toggle{display:none;flex-direction:column;justify-content:space-around;width:32px;height:32px;background:transparent;border:none;cursor:pointer;padding:0;z-index:11}
-.ta-menu-toggle span{width:100%;height:3px;background:var(--gold);border-radius:2px;transition:all 0.3s ease;transform-origin:center}
-.ta-menu-toggle[aria-expanded="true"] span:nth-child(1){transform:rotate(45deg) translate(8px,8px)}
-.ta-menu-toggle[aria-expanded="true"] span:nth-child(2){opacity:0}
-.ta-menu-toggle[aria-expanded="true"] span:nth-child(3){transform:rotate(-45deg) translate(8px,-8px)}
+.ta-menu-toggle{display:none;flex-direction:column;justify-content:space-around;width:32px;height:32px;background:transparent;border:none;cursor:pointer;padding:0;z-index:11;position:relative}
+.ta-menu-toggle span{width:100%;height:3px;background:var(--gold);border-radius:2px;transition:all 0.3s ease;transform-origin:center;position:absolute;left:0}
+.ta-menu-toggle span:nth-child(1){top:6px}
+.ta-menu-toggle span:nth-child(2){top:50%;transform:translateY(-50%)}
+.ta-menu-toggle span:nth-child(3){bottom:6px}
+.ta-menu-toggle[aria-expanded="true"] span:nth-child(1){top:50%;transform:translateY(-50%) rotate(45deg)}
+.ta-menu-toggle[aria-expanded="true"] span:nth-child(2){opacity:0;transform:translateY(-50%)}
+.ta-menu-toggle[aria-expanded="true"] span:nth-child(3){bottom:auto;top:50%;transform:translateY(-50%) rotate(-45deg)}
 .ta-main{width:100%;padding:32px var(--layout-gutter) 64px var(--layout-gutter)}
 .ta-footer{border-top:1px solid rgba(255,255,255,0.08);background:rgba(0,0,0,0.35);margin-top:auto;position:relative;z-index:30}
 .ta-footer-inner{display:flex;flex-wrap:wrap;gap:32px;align-items:flex-start;padding:28px var(--layout-gutter);justify-content:space-between}
