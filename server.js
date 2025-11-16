@@ -6404,6 +6404,10 @@ app.get('/admin/players', requireAdmin, async (req, res) => {
             <button type="submit" style="padding:4px 8px;font-size:12px;margin:2px;background:#2e7d32;">Grant Admin</button>
           </form>
           `}
+          <form method="post" action="/admin/players/delete" style="display:inline;" onsubmit="return confirm('DELETE ${r.email} and all their data? This cannot be undone.');">
+            <input type="hidden" name="email" value="${r.email}"/>
+            <button type="submit" style="padding:4px 8px;font-size:12px;margin:2px;background:#d32f2f;color:#fff;">Delete</button>
+          </form>
           <form method="post" action="/admin/players/revoke-access" style="display:inline;" onsubmit="return confirm('REVOKE ACCESS and delete all data for ${r.email}? This cannot be undone.');">
             <input type="hidden" name="email" value="${r.email}"/>
             <button type="submit" style="padding:4px 8px;font-size:12px;margin:2px;background:#d32f2f;">Revoke Access</button>
@@ -6435,6 +6439,7 @@ app.get('/admin/players', requireAdmin, async (req, res) => {
               <button onclick="bulkAction('grant-admin')" style="padding:6px 12px;background:#2e7d32;color:#fff;border:none;border-radius:4px;cursor:pointer;">Grant Admin</button>
               <button onclick="bulkAction('revoke-admin')" style="padding:6px 12px;background:#ff9800;color:#fff;border:none;border-radius:4px;cursor:pointer;">Revoke Admin</button>
               <button onclick="bulkAction('reset-password')" style="padding:6px 12px;background:#9c27b0;color:#fff;border:none;border-radius:4px;cursor:pointer;">Reset Passwords</button>
+              <button onclick="bulkAction('delete')" style="padding:6px 12px;background:#d32f2f;color:#fff;border:none;border-radius:4px;cursor:pointer;">Delete Players</button>
             </div>
           </div>
           
@@ -6505,7 +6510,8 @@ app.get('/admin/players', requireAdmin, async (req, res) => {
                 'export-csv': { msg: null, endpoint: '/admin/players/bulk/export-csv' },
                 'grant-admin': { msg: 'Grant admin status to ' + emails.length + ' player(s)?', endpoint: '/admin/players/bulk/grant-admin' },
                 'revoke-admin': { msg: 'Revoke admin status from ' + emails.length + ' player(s)?', endpoint: '/admin/players/bulk/revoke-admin' },
-                'reset-password': { msg: 'Reset passwords for ' + emails.length + ' player(s)?', endpoint: '/admin/players/bulk/reset-password' }
+                'reset-password': { msg: 'Reset passwords for ' + emails.length + ' player(s)?', endpoint: '/admin/players/bulk/reset-password' },
+                'delete': { msg: 'DELETE ' + emails.length + ' player(s) and ALL their data? This cannot be undone!', endpoint: '/admin/players/bulk/delete' }
               };
               const config = actions[action];
               if (!config) return;
