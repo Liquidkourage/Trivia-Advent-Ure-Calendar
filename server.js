@@ -6293,7 +6293,13 @@ app.get('/admin/access', requireAdmin, async (req, res) => {
       ${req.query.msg ? `<div style="background:#4caf50;color:#fff;padding:12px;border-radius:6px;margin-bottom:16px;">${String(req.query.msg).replace(/&/g,'&amp;').replace(/</g,'&lt;')}</div>` : ''}
       <form method="post" action="/admin/send-link">
         <label>Email <input name="email" type="email" value="${req.query.email ? String(req.query.email).replace(/&/g,'&amp;').replace(/"/g,'&quot;') : ''}" required /></label>
-        <button type="submit">Send Magic Link</button>
+        <div style="margin-top:12px;">
+          <label style="display:flex;align-items:center;gap:8px;">
+            <input type="checkbox" name="test" value="true" />
+            <span>Test mode (create link without sending email)</span>
+          </label>
+        </div>
+        <button type="submit" style="margin-top:12px;">Send Magic Link</button>
       </form>
       <h3 style="margin-top:24px;">Test Ko-fi Webhook</h3>
       <form method="post" action="/admin/test-kofi" style="border:1px solid #ddd;padding:16px;border-radius:6px;max-width:500px;">
@@ -6326,6 +6332,7 @@ app.post('/admin/grant', requireAdmin, async (req, res) => {
 app.post('/admin/send-link', requireAdmin, async (req, res) => {
   try {
     const email = String(req.body.email || '').trim().toLowerCase();
+    const testMode = req.body.test === 'true' || req.query.test === 'true';
     if (!email) return res.status(400).send('Email required');
     
     // Ensure email exists in players table (needed for admins too)
@@ -6338,6 +6345,35 @@ app.post('/admin/send-link', requireAdmin, async (req, res) => {
     const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
     await pool.query('INSERT INTO magic_tokens(token,email,expires_at,used) VALUES($1,$2,$3,false)', [token, email, expiresAt]);
     const linkUrl = `${process.env.PUBLIC_BASE_URL || ''}/auth/magic?token=${encodeURIComponent(token)}`;
+    
+    // In test mode, return the link without sending email
+    if (testMode) {
+      const header = await renderHeader(req);
+      res.type('html').send(`
+        ${renderHead('Test Magic Link', false)}
+        <body class="ta-body" style="padding:24px;">
+        ${header}
+        <main class="ta-main ta-container" style="max-width:720px; margin:0 auto;">
+          <h1 class="ta-page-title">Test Magic Link</h1>
+          <div style="background:#e3f2fd;border:1px solid #2196f3;border-radius:6px;padding:16px;margin-bottom:24px;">
+            <p style="margin-top:0;"><strong>Email:</strong> ${email.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</p>
+            <p style="margin-bottom:0;"><strong>Magic Link:</strong></p>
+            <div style="background:#fff;border:1px solid #ddd;border-radius:4px;padding:12px;margin-top:8px;word-break:break-all;font-family:monospace;font-size:14px;">
+              <a href="${linkUrl.replace(/&/g,'&amp;').replace(/</g,'&lt;')}" target="_blank">${linkUrl.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</a>
+            </div>
+          </div>
+          <p style="margin-bottom:16px;opacity:0.8;">This link was created but NOT emailed. Copy it to test manually.</p>
+          <div style="display:flex;gap:12px;">
+            <button onclick="navigator.clipboard.writeText('${linkUrl.replace(/'/g,"\\'")}').then(() => alert('Link copied!'))" class="ta-btn ta-btn-primary">Copy Link</button>
+            <a href="${linkUrl.replace(/&/g,'&amp;').replace(/</g,'&lt;')}" target="_blank" class="ta-btn ta-btn-outline">Open Link</a>
+            <a href="/admin/access" class="ta-btn ta-btn-outline">Back to Access</a>
+          </div>
+        </main>
+        ${renderFooter(req)}
+        </body></html>
+      `);
+      return;
+    }
     
     try {
       await sendMagicLink(email, token, linkUrl);
