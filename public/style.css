@@ -250,8 +250,13 @@ body.ta-body a:hover{color:#ffd27f;text-decoration:underline;}
   .ta-card-grid{grid-template-columns:1fr}
   .ta-actions{flex-direction:column;gap:8px}
   .ta-actions .ta-btn{width:100%;margin-left:0!important;margin-top:0}
-  table{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch;white-space:nowrap}
-  table th,table td{padding:8px 6px;font-size:14px}
+  /* Wrap tables in scrollable container */
+  table{display:table;width:100%;table-layout:auto;border-collapse:collapse}
+  table th,table td{padding:8px 6px;font-size:14px;word-wrap:break-word;overflow-wrap:break-word;max-width:200px}
+  /* Wrap table in scrollable div for wide tables */
+  .ta-table-wrapper{overflow-x:auto;-webkit-overflow-scrolling:touch;width:100%;margin:16px 0}
+  .ta-table-wrapper table{min-width:600px;white-space:nowrap}
+  .ta-table-wrapper table th,.ta-table-wrapper table td{white-space:nowrap;max-width:none}
   .ta-quiz-title{font-size:36px}
   .ta-page-title{font-size:32px}
   h1{font-size:28px}
@@ -272,7 +277,8 @@ body.ta-body a:hover{color:#ffd27f;text-decoration:underline;}
   .ta-container{padding:12px}
   .ta-card-grid{grid-template-columns:1fr}
   table{font-size:12px}
-  table th,table td{padding:6px 4px}
+  table th,table td{padding:6px 4px;word-wrap:break-word;overflow-wrap:break-word;max-width:150px}
+  .ta-table-wrapper table th,.ta-table-wrapper table td{max-width:none;white-space:nowrap}
   .ta-actions{flex-direction:column}
   .ta-actions .ta-btn{width:100%;margin-left:0!important;margin-top:0;min-height:44px;font-size:16px;padding:12px 16px}
   .ta-header-inner{flex-direction:row;align-items:center;gap:8px;padding:10px 12px}
@@ -352,9 +358,13 @@ body.ta-modal-open{overflow:hidden}
   label{display:block;margin-bottom:8px;font-size:16px}
   input[type="text"], input[type="email"], input[type="password"], input[type="number"], input[type="date"], input[type="datetime-local"], select, textarea{width:100%;max-width:100%;box-sizing:border-box;font-size:16px;padding:12px;border-radius:8px}
   
-  /* Better table scrolling */
-  table{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch;width:100%}
-  table thead, table tbody, table tr{display:table;width:100%;table-layout:fixed}
+  /* Better table scrolling - wrap tables that need scrolling */
+  table{display:table;width:100%;table-layout:auto;border-collapse:collapse}
+  table th,table td{word-wrap:break-word;overflow-wrap:break-word;padding:8px 6px}
+  /* For wide tables, wrap in scrollable container */
+  .ta-table-wrapper{overflow-x:auto;-webkit-overflow-scrolling:touch;width:100%;margin:16px 0;display:block}
+  .ta-table-wrapper table{min-width:600px;white-space:nowrap;display:table}
+  .ta-table-wrapper table th,.ta-table-wrapper table td{white-space:nowrap;max-width:none}
   
   /* Improve card layouts */
   .ta-card{padding:16px;margin-bottom:12px}
