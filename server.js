@@ -1168,16 +1168,20 @@ app.get('/account/credentials', requireAuth, async (req, res) => {
       <body class="ta-body">
       ${header}
       <main class="ta-main ta-container" style="max-width:720px; margin:0 auto; padding:24px;">
-        <h1>Set your username and password</h1>
-        <form method="post" action="/account/credentials">
-          <div style="margin-bottom:10px;">
-            <label>Username <input name="username" value="${(uname || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;')}" placeholder="letters, numbers, underscore" required /></label>
-            <div style="opacity:.8;font-size:.9em;">3–20 characters, letters/numbers/underscore only. This will appear on leaderboards.</div>
+        <h1 class="ta-page-title">Set your username and password</h1>
+        <p style="opacity:0.9;margin-bottom:24px;font-size:16px;">To complete your account setup, please choose a username and password. Your username will appear on leaderboards.</p>
+        <form method="post" action="/account/credentials" style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:24px;">
+          <div style="margin-bottom:20px;">
+            <label style="display:block;margin-bottom:8px;font-weight:600;color:#ffd700;">Username *</label>
+            <input name="username" value="${(uname || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;')}" placeholder="letters, numbers, underscore" required style="width:100%;max-width:400px;padding:10px;border-radius:6px;border:1px solid #444;background:#2a2a2a;color:#fff;font-size:16px;" />
+            <div style="opacity:.8;font-size:.9em;margin-top:4px;">3–20 characters, letters/numbers/underscore only. This will appear on leaderboards.</div>
           </div>
-          <div style="margin-bottom:10px;">
-            <label>Password <input type="password" name="password" ${havePw ? '' : 'required'} minlength="8" /></label>
+          <div style="margin-bottom:24px;">
+            <label style="display:block;margin-bottom:8px;font-weight:600;color:#ffd700;">Password *</label>
+            <input type="password" name="password" ${havePw ? '' : 'required'} minlength="8" style="width:100%;max-width:400px;padding:10px;border-radius:6px;border:1px solid #444;background:#2a2a2a;color:#fff;font-size:16px;" />
+            <div style="opacity:.8;font-size:.9em;margin-top:4px;">Minimum 8 characters</div>
           </div>
-          <button type="submit">Save</button>
+          <button type="submit" class="ta-btn ta-btn-primary" style="font-size:16px;padding:12px 24px;">Complete Setup</button>
         </form>
       </main>
       </body></html>
