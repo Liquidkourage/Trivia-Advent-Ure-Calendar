@@ -4970,7 +4970,7 @@ app.get('/quiz/:id/leaderboard', async (req, res) => {
           </section>` : ''}
           <section style="margin:28px 0;">
             <div style="background:#0e0e0e;border:1px solid rgba(255,255,255,0.08);border-radius:12px;overflow:hidden;">
-              <table style="width:100%;border-collapse:collapse;">
+              <table class="leaderboard-table" style="width:100%;border-collapse:collapse;">
                 <thead style="background:#111;">
                   <tr>
                     <th style="padding:10px 8px;text-align:left;">Rank</th>
@@ -5182,7 +5182,7 @@ app.get('/leaderboard', async (req, res) => {
           </section>` : ''}
           <section style="margin:28px 0;">
             <div style="background:#0e0e0e;border:1px solid rgba(255,255,255,0.08);border-radius:12px;overflow:hidden;">
-              <table style="width:100%;border-collapse:collapse;">
+              <table class="leaderboard-table" style="width:100%;border-collapse:collapse;">
                 <thead style="background:#111;">
                   <tr>
                     <th style="padding:10px 8px;text-align:left;">Rank</th>
