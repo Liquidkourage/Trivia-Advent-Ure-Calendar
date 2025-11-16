@@ -6598,6 +6598,25 @@ app.post('/admin/players/revoke-admin', requireAdmin, async (req, res) => {
     res.status(500).send('Failed to revoke admin');
   }
 });
+app.post('/admin/players/delete', requireAdmin, async (req, res) => {
+  try {
+    const email = String(req.body.email || '').trim().toLowerCase();
+    if (!email) return res.status(400).send('Email required');
+    // Delete responses first (foreign key constraint)
+    await pool.query('DELETE FROM responses WHERE user_email=$1', [email]);
+    // Delete magic tokens
+    await pool.query('DELETE FROM magic_tokens WHERE email=$1', [email]);
+    // Delete player
+    await pool.query('DELETE FROM players WHERE email=$1', [email]);
+    // Also remove from admins if they were an admin
+    await pool.query('DELETE FROM admins WHERE email=$1', [email]);
+    res.redirect('/admin/players?msg=Player deleted');
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to delete player');
+  }
+});
+
 app.post('/admin/players/revoke-access', requireAdmin, async (req, res) => {
   try {
     const email = String(req.body.email || '').trim().toLowerCase();
@@ -6691,6 +6710,37 @@ app.post('/admin/players/bulk/revoke-admin', requireAdmin, async (req, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).send('Failed to revoke admin');
+  }
+});
+
+app.post('/admin/players/bulk/delete', requireAdmin, async (req, res) => {
+  try {
+    const emails = Array.isArray(req.body['emails[]']) ? req.body['emails[]'] : [req.body['emails[]']].filter(Boolean);
+    if (emails.length === 0) return res.status(400).send('No emails provided');
+    let deleted = 0;
+    let failed = 0;
+    for (const email of emails) {
+      try {
+        const e = String(email || '').trim().toLowerCase();
+        if (!e) continue;
+        // Delete responses first (foreign key constraint)
+        await pool.query('DELETE FROM responses WHERE user_email=$1', [e]);
+        // Delete magic tokens
+        await pool.query('DELETE FROM magic_tokens WHERE email=$1', [e]);
+        // Delete player
+        await pool.query('DELETE FROM players WHERE email=$1', [e]);
+        // Also remove from admins if they were an admin
+        await pool.query('DELETE FROM admins WHERE email=$1', [e]);
+        deleted++;
+      } catch (err) {
+        console.error('Failed to delete player', email, err);
+        failed++;
+      }
+    }
+    res.redirect(`/admin/players?msg=${deleted} player(s) deleted${failed > 0 ? `, ${failed} failed` : ''}`);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to delete players');
   }
 });
 
