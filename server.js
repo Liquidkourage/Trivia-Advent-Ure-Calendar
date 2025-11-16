@@ -1674,6 +1674,10 @@ app.get('/auth/dev-link', async (req, res) => {
     if (!email) return res.status(400).json({ error: 'Email required' });
     const { rows } = await pool.query('SELECT 1 FROM players WHERE email = $1', [email]);
     if (rows.length === 0) return res.status(403).json({ error: 'No access. Donate on Ko-fi to join.' });
+    
+    // Delete any existing unused tokens for this email to prevent conflicts
+    await pool.query('DELETE FROM magic_tokens WHERE email = $1 AND used = false', [email]);
+    
     const token = crypto.randomBytes(24).toString('base64url');
     const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
     await pool.query('INSERT INTO magic_tokens(token,email,expires_at,used) VALUES($1,$2,$3,false)', [token, email, expiresAt]);
@@ -1802,6 +1806,9 @@ async function processKofiDonation(body, skipSecretCheck = false) {
   console.log('[Ko-fi] Player record created/updated for:', email);
 
   // Optionally auto-send magic link
+  // Delete any existing unused tokens for this email to prevent conflicts
+  await pool.query('DELETE FROM magic_tokens WHERE email = $1 AND used = false', [email]);
+  
   const token = crypto.randomBytes(24).toString('base64url');
   const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
   await pool.query('INSERT INTO magic_tokens(token,email,expires_at,used) VALUES($1,$2,$3,false)', [token, email, expiresAt]);
@@ -6623,6 +6630,10 @@ app.post('/admin/players/send-link', requireAdmin, async (req, res) => {
   try {
     const email = String(req.body.email || '').trim().toLowerCase();
     if (!email) return res.status(400).send('Email required');
+    
+    // Delete any existing unused tokens for this email to prevent conflicts
+    await pool.query('DELETE FROM magic_tokens WHERE email = $1 AND used = false', [email]);
+    
     const token = crypto.randomBytes(24).toString('base64url');
     const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
     await pool.query('INSERT INTO magic_tokens(token, email, expires_at, used) VALUES($1, $2, $3, false)', [token, email, expiresAt]);
@@ -6719,6 +6730,10 @@ app.post('/admin/players/bulk/send-link', requireAdmin, async (req, res) => {
       try {
         const e = String(email || '').trim().toLowerCase();
         if (!e) continue;
+        
+        // Delete any existing unused tokens for this email to prevent conflicts
+        await pool.query('DELETE FROM magic_tokens WHERE email = $1 AND used = false', [e]);
+        
         const token = crypto.randomBytes(24).toString('base64url');
         const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
         await pool.query('INSERT INTO magic_tokens(token, email, expires_at, used) VALUES($1, $2, $3, false)', [token, e, expiresAt]);
@@ -7109,6 +7124,8 @@ app.post('/admin/admins/send-links', requireAdmin, async (_req, res) => {
       if (!email) continue;
       // Ensure admin can sign in
       await pool.query('INSERT INTO players(email, access_granted_at) VALUES($1, NOW()) ON CONFLICT (email) DO NOTHING', [email]);
+      // Delete any existing unused tokens for this email to prevent conflicts
+      await pool.query('DELETE FROM magic_tokens WHERE email = $1 AND used = false', [email]);
       // Create magic token and send
       const token = crypto.randomBytes(24).toString('base64url');
       const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
