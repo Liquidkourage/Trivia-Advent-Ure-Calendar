@@ -1742,18 +1742,66 @@ app.get('/auth/magic', async (req, res) => {
     }
     
     const email = updateResult.rows[0].email;
-    req.session.user = { email };
     
-    // Check onboarding and credentials
+    // Check if player record exists
     const orow = await pool.query('SELECT onboarding_complete, username, password_set_at FROM players WHERE email = $1', [email]);
-    const p = orow.rows[0] || {};
+    if (!orow.rows.length) {
+      console.error('[auth/magic] Player record not found for email:', email);
+      return res.status(500).send(`
+        <html><body style="font-family:system-ui;padding:24px;max-width:600px;margin:0 auto;">
+          <h1>Authentication Error</h1>
+          <p>Your account was not found in the system. Please contact support.</p>
+          <p><a href="/public">Return to home</a></p>
+        </body></html>
+      `);
+    }
+    
+    // Set session
+    try {
+      req.session.user = { email };
+      await new Promise((resolve, reject) => {
+        req.session.save((err) => {
+          if (err) reject(err);
+          else resolve();
+        });
+      });
+    } catch (sessionErr) {
+      console.error('[auth/magic] Session save failed:', sessionErr);
+      return res.status(500).send(`
+        <html><body style="font-family:system-ui;padding:24px;max-width:600px;margin:0 auto;">
+          <h1>Session Error</h1>
+          <p>Failed to create your session. Please try again.</p>
+          <p><a href="/public">Return to home</a></p>
+        </body></html>
+      `);
+    }
+    
+    const p = orow.rows[0];
     const onboardingDone = p.onboarding_complete === true;
     if (!onboardingDone) return res.redirect('/onboarding');
     if (!p.username || !p.password_set_at) return res.redirect('/account/credentials');
     res.redirect('/');
   } catch (e) {
     console.error('[auth/magic] Error:', e);
-    res.status(500).send('Auth failed');
+    console.error('[auth/magic] Error stack:', e.stack);
+    console.error('[auth/magic] Token was:', req.query.token);
+    
+    // Provide more helpful error messages
+    let errorMessage = 'Authentication failed. Please try again or contact support.';
+    if (e.message && e.message.includes('session')) {
+      errorMessage = 'Session error. Please try clearing your cookies and try again.';
+    } else if (e.message && e.message.includes('database') || e.message && e.message.includes('connection')) {
+      errorMessage = 'Database connection error. Please try again in a moment.';
+    }
+    
+    res.status(500).send(`
+      <html><body style="font-family:system-ui;padding:24px;max-width:600px;margin:0 auto;">
+        <h1>Authentication Error</h1>
+        <p>${errorMessage}</p>
+        <p style="margin-top:24px;font-size:14px;opacity:0.7;">If this problem persists, please contact support with the time this occurred.</p>
+        <p><a href="/public">Return to home</a></p>
+      </body></html>
+    `);
   }
 });
 
