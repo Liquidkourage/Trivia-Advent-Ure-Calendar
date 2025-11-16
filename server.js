@@ -6204,9 +6204,10 @@ app.get('/admin/access', requireAdmin, async (req, res) => {
         <button type="submit">Grant</button>
       </form>
       <h3 style="margin-top:12px;">Send Magic Link</h3>
+      ${req.query.msg ? `<div style="background:#4caf50;color:#fff;padding:12px;border-radius:6px;margin-bottom:16px;">${String(req.query.msg).replace(/&/g,'&amp;').replace(/</g,'&lt;')}</div>` : ''}
       <form method="post" action="/admin/send-link">
-        <label>Email <input name="email" type="email" required /></label>
-        <button type="submit">Send</button>
+        <label>Email <input name="email" type="email" value="${req.query.email ? String(req.query.email).replace(/&/g,'&amp;').replace(/"/g,'&quot;') : ''}" required /></label>
+        <button type="submit">Send Magic Link</button>
       </form>
       <h3 style="margin-top:24px;">Test Ko-fi Webhook</h3>
       <form method="post" action="/admin/test-kofi" style="border:1px solid #ddd;padding:16px;border-radius:6px;max-width:500px;">
@@ -6240,15 +6241,55 @@ app.post('/admin/send-link', requireAdmin, async (req, res) => {
   try {
     const email = String(req.body.email || '').trim().toLowerCase();
     if (!email) return res.status(400).send('Email required');
+    
+    // Ensure email exists in players table (needed for admins too)
+    await pool.query('INSERT INTO players(email, access_granted_at) VALUES($1, NOW()) ON CONFLICT (email) DO NOTHING', [email]);
+    
     const token = crypto.randomBytes(24).toString('base64url');
     const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
     await pool.query('INSERT INTO magic_tokens(token,email,expires_at,used) VALUES($1,$2,$3,false)', [token, email, expiresAt]);
     const linkUrl = `${process.env.PUBLIC_BASE_URL || ''}/auth/magic?token=${encodeURIComponent(token)}`;
-    await sendMagicLink(email, token, linkUrl);
-    res.redirect('/admin/access');
+    
+    try {
+      await sendMagicLink(email, token, linkUrl);
+      res.redirect('/admin/access?msg=Magic link sent successfully to ' + encodeURIComponent(email));
+    } catch (mailErr) {
+      console.error('[admin/send-link] Email send failed:', mailErr);
+      const header = await renderHeader(req);
+      res.status(500).send(`
+        ${renderHead('Send Link Error', false)}
+        <body class="ta-body" style="padding:24px;">
+        ${header}
+        <main class="ta-main ta-container" style="max-width:720px; margin:0 auto;">
+          <h1 class="ta-page-title" style="color:#d32f2f;">Failed to Send Magic Link</h1>
+          <p style="margin-bottom:16px;"><strong>Email:</strong> ${email.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</p>
+          <p style="margin-bottom:16px;"><strong>Error:</strong> ${String(mailErr.message || mailErr).replace(/&/g,'&amp;').replace(/</g,'&lt;')}</p>
+          <p style="margin-bottom:24px;opacity:0.8;">The magic link token was created successfully, but sending the email failed. Check server logs for details.</p>
+          <div style="display:flex;gap:12px;">
+            <a href="/admin/access" class="ta-btn ta-btn-primary">Back to Access</a>
+            <a href="/admin/access?email=${encodeURIComponent(email)}" class="ta-btn ta-btn-outline">Try Again</a>
+          </div>
+        </main>
+        ${renderFooter(req)}
+        </body></html>
+      `);
+    }
   } catch (e) {
-    console.error(e);
-    res.status(500).send('Failed to send');
+    console.error('[admin/send-link] Error:', e);
+    const header = await renderHeader(req);
+    res.status(500).send(`
+      ${renderHead('Send Link Error', false)}
+      <body class="ta-body" style="padding:24px;">
+      ${header}
+      <main class="ta-main ta-container" style="max-width:720px; margin:0 auto;">
+        <h1 class="ta-page-title" style="color:#d32f2f;">Failed to Send Magic Link</h1>
+        <p style="margin-bottom:16px;"><strong>Error:</strong> ${String(e.message || e).replace(/&/g,'&amp;').replace(/</g,'&lt;')}</p>
+        <p style="margin-bottom:24px;opacity:0.8;">Check server logs for details.</p>
+        <a href="/admin/access" class="ta-btn ta-btn-primary">Back to Access</a>
+      </main>
+      ${renderFooter(req)}
+      </body></html>
+    `);
   }
 });
 
