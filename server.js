@@ -481,6 +481,14 @@ async function sendMagicLink(email, token, linkUrl) {
   } catch (error) {
     console.error('[sendMagicLink] Error sending email to', email, ':', error.message);
     console.error('[sendMagicLink] Full error:', error);
+    
+    // Provide helpful error messages for common OAuth issues
+    if (error.response?.data?.error === 'invalid_grant') {
+      const helpfulError = new Error('Gmail refresh token has expired or been revoked. Please generate a new refresh token and update GMAIL_REFRESH_TOKEN environment variable.');
+      helpfulError.originalError = error;
+      throw helpfulError;
+    }
+    
     throw error;
   }
 }
@@ -6264,6 +6272,18 @@ app.post('/admin/send-link', requireAdmin, async (req, res) => {
           <h1 class="ta-page-title" style="color:#d32f2f;">Failed to Send Magic Link</h1>
           <p style="margin-bottom:16px;"><strong>Email:</strong> ${email.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</p>
           <p style="margin-bottom:16px;"><strong>Error:</strong> ${String(mailErr.message || mailErr).replace(/&/g,'&amp;').replace(/</g,'&lt;')}</p>
+          ${mailErr.message && mailErr.message.includes('refresh token') ? `
+          <div style="background:#fff3cd;border:1px solid #ffc107;border-radius:6px;padding:16px;margin-bottom:24px;">
+            <h3 style="margin-top:0;color:#856404;">Gmail OAuth Token Expired</h3>
+            <p style="margin-bottom:12px;">The Gmail refresh token has expired or been revoked. To fix this:</p>
+            <ol style="margin-left:20px;margin-bottom:0;">
+              <li>Go to <a href="https://console.cloud.google.com/apis/credentials" target="_blank" style="color:#ffd700;">Google Cloud Console → APIs & Services → Credentials</a></li>
+              <li>Create or regenerate OAuth 2.0 credentials</li>
+              <li>Generate a new refresh token using the OAuth 2.0 Playground or your OAuth flow</li>
+              <li>Update the <code>GMAIL_REFRESH_TOKEN</code> environment variable with the new token</li>
+            </ol>
+          </div>
+          ` : ''}
           <p style="margin-bottom:24px;opacity:0.8;">The magic link token was created successfully, but sending the email failed. Check server logs for details.</p>
           <div style="display:flex;gap:12px;">
             <a href="/admin/access" class="ta-btn ta-btn-primary">Back to Access</a>
