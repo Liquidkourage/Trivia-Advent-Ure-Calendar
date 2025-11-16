@@ -4883,7 +4883,10 @@ app.get('/quiz/:id/leaderboard', async (req, res) => {
           first_time: null,
           synthetic: true,
           player_count: avgInfo.count,
-          source: avgInfo.source
+          source: avgInfo.source,
+          email: authorEmail,
+          correctCount: 0,
+          avgPerCorrect: 0
         });
       }
     }
@@ -4901,10 +4904,8 @@ app.get('/quiz/:id/leaderboard', async (req, res) => {
     const topCards = sorted.slice(0, 3).map((r, idx) => {
       const medal = ['🥇','🥈','🥉'][idx] || '⭐';
       const detail = r.synthetic
-        ? (r.source === 'override'
-            ? 'Manual override'
-            : (r.player_count ? `${r.player_count} player${r.player_count === 1 ? '' : 's'}` : 'Average'))
-        : (r.first_time ? `First submitted: ${fmtEt(r.first_time)}` : '');
+        ? ''
+        : `${r.correctCount || 0} correct • ${formatPoints(r.avgPerCorrect || 0)} avg/correct`;
       return `
         <div style="background:#1a1a1a;border:1px solid rgba(255,255,255,0.12);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:8px;box-shadow:0 8px 20px rgba(0,0,0,0.25);">
           <div style="font-size:32px;">${medal}</div>
@@ -4917,22 +4918,20 @@ app.get('/quiz/:id/leaderboard', async (req, res) => {
     const tableRows = sorted.map((r, idx) => {
       const label = r.synthetic ? `${r.handle} (avg)` : r.handle;
       const detail = r.synthetic
-        ? (r.source === 'override'
-            ? 'Manual override'
-            : (r.player_count ? `${r.player_count} player${r.player_count === 1 ? '' : 's'}` : 'Average'))
-        : (r.first_time ? fmtEt(r.first_time) : '');
+        ? '—'
+        : `${r.correctCount || 0} correct • ${formatPoints(r.avgPerCorrect || 0)} avg/correct`;
       const rank = idx + 1;
       return `
         <tr style="border-bottom:1px solid rgba(255,255,255,0.08);${idx % 2 ? 'background:rgba(255,255,255,0.02);' : ''}">
           <td style="padding:10px 8px;font-weight:700;color:${rank === 1 ? '#ffd700' : '#fff'};">${rank}</td>
           <td style="padding:10px 8px;">${label}</td>
           <td style="padding:10px 8px;font-weight:600;">${formatPoints(r.points)}</td>
-          <td style="padding:10px 8px;font-size:13px;opacity:0.75;">${detail || '—'}</td>
+          <td style="padding:10px 8px;font-size:13px;opacity:0.75;">${detail}</td>
         </tr>
       `;
     }).join('');
     const syntheticNote = sorted.some(r => r.synthetic)
-      ? '<p style="margin-top:12px;font-size:13px;opacity:0.75;">Entries labelled "avg" represent the quiz author. They receive either the automatic player average or a manual override.</p>'
+      ? '<p style="margin-top:12px;font-size:13px;opacity:0.75;">Entries labelled "avg" represent the quiz author.</p>'
       : '';
     const header = await renderHeader(req);
     const allowRecapLink = !!(req.session?.user);
@@ -5078,7 +5077,7 @@ app.get('/leaderboard', async (req, res) => {
     rows.forEach(r => {
       const email = (r.user_email || '').toLowerCase();
       const points = Number(r.points || 0);
-      const existing = totals.get(email) || { handle: r.handle || email, points: 0, hasAuthorBonus: false, authorContrib: 0, authorSource: null };
+      const existing = totals.get(email) || { handle: r.handle || email, points: 0, email: email };
       existing.handle = r.handle || existing.handle;
       existing.points += points;
       totals.set(email, existing);
@@ -5091,14 +5090,37 @@ app.get('/leaderboard', async (req, res) => {
       let entry = totals.get(authorEmail);
       if (!entry) {
         const { rows: playerRows } = await pool.query('SELECT username FROM players WHERE email=$1', [authorEmail]);
-        entry = { handle: (playerRows.length && playerRows[0].username) ? playerRows[0].username : authorEmail, points: 0, hasAuthorBonus: false, authorContrib: 0, authorSource: null };
+        entry = { handle: (playerRows.length && playerRows[0].username) ? playerRows[0].username : authorEmail, points: 0, email: authorEmail };
       }
       entry.points += avgInfo.average;
-      entry.hasAuthorBonus = true;
-      entry.authorContrib += avgInfo.average;
-      entry.authorSource = avgInfo.source;
       totals.set(authorEmail, entry);
     }
+    
+    // Get stats for each player: quizzes submitted, correct answers, avg score per correct
+    for (const [email, entry] of totals.entries()) {
+      const statsResult = await pool.query(`
+        SELECT 
+          COUNT(DISTINCT r.quiz_id) as quizzes_submitted,
+          COUNT(CASE WHEN r.override_correct = true OR (r.override_correct IS NULL AND LOWER(TRIM(r.response_text)) = LOWER(TRIM(q.answer))) THEN 1 END) as correct_count,
+          SUM(r.points) as total_points
+        FROM responses r
+        JOIN questions q ON q.id = r.question_id
+        WHERE r.user_email = $1
+      `, [email]);
+      
+      if (statsResult.rows.length) {
+        const stats = statsResult.rows[0];
+        entry.quizzesSubmitted = parseInt(stats.quizzes_submitted) || 0;
+        entry.correctCount = parseInt(stats.correct_count) || 0;
+        entry.totalPoints = parseFloat(stats.total_points) || 0;
+        entry.avgPerCorrect = entry.correctCount > 0 ? (entry.totalPoints / entry.correctCount) : 0;
+      } else {
+        entry.quizzesSubmitted = 0;
+        entry.correctCount = 0;
+        entry.avgPerCorrect = 0;
+      }
+    }
+    
     const sorted = Array.from(totals.values()).sort((a, b) => b.points - a.points);
     const totalPlayers = sorted.length;
     const averagePoints = totalPlayers
@@ -5106,29 +5128,23 @@ app.get('/leaderboard', async (req, res) => {
       : 0;
     const topCards = sorted.slice(0, 3).map((r, idx) => {
       const medal = ['🥇','🥈','🥉'][idx] || '⭐';
-      const detail = r.hasAuthorBonus
-        ? `Includes ${formatPoints(r.authorContrib)} author bonus (${r.authorSource === 'override' ? 'manual override' : 'average'})`
-        : '';
       return `
         <div style="background:#1a1a1a;border:1px solid rgba(255,255,255,0.12);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:8px;box-shadow:0 8px 20px rgba(0,0,0,0.25);">
           <div style="font-size:32px;">${medal}</div>
           <div style="font-weight:800;font-size:18px;color:#ffd700;">${r.handle}</div>
           <div style="font-size:28px;font-weight:700;">${formatPoints(r.points)}</div>
-          <div style="font-size:13px;opacity:0.8;">${detail || '&nbsp;'}</div>
         </div>
       `;
     }).join('');
     const tableRows = sorted.map((r, idx) => {
       const rank = idx + 1;
-      const detail = r.hasAuthorBonus
-        ? `Author bonus: ${formatPoints(r.authorContrib)} ${r.authorSource === 'override' ? '(manual override)' : '(average)'}`
-        : '';
+      const detail = `${r.quizzesSubmitted} quiz${r.quizzesSubmitted !== 1 ? 'zes' : ''} • ${r.correctCount} correct • ${formatPoints(r.avgPerCorrect)} avg/correct`;
       return `
         <tr style="border-bottom:1px solid rgba(255,255,255,0.08);${idx % 2 ? 'background:rgba(255,255,255,0.02);' : ''}">
           <td style="padding:10px 8px;font-weight:700;color:${rank === 1 ? '#ffd700' : '#fff'};">${rank}</td>
           <td style="padding:10px 8px;">${r.handle}</td>
           <td style="padding:10px 8px;font-weight:600;">${formatPoints(r.points)}</td>
-          <td style="padding:10px 8px;font-size:13px;opacity:0.75;">${detail || '—'}</td>
+          <td style="padding:10px 8px;font-size:13px;opacity:0.75;">${detail}</td>
         </tr>
       `;
     }).join('');
@@ -5177,7 +5193,6 @@ app.get('/leaderboard', async (req, res) => {
                 </tbody>
         </table>
             </div>
-            <p style="margin-top:12px;font-size:13px;opacity:0.75;">Players who authored quizzes receive an automatic average (or a manual override) noted in the details column.</p>
           </section>
           <p style="margin-top:16px;"><a href="/calendar" class="ta-btn ta-btn-outline">Back to Calendar</a></p>
         </main>
