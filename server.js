@@ -6549,11 +6549,11 @@ app.post('/admin/players/send-link', requireAdmin, async (req, res) => {
   try {
     const email = String(req.body.email || '').trim().toLowerCase();
     if (!email) return res.status(400).send('Email required');
-    const token = crypto.randomBytes(32).toString('hex');
+    const token = crypto.randomBytes(24).toString('base64url');
     const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
-    await pool.query('INSERT INTO magic_tokens(token, email, expires_at) VALUES($1, $2, $3)', [token, email, expiresAt]);
-    const link = `${req.protocol}://${req.get('host')}/auth/verify?token=${token}`;
-    await sendMagicLink(email, token, link);
+    await pool.query('INSERT INTO magic_tokens(token, email, expires_at, used) VALUES($1, $2, $3, false)', [token, email, expiresAt]);
+    const linkUrl = `${process.env.PUBLIC_BASE_URL || ''}/auth/magic?token=${encodeURIComponent(token)}`;
+    await sendMagicLink(email, token, linkUrl);
     res.redirect('/admin/players?msg=Link sent');
   } catch (e) {
     console.error(e);
@@ -6645,11 +6645,11 @@ app.post('/admin/players/bulk/send-link', requireAdmin, async (req, res) => {
       try {
         const e = String(email || '').trim().toLowerCase();
         if (!e) continue;
-        const token = crypto.randomBytes(32).toString('hex');
+        const token = crypto.randomBytes(24).toString('base64url');
         const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
-        await pool.query('INSERT INTO magic_tokens(token, email, expires_at) VALUES($1, $2, $3)', [token, e, expiresAt]);
-        const link = `${req.protocol}://${req.get('host')}/auth/verify?token=${token}`;
-        await sendMagicLink(e, token, link);
+        await pool.query('INSERT INTO magic_tokens(token, email, expires_at, used) VALUES($1, $2, $3, false)', [token, e, expiresAt]);
+        const linkUrl = `${process.env.PUBLIC_BASE_URL || ''}/auth/magic?token=${encodeURIComponent(token)}`;
+        await sendMagicLink(e, token, linkUrl);
         sent++;
       } catch (err) {
         console.error('Failed to send link to', email, err);
