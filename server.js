@@ -5085,18 +5085,29 @@ app.get('/leaderboard', async (req, res) => {
       existing.points += points;
       totals.set(email, existing);
     });
+    // Only add author bonuses if the author has actually submitted responses to quizzes
     const { rows: quizAuthors } = await pool.query('SELECT id, author_email FROM quizzes WHERE author_email IS NOT NULL AND author_email <> \'\'');
     for (const qa of quizAuthors) {
       const authorEmail = (qa.author_email || '').toLowerCase();
       if (!authorEmail) continue;
-      const avgInfo = await computeAuthorAveragePoints(pool, qa.id, authorEmail);
-      let entry = totals.get(authorEmail);
-      if (!entry) {
-        const { rows: playerRows } = await pool.query('SELECT username FROM players WHERE email=$1', [authorEmail]);
-        entry = { handle: (playerRows.length && playerRows[0].username) ? playerRows[0].username : authorEmail, points: 0, email: authorEmail };
+      
+      // Check if author has any actual responses (not just author bonus)
+      const { rows: authorResponses } = await pool.query(
+        'SELECT COUNT(*) as count FROM responses WHERE user_email = $1',
+        [authorEmail]
+      );
+      
+      // Only add author bonus if they have actual responses
+      if (authorResponses.length && parseInt(authorResponses[0].count) > 0) {
+        const avgInfo = await computeAuthorAveragePoints(pool, qa.id, authorEmail);
+        let entry = totals.get(authorEmail);
+        if (!entry) {
+          const { rows: playerRows } = await pool.query('SELECT username FROM players WHERE email=$1', [authorEmail]);
+          entry = { handle: (playerRows.length && playerRows[0].username) ? playerRows[0].username : authorEmail, points: 0, email: authorEmail };
+        }
+        entry.points += avgInfo.average;
+        totals.set(authorEmail, entry);
       }
-      entry.points += avgInfo.average;
-      totals.set(authorEmail, entry);
     }
     
     // Get stats for each player: quizzes submitted, correct answers, avg score per correct
