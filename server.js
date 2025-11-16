@@ -1691,22 +1691,64 @@ app.get('/auth/magic', async (req, res) => {
   try {
     const token = req.query.token;
     if (!token) return res.status(400).send('Missing token');
-    const { rows } = await pool.query('SELECT * FROM magic_tokens WHERE token = $1', [token]);
-    const row = rows[0];
-    if (!row) return res.status(400).send('Invalid token');
-    if (row.used) return res.status(400).send('Token already used');
-    if (new Date(row.expires_at) < new Date()) return res.status(400).send('Token expired');
-    await pool.query('UPDATE magic_tokens SET used = true WHERE token = $1', [token]);
-    req.session.user = { email: row.email };
+    
+    // Get all tokens matching this token string (should only be one, but check for duplicates)
+    const { rows } = await pool.query('SELECT * FROM magic_tokens WHERE token = $1 ORDER BY created_at DESC', [token]);
+    
+    if (rows.length === 0) {
+      console.log('[auth/magic] Token not found:', token);
+      return res.status(400).send('Invalid token');
+    }
+    
+    // If multiple tokens exist, log warning and use the most recent unused one
+    if (rows.length > 1) {
+      console.warn('[auth/magic] Multiple tokens found for same token string:', token, 'Count:', rows.length);
+    }
+    
+    // Find the first unused, non-expired token
+    const now = new Date();
+    let row = null;
+    for (const r of rows) {
+      if (!r.used && new Date(r.expires_at) >= now) {
+        row = r;
+        break;
+      }
+    }
+    
+    if (!row) {
+      // Check if all are used or expired
+      const allUsed = rows.every(r => r.used);
+      const allExpired = rows.every(r => new Date(r.expires_at) < now);
+      console.log('[auth/magic] Token issue - All used:', allUsed, 'All expired:', allExpired, 'Email:', rows[0]?.email);
+      
+      if (allUsed) return res.status(400).send('Token already used');
+      if (allExpired) return res.status(400).send('Token expired');
+      return res.status(400).send('Invalid token');
+    }
+    
+    // Mark as used using the specific row's ID or token (atomic update)
+    const updateResult = await pool.query(
+      'UPDATE magic_tokens SET used = true WHERE token = $1 AND used = false AND expires_at > $2 RETURNING email',
+      [token, now]
+    );
+    
+    if (updateResult.rows.length === 0) {
+      console.log('[auth/magic] Failed to mark token as used - may have been used concurrently:', token);
+      return res.status(400).send('Token already used or expired');
+    }
+    
+    const email = updateResult.rows[0].email;
+    req.session.user = { email };
+    
     // Check onboarding and credentials
-    const orow = await pool.query('SELECT onboarding_complete, username, password_set_at FROM players WHERE email = $1', [row.email]);
+    const orow = await pool.query('SELECT onboarding_complete, username, password_set_at FROM players WHERE email = $1', [email]);
     const p = orow.rows[0] || {};
     const onboardingDone = p.onboarding_complete === true;
     if (!onboardingDone) return res.redirect('/onboarding');
     if (!p.username || !p.password_set_at) return res.redirect('/account/credentials');
     res.redirect('/');
   } catch (e) {
-    console.error(e);
+    console.error('[auth/magic] Error:', e);
     res.status(500).send('Auth failed');
   }
 });
