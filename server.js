@@ -4922,7 +4922,7 @@ app.get('/quiz/:id/leaderboard', async (req, res) => {
       const label = r.synthetic ? `${r.handle} (avg)` : r.handle;
       const detail = r.synthetic
         ? '—'
-        : `<span class="leaderboard-detail">${r.correctCount || 0} correct</span><span class="leaderboard-detail">${formatPoints(r.avgPerCorrect || 0)} avg/correct</span>`;
+        : `<span class="leaderboard-detail">${r.correctCount || 0} correct</span> <span class="leaderboard-separator">•</span> <span class="leaderboard-detail">${formatPoints(r.avgPerCorrect || 0)} avg/correct</span>`;
       const rank = idx + 1;
       return `
         <tr style="border-bottom:1px solid rgba(255,255,255,0.08);${idx % 2 ? 'background:rgba(255,255,255,0.02);' : ''}">
@@ -5141,7 +5141,7 @@ app.get('/leaderboard', async (req, res) => {
     }).join('');
     const tableRows = sorted.map((r, idx) => {
       const rank = idx + 1;
-      const detail = `<span class="leaderboard-detail">${r.quizzesSubmitted} quiz${r.quizzesSubmitted !== 1 ? 'zes' : ''}</span><span class="leaderboard-detail">${r.correctCount} correct</span><span class="leaderboard-detail">${formatPoints(r.avgPerCorrect)} avg/correct</span>`;
+      const detail = `<span class="leaderboard-detail">${r.quizzesSubmitted} quiz${r.quizzesSubmitted !== 1 ? 'zes' : ''}</span> <span class="leaderboard-separator">•</span> <span class="leaderboard-detail">${r.correctCount} correct</span> <span class="leaderboard-separator">•</span> <span class="leaderboard-detail">${formatPoints(r.avgPerCorrect)} avg/correct</span>`;
       return `
         <tr style="border-bottom:1px solid rgba(255,255,255,0.08);${idx % 2 ? 'background:rgba(255,255,255,0.02);' : ''}">
           <td style="padding:10px 8px;font-weight:700;color:${rank === 1 ? '#ffd700' : '#fff'};">${rank}</td>

@@ -259,8 +259,8 @@ body.ta-body a:hover{color:#ffd27f;text-decoration:underline;}
   .ta-table-wrapper table th,.ta-table-wrapper table td{white-space:nowrap;max-width:none}
   /* Leaderboard details column - inline on desktop with spacing */
   .leaderboard-details-cell{display:block;line-height:1.6}
-  .leaderboard-detail{display:inline-block;white-space:nowrap;margin-right:8px}
-  .leaderboard-detail:last-child{margin-right:0}
+  .leaderboard-detail{display:inline-block;white-space:nowrap}
+  .leaderboard-separator{display:inline-block;margin:0 6px;opacity:0.6}
   .ta-quiz-title{font-size:36px}
   .ta-page-title{font-size:32px}
   h1{font-size:28px}
@@ -286,6 +286,7 @@ body.ta-body a:hover{color:#ffd27f;text-decoration:underline;}
   /* Leaderboard details column - stack on mobile, smaller font */
   .leaderboard-details-cell{display:flex;flex-direction:column;gap:2px;line-height:1.3;font-size:11px!important;max-width:120px}
   .leaderboard-detail{display:block;white-space:nowrap}
+  .leaderboard-separator{display:none}
   /* Make leaderboard table more compact on mobile */
   table.leaderboard-table th,table.leaderboard-table td{padding:6px 3px!important;font-size:11px!important}
   table.leaderboard-table th:nth-child(1),table.leaderboard-table td:nth-child(1){min-width:35px;max-width:35px}
