@@ -4860,7 +4860,8 @@ app.get('/quiz/:id/leaderboard', async (req, res) => {
       first_time: r.first_time ? new Date(r.first_time) : null,
       synthetic: false,
       player_count: null,
-      source: 'player'
+      source: 'player',
+      email: (r.user_email || '').toLowerCase()
     }));
     const authorEmail = (qr[0].author_email || '').toLowerCase();
     if (authorEmail) {
@@ -4875,6 +4876,8 @@ app.get('/quiz/:id/leaderboard', async (req, res) => {
         normalized[existingIdx].player_count = avgInfo.count;
         normalized[existingIdx].handle = handle;
         normalized[existingIdx].source = avgInfo.source;
+        normalized[existingIdx].correctCount = 0;
+        normalized[existingIdx].avgPerCorrect = 0;
       } else {
         normalized.push({
           user_email: authorEmail,
