@@ -1697,7 +1697,8 @@ app.get('/auth/magic', async (req, res) => {
     if (!token) return res.status(400).send('Missing token');
     
     // Get all tokens matching this token string (should only be one, but check for duplicates)
-    const { rows } = await pool.query('SELECT * FROM magic_tokens WHERE token = $1 ORDER BY created_at DESC', [token]);
+    // Note: token is PRIMARY KEY so there should only be one, but we check for duplicates anyway
+    const { rows } = await pool.query('SELECT * FROM magic_tokens WHERE token = $1', [token]);
     
     if (rows.length === 0) {
       console.log('[auth/magic] Token not found:', token);
