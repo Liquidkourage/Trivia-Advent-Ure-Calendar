@@ -1199,25 +1199,99 @@ app.post('/account/credentials', requireAuth, express.urlencoded({ extended: tru
     const email = (req.session.user.email || '').toLowerCase();
     const username = String(req.body.username || '').trim();
     const pw = String(req.body.password || '');
-    if (!isValidUsername(username)) return res.status(400).send('Invalid username');
+    
+    // Check if user already has a password
+    const existingCheck = await pool.query('SELECT password_set_at FROM players WHERE email=$1', [email]);
+    const hasExistingPassword = existingCheck.rows.length && !!existingCheck.rows[0].password_set_at;
+    
+    if (!isValidUsername(username)) {
+      const header = await renderHeader(req);
+      return res.status(400).send(`
+        ${renderHead('Setup Error', false)}
+        <body class="ta-body" style="padding:24px;">
+        ${header}
+        <main class="ta-main ta-container" style="max-width:720px; margin:0 auto;">
+          <h1 class="ta-page-title" style="color:#d32f2f;">Invalid Username</h1>
+          <p style="margin-bottom:24px;">Username must be 3-20 characters and contain only letters, numbers, and underscores.</p>
+          <a href="/account/credentials" class="ta-btn ta-btn-primary">Try Again</a>
+        </main>
+        ${renderFooter(req)}
+        </body></html>
+      `);
+    }
+    
     const taken = await pool.query('SELECT 1 FROM players WHERE lower(username)=lower($1) AND email<>$2 LIMIT 1', [username, email]);
-    if (taken.rows.length) return res.status(400).send('Username already taken');
-    let updates = ['username=$1'];
-    const params = [username, email];
+    if (taken.rows.length) {
+      const header = await renderHeader(req);
+      return res.status(400).send(`
+        ${renderHead('Setup Error', false)}
+        <body class="ta-body" style="padding:24px;">
+        ${header}
+        <main class="ta-main ta-container" style="max-width:720px; margin:0 auto;">
+          <h1 class="ta-page-title" style="color:#d32f2f;">Username Already Taken</h1>
+          <p style="margin-bottom:24px;">That username is already in use. Please choose a different one.</p>
+          <a href="/account/credentials" class="ta-btn ta-btn-primary">Try Again</a>
+        </main>
+        ${renderFooter(req)}
+        </body></html>
+      `);
+    }
+    
+    // If they don't have a password yet, require one
+    if (!hasExistingPassword && !pw) {
+      const header = await renderHeader(req);
+      return res.status(400).send(`
+        ${renderHead('Setup Error', false)}
+        <body class="ta-body" style="padding:24px;">
+        ${header}
+        <main class="ta-main ta-container" style="max-width:720px; margin:0 auto;">
+          <h1 class="ta-page-title" style="color:#d32f2f;">Password Required</h1>
+          <p style="margin-bottom:24px;">Please enter a password to complete your account setup.</p>
+          <a href="/account/credentials" class="ta-btn ta-btn-primary">Try Again</a>
+        </main>
+        ${renderFooter(req)}
+        </body></html>
+      `);
+    }
+    
     if (pw) {
-      if (pw.length < 8 || pw.length > 200) return res.status(400).send('Password length invalid');
+      if (pw.length < 8 || pw.length > 200) {
+        const header = await renderHeader(req);
+        return res.status(400).send(`
+          ${renderHead('Setup Error', false)}
+          <body class="ta-body" style="padding:24px;">
+          ${header}
+          <main class="ta-main ta-container" style="max-width:720px; margin:0 auto;">
+            <h1 class="ta-page-title" style="color:#d32f2f;">Invalid Password</h1>
+            <p style="margin-bottom:24px;">Password must be between 8 and 200 characters.</p>
+            <a href="/account/credentials" class="ta-btn ta-btn-primary">Try Again</a>
+          </main>
+          ${renderFooter(req)}
+          </body></html>
+        `);
+      }
       const hash = await hashPassword(pw);
-      updates.push('password_hash=$3','password_set_at=NOW()');
-      params.splice(1,0,hash); // insert hash as $2 effectively; but we build query accordingly
-      const q = 'UPDATE players SET username=$1, password_hash=$2, password_set_at=NOW() WHERE email=$3';
-      await pool.query(q, [username, hash, email]);
+      await pool.query('UPDATE players SET username=$1, password_hash=$2, password_set_at=NOW() WHERE email=$3', [username, hash, email]);
     } else {
+      // Only update username if they already have a password (changing username only)
       await pool.query('UPDATE players SET username=$1 WHERE email=$2', [username, email]);
     }
     res.redirect('/calendar');
   } catch (e) {
-    console.error(e);
-    res.status(500).send('Failed to save credentials');
+    console.error('Credentials save error:', e);
+    const header = await renderHeader(req);
+    res.status(500).send(`
+      ${renderHead('Setup Error', false)}
+      <body class="ta-body" style="padding:24px;">
+      ${header}
+      <main class="ta-main ta-container" style="max-width:720px; margin:0 auto;">
+        <h1 class="ta-page-title" style="color:#d32f2f;">Setup Failed</h1>
+        <p style="margin-bottom:24px;">We encountered an error while saving your credentials. Please try again.</p>
+        <a href="/account/credentials" class="ta-btn ta-btn-primary">Try Again</a>
+      </main>
+      ${renderFooter(req)}
+      </body></html>
+    `);
   }
 });
 
