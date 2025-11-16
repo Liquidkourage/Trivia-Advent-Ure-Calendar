@@ -1725,8 +1725,59 @@ app.get('/auth/magic', async (req, res) => {
       const allUsed = rows.every(r => r.used);
       const allExpired = rows.every(r => new Date(r.expires_at) < now);
       console.log('[auth/magic] Token issue - All used:', allUsed, 'All expired:', allExpired, 'Email:', rows[0]?.email);
+      console.log('[auth/magic] Token details:', rows.map(r => ({ 
+        token: r.token.substring(0, 10) + '...', 
+        used: r.used, 
+        expires_at: r.expires_at,
+        email: r.email 
+      })));
       
-      if (allUsed) return res.status(400).send('Token already used');
+      if (allUsed) {
+        // Double-check: maybe token was used between our SELECT and now
+        // Try to find any unused token for this email that's not expired
+        const { rows: freshCheck } = await pool.query(
+          'SELECT * FROM magic_tokens WHERE email = $1 AND used = false AND expires_at > $2 ORDER BY expires_at DESC LIMIT 1',
+          [rows[0]?.email, now]
+        );
+        if (freshCheck.length > 0) {
+          console.log('[auth/magic] Found unused token for same email, redirecting to use it');
+          // Use the fresh token instead
+          const freshToken = freshCheck[0].token;
+          const updateResult = await pool.query(
+            'UPDATE magic_tokens SET used = true WHERE token = $1 AND used = false AND expires_at > $2 RETURNING email',
+            [freshToken, now]
+          );
+          if (updateResult.rows.length > 0) {
+            // Continue with authentication using the fresh token
+            const email = updateResult.rows[0].email;
+            // Set session and continue (code continues below)
+            req.session.user = { email };
+            await new Promise((resolve, reject) => {
+              req.session.save((err) => {
+                if (err) reject(err);
+                else resolve();
+              });
+            });
+            const orow = await pool.query('SELECT onboarding_complete, username, password_set_at FROM players WHERE email = $1', [email]);
+            if (!orow.rows.length) {
+              console.error('[auth/magic] Player record not found for email:', email);
+              return res.status(500).send(`
+                <html><body style="font-family:system-ui;padding:24px;max-width:600px;margin:0 auto;">
+                  <h1>Authentication Error</h1>
+                  <p>Your account was not found in the system. Please contact support.</p>
+                  <p><a href="/public">Return to home</a></p>
+                </body></html>
+              `);
+            }
+            const p = orow.rows[0];
+            const onboardingDone = p.onboarding_complete === true;
+            if (!onboardingDone) return res.redirect('/onboarding');
+            if (!p.username || !p.password_set_at) return res.redirect('/account/credentials');
+            return res.redirect('/');
+          }
+        }
+        return res.status(400).send('Token already used');
+      }
       if (allExpired) return res.status(400).send('Token expired');
       return res.status(400).send('Invalid token');
     }
@@ -1739,6 +1790,46 @@ app.get('/auth/magic', async (req, res) => {
     
     if (updateResult.rows.length === 0) {
       console.log('[auth/magic] Failed to mark token as used - may have been used concurrently:', token);
+      // Try one more time to find an unused token for this email
+      const { rows: retryCheck } = await pool.query(
+        'SELECT * FROM magic_tokens WHERE email = $1 AND used = false AND expires_at > $2 ORDER BY expires_at DESC LIMIT 1',
+        [row.email, now]
+      );
+      if (retryCheck.length > 0) {
+        console.log('[auth/magic] Found unused token on retry, using it');
+        const retryToken = retryCheck[0].token;
+        const retryUpdate = await pool.query(
+          'UPDATE magic_tokens SET used = true WHERE token = $1 AND used = false AND expires_at > $2 RETURNING email',
+          [retryToken, now]
+        );
+        if (retryUpdate.rows.length > 0) {
+          // Continue with authentication
+          const email = retryUpdate.rows[0].email;
+          req.session.user = { email };
+          await new Promise((resolve, reject) => {
+            req.session.save((err) => {
+              if (err) reject(err);
+              else resolve();
+            });
+          });
+          const orow = await pool.query('SELECT onboarding_complete, username, password_set_at FROM players WHERE email = $1', [email]);
+          if (!orow.rows.length) {
+            console.error('[auth/magic] Player record not found for email:', email);
+            return res.status(500).send(`
+              <html><body style="font-family:system-ui;padding:24px;max-width:600px;margin:0 auto;">
+                <h1>Authentication Error</h1>
+                <p>Your account was not found in the system. Please contact support.</p>
+                <p><a href="/public">Return to home</a></p>
+              </body></html>
+            `);
+          }
+          const p = orow.rows[0];
+          const onboardingDone = p.onboarding_complete === true;
+          if (!onboardingDone) return res.redirect('/onboarding');
+          if (!p.username || !p.password_set_at) return res.redirect('/account/credentials');
+          return res.redirect('/');
+        }
+      }
       return res.status(400).send('Token already used or expired');
     }
     
