@@ -884,10 +884,14 @@ function parseEtToUtc(dateTimeStr) {
 app.post('/auth/request-link', async (req, res) => {
   try {
     const emailRaw = (req.body && req.body.email) || (req.query && req.query.email) || '';
-    const email = String(emailRaw).trim();
+    const email = String(emailRaw).trim().toLowerCase();
     if (!email) return res.status(400).json({ error: 'Email required' });
     const { rows } = await pool.query('SELECT 1 FROM players WHERE email = $1', [email]);
     if (rows.length === 0) return res.status(403).json({ error: 'No access. Donate on Ko-fi to join.' });
+    
+    // Delete any existing unused tokens for this email to prevent conflicts
+    await pool.query('DELETE FROM magic_tokens WHERE email = $1 AND used = false', [email]);
+    
     const token = crypto.randomBytes(24).toString('base64url');
     const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
     await pool.query('INSERT INTO magic_tokens(token,email,expires_at,used) VALUES($1,$2,$3,false)', [token, email, expiresAt]);
@@ -895,12 +899,12 @@ app.post('/auth/request-link', async (req, res) => {
     try {
       await sendMagicLink(email, token, linkUrl);
     } catch (mailErr) {
-      console.warn('Send mail failed:', mailErr?.message || mailErr);
+      console.warn('[auth/request-link] Send mail failed:', mailErr?.message || mailErr);
     }
     const expose = (process.env.EXPOSE_MAGIC_LINKS || '').toLowerCase() === 'true';
     res.json({ ok: true, link: expose ? linkUrl : undefined });
   } catch (e) {
-    console.error(e);
+    console.error('[auth/request-link] Error:', e);
     res.status(500).json({ error: 'Failed to send link' });
   }
 });
@@ -1696,12 +1700,17 @@ app.get('/auth/magic', async (req, res) => {
     const token = req.query.token;
     if (!token) return res.status(400).send('Missing token');
     
+    console.log('[auth/magic] Attempting to use token:', token.substring(0, 10) + '...');
+    
     // Get all tokens matching this token string (should only be one, but check for duplicates)
     // Note: token is PRIMARY KEY so there should only be one, but we check for duplicates anyway
     const { rows } = await pool.query('SELECT * FROM magic_tokens WHERE token = $1', [token]);
     
     if (rows.length === 0) {
-      console.log('[auth/magic] Token not found:', token);
+      console.log('[auth/magic] Token not found:', token.substring(0, 10) + '...');
+      // Check if there are any unused tokens for any email (diagnostic)
+      const { rows: allUnused } = await pool.query('SELECT COUNT(*) as count FROM magic_tokens WHERE used = false AND expires_at > NOW()');
+      console.log('[auth/magic] Diagnostic - unused tokens in system:', allUnused[0]?.count || 0);
       return res.status(400).send('Invalid token');
     }
     
@@ -1711,10 +1720,15 @@ app.get('/auth/magic', async (req, res) => {
     }
     
     // Find the first unused, non-expired token
+    // Use database NOW() for accurate timezone comparison
     const now = new Date();
     let row = null;
     for (const r of rows) {
-      if (!r.used && new Date(r.expires_at) >= now) {
+      const expiresAt = new Date(r.expires_at);
+      const isNotUsed = !r.used;
+      const isNotExpired = expiresAt >= now;
+      console.log('[auth/magic] Token check - used:', r.used, 'expires_at:', expiresAt.toISOString(), 'now:', now.toISOString(), 'valid:', isNotUsed && isNotExpired);
+      if (isNotUsed && isNotExpired) {
         row = r;
         break;
       }
@@ -1783,13 +1797,15 @@ app.get('/auth/magic', async (req, res) => {
     }
     
     // Mark as used using the specific row's ID or token (atomic update)
+    console.log('[auth/magic] Attempting to mark token as used. Token:', token.substring(0, 10) + '...', 'Email:', row.email);
     const updateResult = await pool.query(
       'UPDATE magic_tokens SET used = true WHERE token = $1 AND used = false AND expires_at > $2 RETURNING email',
       [token, now]
     );
     
     if (updateResult.rows.length === 0) {
-      console.log('[auth/magic] Failed to mark token as used - may have been used concurrently:', token);
+      console.log('[auth/magic] Failed to mark token as used - may have been used concurrently:', token.substring(0, 10) + '...');
+      console.log('[auth/magic] Token state check - used:', row.used, 'expires_at:', row.expires_at, 'now:', now);
       // Try one more time to find an unused token for this email
       const { rows: retryCheck } = await pool.query(
         'SELECT * FROM magic_tokens WHERE email = $1 AND used = false AND expires_at > $2 ORDER BY expires_at DESC LIMIT 1',
@@ -6814,11 +6830,59 @@ app.post('/admin/players/send-link', requireAdmin, async (req, res) => {
     const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
     await pool.query('INSERT INTO magic_tokens(token, email, expires_at, used) VALUES($1, $2, $3, false)', [token, email, expiresAt]);
     const linkUrl = `${process.env.PUBLIC_BASE_URL || ''}/auth/magic?token=${encodeURIComponent(token)}`;
-    await sendMagicLink(email, token, linkUrl);
-    res.redirect('/admin/players?msg=Link sent');
+    
+    try {
+      await sendMagicLink(email, token, linkUrl);
+      res.redirect('/admin/players?msg=Link sent to ' + encodeURIComponent(email));
+    } catch (mailErr) {
+      console.error('[admin/players/send-link] Email send failed:', mailErr);
+      const header = await renderHeader(req);
+      res.status(500).send(`
+        ${renderHead('Send Link Error', false)}
+        <body class="ta-body" style="padding:24px;">
+        ${header}
+        <main class="ta-main ta-container" style="max-width:720px; margin:0 auto;">
+          <h1 class="ta-page-title" style="color:#d32f2f;">Failed to Send Magic Link</h1>
+          <p style="margin-bottom:16px;"><strong>Email:</strong> ${email.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</p>
+          <p style="margin-bottom:16px;"><strong>Error:</strong> ${String(mailErr.message || mailErr).replace(/&/g,'&amp;').replace(/</g,'&lt;')}</p>
+          ${mailErr.message && mailErr.message.includes('refresh token') ? `
+          <div style="background:#fff3cd;border:1px solid #ffc107;border-radius:6px;padding:16px;margin-bottom:24px;">
+            <h3 style="margin-top:0;color:#856404;">Gmail OAuth Token Expired</h3>
+            <p style="margin-bottom:12px;">The Gmail refresh token has expired or been revoked. To fix this:</p>
+            <ol style="margin-left:20px;margin-bottom:0;">
+              <li>Go to <a href="https://console.cloud.google.com/apis/credentials" target="_blank" style="color:#ffd700;">Google Cloud Console → APIs & Services → Credentials</a></li>
+              <li>Create or regenerate OAuth 2.0 credentials</li>
+              <li>Generate a new refresh token using the OAuth 2.0 Playground or your OAuth flow</li>
+              <li>Update the <code>GMAIL_REFRESH_TOKEN</code> environment variable with the new token</li>
+            </ol>
+          </div>
+          ` : ''}
+          <p style="margin-bottom:24px;opacity:0.8;">The magic link token was created successfully, but sending the email failed. Check server logs for details.</p>
+          <div style="display:flex;gap:12px;">
+            <a href="/admin/players" class="ta-btn ta-btn-primary">Back to Players</a>
+            <a href="/admin/players?email=${encodeURIComponent(email)}" class="ta-btn ta-btn-outline">Try Again</a>
+          </div>
+        </main>
+        ${renderFooter(req)}
+        </body></html>
+      `);
+    }
   } catch (e) {
-    console.error(e);
-    res.status(500).send('Failed to send link');
+    console.error('[admin/players/send-link] Error:', e);
+    const header = await renderHeader(req);
+    res.status(500).send(`
+      ${renderHead('Send Link Error', false)}
+      <body class="ta-body" style="padding:24px;">
+      ${header}
+      <main class="ta-main ta-container" style="max-width:720px; margin:0 auto;">
+        <h1 class="ta-page-title" style="color:#d32f2f;">Failed to Send Magic Link</h1>
+        <p style="margin-bottom:16px;"><strong>Error:</strong> ${String(e.message || e).replace(/&/g,'&amp;').replace(/</g,'&lt;')}</p>
+        <p style="margin-bottom:24px;opacity:0.8;">Check server logs for details.</p>
+        <a href="/admin/players" class="ta-btn ta-btn-primary">Back to Players</a>
+      </main>
+      ${renderFooter(req)}
+      </body></html>
+    `);
   }
 });
 
