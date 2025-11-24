@@ -432,6 +432,38 @@ const transporter = (() => {
   try { return createMailer(); } catch (e) { console.warn('Mailer not configured:', e.message); return null; }
 })();
 
+// Create a reusable OAuth2 client instance
+let cachedOAuth2Client = null;
+function getOAuth2Client() {
+  if (!process.env.GMAIL_CLIENT_ID || !process.env.GMAIL_CLIENT_SECRET || !process.env.GMAIL_REFRESH_TOKEN) {
+    throw new Error('Gmail OAuth credentials not configured. Missing GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, or GMAIL_REFRESH_TOKEN');
+  }
+  
+  // Reuse cached client if available, otherwise create new one
+  if (!cachedOAuth2Client) {
+    cachedOAuth2Client = new google.auth.OAuth2(
+      process.env.GMAIL_CLIENT_ID,
+      process.env.GMAIL_CLIENT_SECRET
+    );
+    // Set credentials with refresh token - the library will automatically refresh access tokens
+    cachedOAuth2Client.setCredentials({ 
+      refresh_token: process.env.GMAIL_REFRESH_TOKEN 
+    });
+    
+    // Handle token refresh events for debugging
+    cachedOAuth2Client.on('tokens', (tokens) => {
+      if (tokens.refresh_token) {
+        console.log('[OAuth2] New refresh token received - update GMAIL_REFRESH_TOKEN if needed');
+      }
+      if (tokens.access_token) {
+        console.log('[OAuth2] Access token refreshed successfully');
+      }
+    });
+  }
+  
+  return cachedOAuth2Client;
+}
+
 async function sendMagicLink(email, token, linkUrl) {
   try {
     const fromHeader = process.env.EMAIL_FROM || 'no-reply@example.com';
@@ -440,17 +472,8 @@ async function sendMagicLink(email, token, linkUrl) {
     console.log('[sendMagicLink] Sending magic link to:', email);
     console.log('[sendMagicLink] Magic link URL:', url);
 
-    // Check if Gmail credentials are configured
-    if (!process.env.GMAIL_CLIENT_ID || !process.env.GMAIL_CLIENT_SECRET || !process.env.GMAIL_REFRESH_TOKEN) {
-      throw new Error('Gmail OAuth credentials not configured. Missing GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, or GMAIL_REFRESH_TOKEN');
-    }
-
-    // Use Gmail HTTP API with OAuth2
-    const oAuth2Client = new google.auth.OAuth2(
-      process.env.GMAIL_CLIENT_ID,
-      process.env.GMAIL_CLIENT_SECRET
-    );
-    oAuth2Client.setCredentials({ refresh_token: process.env.GMAIL_REFRESH_TOKEN });
+    // Get OAuth2 client (reused or newly created)
+    const oAuth2Client = getOAuth2Client();
     const gmail = google.gmail({ version: 'v1', auth: oAuth2Client });
 
     const subject = 'Welcome to Trivia Advent-ure!';
@@ -481,10 +504,32 @@ async function sendMagicLink(email, token, linkUrl) {
   } catch (error) {
     console.error('[sendMagicLink] Error sending email to', email, ':', error.message);
     console.error('[sendMagicLink] Full error:', error);
+    console.error('[sendMagicLink] Error code:', error.code);
+    console.error('[sendMagicLink] Error response:', error.response?.data);
+    
+    // Clear cached OAuth2 client on auth errors to force recreation
+    if (error.response?.data?.error === 'invalid_grant' || error.code === 'EAUTH') {
+      console.warn('[sendMagicLink] Clearing cached OAuth2 client due to auth error');
+      cachedOAuth2Client = null;
+    }
     
     // Provide helpful error messages for common OAuth issues
     if (error.response?.data?.error === 'invalid_grant') {
-      const helpfulError = new Error('Gmail refresh token has expired or been revoked. Please generate a new refresh token and update GMAIL_REFRESH_TOKEN environment variable.');
+      const errorDescription = error.response?.data?.error_description || '';
+      let helpfulMessage = 'Gmail refresh token has expired or been revoked. ';
+      
+      // Add specific guidance based on error description
+      if (errorDescription.includes('Token has been expired')) {
+        helpfulMessage += 'The token expired. ';
+      } else if (errorDescription.includes('Token has been revoked')) {
+        helpfulMessage += 'The token was revoked (possibly due to password change or manual revocation). ';
+      }
+      
+      helpfulMessage += 'Common causes: (1) Token not used for 6+ months, (2) Google account password was changed, (3) User manually revoked access in Google account settings, (4) Too many refresh tokens exist for this account. ';
+      helpfulMessage += 'To prevent frequent expiration: Use a dedicated Google account for sending emails, avoid changing the password, and don\'t generate multiple refresh tokens. ';
+      helpfulMessage += 'Generate a new refresh token using OAuth 2.0 Playground and update GMAIL_REFRESH_TOKEN environment variable.';
+      
+      const helpfulError = new Error(helpfulMessage);
       helpfulError.originalError = error;
       throw helpfulError;
     }
@@ -495,11 +540,7 @@ async function sendMagicLink(email, token, linkUrl) {
 
 async function sendPlainEmail(email, subject, text) {
   const fromHeader = process.env.EMAIL_FROM || 'no-reply@example.com';
-  const oAuth2Client = new google.auth.OAuth2(
-    process.env.GMAIL_CLIENT_ID,
-    process.env.GMAIL_CLIENT_SECRET
-  );
-  oAuth2Client.setCredentials({ refresh_token: process.env.GMAIL_REFRESH_TOKEN });
+  const oAuth2Client = getOAuth2Client();
   const gmail = google.gmail({ version: 'v1', auth: oAuth2Client });
   const rawLines = [
     `From: ${fromHeader}`,
@@ -520,11 +561,7 @@ async function sendPlainEmail(email, subject, text) {
 
 async function sendHTMLEmail(email, subject, html) {
   const fromHeader = process.env.EMAIL_FROM || 'no-reply@example.com';
-  const oAuth2Client = new google.auth.OAuth2(
-    process.env.GMAIL_CLIENT_ID,
-    process.env.GMAIL_CLIENT_SECRET
-  );
-  oAuth2Client.setCredentials({ refresh_token: process.env.GMAIL_REFRESH_TOKEN });
+  const oAuth2Client = getOAuth2Client();
   const gmail = google.gmail({ version: 'v1', auth: oAuth2Client });
   const rawLines = [
     `From: ${fromHeader}`,
