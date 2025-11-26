@@ -708,7 +708,7 @@ body.ta-modal-open{overflow:hidden}
   letter-spacing:0.5px;
   color:#fff;
   text-shadow:0 4px 10px rgba(0,0,0,1), 0 0 20px rgba(0,0,0,0.95), 4px 4px 8px rgba(0,0,0,1), -2px -2px 4px rgba(0,0,0,0.8);
-  transform:translateY(-8px);
+  transform:translateY(-12px);
   background:rgba(0,0,0,0.6);
   padding:6px 14px;
   border-radius:10px;
