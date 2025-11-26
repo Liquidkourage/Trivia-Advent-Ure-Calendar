@@ -3190,8 +3190,9 @@ app.get('/quizmas', async (req, res) => {
     
     const doors = Array.from(byDay.values()).sort((a,b)=> a.day.localeCompare(b.day));
     const escapeAttr = (value) => String(value ?? '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
-    const grid = doors.map(d => {
+    const grid = doors.map((d, index) => {
       const q = d.quiz;
+      const dayNumber = index + 1; // Day 1-12 for Quizmas
       function qStatus(q){
         if (!q) return { label:'Missing', finalized:false, unlocked:false, completed:false, id:null, title:'' };
         const unlockUtc = new Date(q.unlock_at);
@@ -3203,32 +3204,37 @@ app.get('/quizmas', async (req, res) => {
         return { label, finalized, unlocked, completed, id:q.id, title:q.title };
       }
       const s = qStatus(q);
-      const dayMatch = d.day.match(/-(\d{2})$/);
-      const num = dayMatch ? Number(dayMatch[1]) : 0;
       const doorUnlocked = s.unlocked;
       const doorFinal = s.finalized;
       const completedCount = s.completed ? 1 : 0;
-      const cls = `ta-door ${doorFinal ? 'is-finalized' : doorUnlocked ? 'is-unlocked' : 'is-locked'}`;
-      const badge = completedCount > 0 ? `<span class="ta-badge">${completedCount}/1 complete</span>` : '';
+      const cls = `quizmas-gift ${doorFinal ? 'is-finalized' : doorUnlocked ? 'is-unlocked' : 'is-locked'}`;
+      const badge = completedCount > 0 ? `<span class="quizmas-badge">✓</span>` : '';
       const quizUnlocked = s.unlocked && !!s.id;
       const quizUrl = quizUnlocked ? `/quiz/${s.id}` : '';
       const quizLabel = s.label || 'Locked';
       const quizTitle = q ? q.title || '' : '';
       const quizHref = escapeAttr(quizUrl);
+      // Alternate gift wrap colors
+      const wrapColor = dayNumber % 2 === 0 ? 'red' : 'green';
       return `
-      <div class="ta-door-slot">
-        <div class="${cls}" data-day="${d.day}" data-day-number="${num}" data-quiz-unlocked="${quizUnlocked ? 'true' : 'false'}" data-quiz-url="${quizHref}" data-quiz-status="${escapeAttr(quizLabel)}" data-quiz-title="${escapeAttr(quizTitle)}">
-          <div class="ta-door-inner">
-            <div class="ta-door-front">
-              <div class="ta-door-leaf left"></div>
-              <div class="ta-door-leaf right"></div>
-              <div class="ta-door-number">${num}</div>
-              <div class="ta-door-label">${doorFinal ? 'Finalized' : doorUnlocked ? 'Unlocked' : 'Locked'}</div>
+      <div class="quizmas-gift-slot">
+        <div class="${cls}" data-day="${d.day}" data-day-number="${dayNumber}" data-quiz-unlocked="${quizUnlocked ? 'true' : 'false'}" data-quiz-url="${quizHref}" data-quiz-status="${escapeAttr(quizLabel)}" data-quiz-title="${escapeAttr(quizTitle)}" data-wrap-color="${wrapColor}">
+          <div class="quizmas-gift-inner">
+            <div class="quizmas-gift-front">
+              <div class="quizmas-ribbon-horizontal"></div>
+              <div class="quizmas-ribbon-vertical"></div>
+              <div class="quizmas-bow">
+                <div class="quizmas-bow-left"></div>
+                <div class="quizmas-bow-right"></div>
+                <div class="quizmas-bow-center"></div>
+              </div>
+              <div class="quizmas-day-number">Day ${dayNumber}</div>
+              <div class="quizmas-day-label">${doorFinal ? 'Finalized' : doorUnlocked ? 'Open' : 'Locked'}</div>
               ${badge}
             </div>
-            <div class="ta-door-back">
-              <div class="slot-grid">
-                ${quizUnlocked ? `<a class="slot-btn unlocked" href="${quizHref}">Quiz</a>` : `<span class="slot-btn ${s.unlocked?'unlocked':'locked'}">Quiz</span>`}
+            <div class="quizmas-gift-back">
+              <div class="quizmas-content">
+                ${quizUnlocked ? `<a class="quizmas-btn unlocked" href="${quizHref}">Take Quiz</a>` : `<span class="quizmas-btn ${s.unlocked?'unlocked':'locked'}">Take Quiz</span>`}
               </div>
             </div>
           </div>
@@ -3246,7 +3252,7 @@ app.get('/quizmas', async (req, res) => {
           ${renderBreadcrumb([{ label: 'Calendar', href: '/calendar' }, { label: '12 Days of Quizmas' }])}
           <h1 class="ta-page-title">12 Days of Quizmas</h1>
           <p style="margin-bottom:16px;"><a href="/quizmas/leaderboard" class="ta-btn ta-btn-primary">View Quizmas Leaderboard</a></p>
-          <div class="ta-calendar-grid">${grid}</div>
+          <div class="quizmas-calendar-grid">${grid}</div>
         </main>
         ${renderFooter(req)}
         <script>
@@ -3269,7 +3275,7 @@ app.get('/quizmas', async (req, res) => {
               var isOpen = door.classList.contains('is-open');
               if (!isOpen) {
                 // Door is closed - prevent any clicks from reaching buttons
-                if (e.target.closest('.slot-btn')) {
+                if (e.target.closest('.quizmas-btn')) {
                   e.preventDefault();
                   e.stopPropagation();
                   e.stopImmediatePropagation();
@@ -3277,7 +3283,7 @@ app.get('/quizmas', async (req, res) => {
                 }
               } else {
                 // Door is open - let slot buttons work normally
-                if (e.target && e.target.closest && e.target.closest('.slot-btn')) {
+                if (e.target && e.target.closest && e.target.closest('.quizmas-btn')) {
                   // If door was just opened, prevent immediate navigation
                   if (recentlyOpened.has(door)) {
                     e.preventDefault();
@@ -3295,7 +3301,7 @@ app.get('/quizmas', async (req, res) => {
               
               // Toggle door open/closed (works on both mobile and desktop)
               var wasOpen = door.classList.contains('is-open');
-              document.querySelectorAll('.ta-door.is-open').forEach(function(x){ 
+              document.querySelectorAll('.quizmas-gift.is-open').forEach(function(x){ 
                 x.classList.remove('is-open');
                 recentlyOpened.delete(x);
               });
@@ -3314,13 +3320,13 @@ app.get('/quizmas', async (req, res) => {
             }
             
             function setupDoors(){
-              var doors = document.querySelectorAll('.ta-door');
+              var doors = document.querySelectorAll('.quizmas-gift');
               doors.forEach(function(d){
                 // Block all clicks on slot buttons when door is closed
-                var slotButtons = d.querySelectorAll('.slot-btn');
+                var slotButtons = d.querySelectorAll('.quizmas-btn');
                 slotButtons.forEach(function(btn){
                   btn.addEventListener('click', function(e){
-                    var door = btn.closest('.ta-door');
+                    var door = btn.closest('.quizmas-gift');
                     if (!door || !door.classList.contains('is-open')) {
                       e.preventDefault();
                       e.stopPropagation();
@@ -3341,13 +3347,13 @@ app.get('/quizmas', async (req, res) => {
                 if ('ontouchstart' in window) {
                   d.addEventListener('touchstart', function(e){
                     // Block touch on buttons when door is closed
-                    if (e.target.closest('.slot-btn')) {
-                      var door = e.target.closest('.ta-door');
+                    if (e.target.closest('.quizmas-btn')) {
+                      var door = e.target.closest('.quizmas-gift');
                       if (!door || !door.classList.contains('is-open')) {
                         return;
                       }
                     }
-                    if (!e.target.closest('.slot-btn')) {
+                    if (!e.target.closest('.quizmas-btn')) {
                       touchStartDoor = d;
                       touchStartTime = Date.now();
                     }
@@ -3355,8 +3361,8 @@ app.get('/quizmas', async (req, res) => {
                   
                   d.addEventListener('touchend', function(e){
                     // Block touch on buttons when door is closed
-                    if (e.target.closest('.slot-btn')) {
-                      var door = e.target.closest('.ta-door');
+                    if (e.target.closest('.quizmas-btn')) {
+                      var door = e.target.closest('.quizmas-gift');
                       if (!door || !door.classList.contains('is-open')) {
                         e.preventDefault();
                         e.stopPropagation();

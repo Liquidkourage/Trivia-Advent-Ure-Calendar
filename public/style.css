@@ -591,3 +591,235 @@ body.ta-modal-open{overflow:hidden}
   .ta-nav{padding:12px var(--layout-gutter);}
   .ta-menu-toggle{width:36px;height:36px;}
 }
+
+/* Quizmas Gift Box Theme */
+.quizmas-calendar-grid{
+  display:grid;
+  grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:24px;
+  width:100%;
+  max-width:var(--content-max-width);
+  margin:0 auto;
+}
+.quizmas-gift-slot{position:relative;display:flex;flex-direction:column;align-items:center;gap:12px;width:100%}
+.quizmas-gift{
+  position:relative;
+  width:100%;
+  max-width:200px;
+  min-width:140px;
+  aspect-ratio:1;
+  perspective:1000px;
+  cursor:pointer;
+}
+.quizmas-gift.is-unlocked{cursor:pointer}
+.quizmas-gift.is-locked{cursor:default;opacity:0.7}
+.quizmas-gift-inner{position:relative;width:100%;height:100%;transform-style:preserve-3d;transition:transform .8s cubic-bezier(.2,.65,.2,1)}
+.quizmas-gift-front,.quizmas-gift-back{position:absolute;inset:0;border-radius:12px;backface-visibility:hidden;box-sizing:border-box}
+.quizmas-gift-front{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+  position:relative;
+  border:2px solid rgba(255,255,255,0.2);
+  overflow:hidden;
+}
+/* Gift wrap patterns - red or green */
+.quizmas-gift[data-wrap-color="red"] .quizmas-gift-front{
+  background:
+    repeating-linear-gradient(45deg, #c41e3a 0px, #c41e3a 8px, #dc143c 8px, #dc143c 16px),
+    repeating-linear-gradient(-45deg, #c41e3a 0px, #c41e3a 8px, #dc143c 8px, #dc143c 16px),
+    linear-gradient(135deg, #8b0000 0%, #c41e3a 50%, #8b0000 100%);
+  box-shadow:0 8px 20px rgba(196,30,58,0.4), inset 0 0 20px rgba(0,0,0,0.2);
+}
+.quizmas-gift[data-wrap-color="green"] .quizmas-gift-front{
+  background:
+    repeating-linear-gradient(45deg, #228b22 0px, #228b22 8px, #32cd32 8px, #32cd32 16px),
+    repeating-linear-gradient(-45deg, #228b22 0px, #228b22 8px, #32cd32 8px, #32cd32 16px),
+    linear-gradient(135deg, #006400 0%, #228b22 50%, #006400 100%);
+  box-shadow:0 8px 20px rgba(34,139,34,0.4), inset 0 0 20px rgba(0,0,0,0.2);
+}
+/* Ribbon */
+.quizmas-ribbon-horizontal{
+  position:absolute;
+  top:50%;
+  left:0;
+  right:0;
+  height:20px;
+  transform:translateY(-50%);
+  background:linear-gradient(90deg, #ffd700 0%, #ffed4e 50%, #ffd700 100%);
+  box-shadow:0 2px 8px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.4);
+  z-index:3;
+}
+.quizmas-ribbon-vertical{
+  position:absolute;
+  left:50%;
+  top:0;
+  bottom:0;
+  width:20px;
+  transform:translateX(-50%);
+  background:linear-gradient(180deg, #ffd700 0%, #ffed4e 50%, #ffd700 100%);
+  box-shadow:2px 0 8px rgba(0,0,0,0.3), inset 1px 0 0 rgba(255,255,255,0.4);
+  z-index:3;
+}
+/* Bow */
+.quizmas-bow{
+  position:absolute;
+  top:50%;
+  left:50%;
+  transform:translate(-50%,-50%);
+  width:50px;
+  height:50px;
+  z-index:4;
+}
+.quizmas-bow-left,.quizmas-bow-right{
+  position:absolute;
+  top:0;
+  width:25px;
+  height:25px;
+  background:radial-gradient(ellipse at center, #ffd700 0%, #d4af37 70%, #8b6914 100%);
+  border-radius:50% 50% 50% 0;
+  box-shadow:0 2px 6px rgba(0,0,0,0.4), inset -2px -2px 4px rgba(0,0,0,0.3);
+}
+.quizmas-bow-left{left:0;transform:rotate(-45deg)}
+.quizmas-bow-right{right:0;transform:rotate(45deg) scaleX(-1)}
+.quizmas-bow-center{
+  position:absolute;
+  top:50%;
+  left:50%;
+  transform:translate(-50%,-50%);
+  width:18px;
+  height:18px;
+  background:radial-gradient(circle, #ffed4e 0%, #d4af37 100%);
+  border-radius:50%;
+  box-shadow:0 2px 4px rgba(0,0,0,0.4), inset 0 1px 2px rgba(255,255,255,0.5);
+  z-index:1;
+}
+/* Day number */
+.quizmas-day-number{
+  position:relative;
+  z-index:2;
+  font-family:"Cinzel Decorative","Cinzel",Georgia,serif;
+  font-size:42px;
+  font-weight:800;
+  letter-spacing:1px;
+  color:#fff;
+  text-shadow:0 2px 4px rgba(0,0,0,0.8), 0 0 8px rgba(255,215,0,0.6);
+  transform:translateY(-8px);
+}
+.quizmas-day-label{
+  font-size:11px;
+  opacity:0.95;
+  color:#fff;
+  text-shadow:0 1px 2px rgba(0,0,0,0.8);
+  font-weight:600;
+  z-index:2;
+  position:relative;
+}
+.quizmas-badge{
+  position:absolute;
+  top:8px;
+  right:8px;
+  width:28px;
+  height:28px;
+  border-radius:50%;
+  background:radial-gradient(circle, #4caf50 0%, #2e7d32 100%);
+  color:#fff;
+  font-size:18px;
+  font-weight:800;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  box-shadow:0 2px 6px rgba(0,0,0,0.4), inset 0 1px 2px rgba(255,255,255,0.3);
+  z-index:5;
+}
+.quizmas-gift-back{
+  opacity:0;
+  transition:opacity 0.4s ease;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:16px;
+  background:linear-gradient(135deg, rgba(0,0,0,0.9) 0%, rgba(20,20,20,0.95) 100%);
+  border:2px solid rgba(255,215,0,0.3);
+  box-shadow:inset 0 0 20px rgba(0,0,0,0.5), 0 0 20px rgba(255,215,0,0.2);
+  transform:rotateY(180deg);
+}
+.quizmas-content{
+  text-align:center;
+  width:100%;
+}
+.quizmas-btn{
+  display:inline-block;
+  padding:12px 24px;
+  border-radius:10px;
+  font-weight:800;
+  text-decoration:none;
+  font-size:16px;
+  min-height:48px;
+  transition:all 0.2s ease;
+  width:100%;
+  box-sizing:border-box;
+}
+.quizmas-btn.unlocked{
+  background:linear-gradient(90deg,var(--gold) 0%,var(--gold-2) 100%);
+  color:#111 !important;
+  box-shadow:0 3px 0 rgba(0,0,0,0.4), 0 0 10px rgba(255,215,0,0.3);
+}
+.quizmas-btn.unlocked:hover{
+  filter:brightness(1.1);
+  transform:translateY(-1px);
+  box-shadow:0 4px 0 rgba(0,0,0,0.4), 0 0 15px rgba(255,215,0,0.4);
+}
+.quizmas-btn.locked{
+  background:rgba(255,255,255,0.15);
+  color:rgba(255,255,255,0.7) !important;
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,0.2);
+  cursor:default;
+}
+/* Open animation - ribbon unties */
+.quizmas-gift.is-open .quizmas-ribbon-horizontal{
+  transform:translateY(-50%) scaleY(0.3);
+  opacity:0.6;
+  transition:transform 0.8s cubic-bezier(.2,.65,.2,1), opacity 0.8s ease;
+}
+.quizmas-gift.is-open .quizmas-ribbon-vertical{
+  transform:translateX(-50%) scaleX(0.3);
+  opacity:0.6;
+  transition:transform 0.8s cubic-bezier(.2,.65,.2,1), opacity 0.8s ease;
+}
+.quizmas-gift.is-open .quizmas-bow{
+  transform:translate(-50%,-50%) scale(0.8) rotate(10deg);
+  opacity:0.7;
+  transition:transform 0.8s cubic-bezier(.2,.65,.2,1), opacity 0.8s ease;
+}
+.quizmas-gift.is-open .quizmas-gift-front{
+  transform:rotateY(180deg);
+}
+.quizmas-gift.is-open .quizmas-gift-back{
+  opacity:1;
+}
+.quizmas-gift.is-finalized .quizmas-gift-front::after{
+  content:"";
+  position:absolute;
+  right:8px;
+  bottom:8px;
+  width:32px;
+  height:32px;
+  border-radius:50%;
+  background:radial-gradient(circle at 30% 30%, #b0242b, #7a1015);
+  box-shadow:0 2px 0 rgba(0,0,0,0.4), inset 0 1px 4px rgba(255,255,255,0.2);
+  z-index:6;
+}
+@media (max-width: 768px){
+  .quizmas-calendar-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;}
+  .quizmas-day-number{font-size:32px;}
+  .quizmas-gift{max-width:160px;min-width:120px;}
+}
+@media (max-width: 480px){
+  .quizmas-calendar-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;}
+  .quizmas-day-number{font-size:28px;}
+  .quizmas-gift{max-width:140px;min-width:100px;}
+  .quizmas-badge{width:24px;height:24px;font-size:14px;top:6px;right:6px;}
+}
