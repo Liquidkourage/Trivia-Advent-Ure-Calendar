@@ -607,7 +607,7 @@ body.ta-modal-open{overflow:hidden}
   width:100%;
   max-width:336px;
   min-width:252px;
-  aspect-ratio:1 / 1.4;
+  aspect-ratio:1 / 1.25;
   perspective:1000px;
   cursor:pointer;
 }
@@ -621,7 +621,6 @@ body.ta-modal-open{overflow:hidden}
   align-items:center;
   justify-content:center;
   gap:8px;
-  position:relative;
   border:3px solid rgba(255,255,255,0.25);
   overflow:hidden;
   box-shadow:0 8px 24px rgba(0,0,0,0.5), inset 0 2px 8px rgba(255,255,255,0.1);
