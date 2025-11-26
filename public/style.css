@@ -622,8 +622,9 @@ body.ta-modal-open{overflow:hidden}
   justify-content:center;
   gap:8px;
   position:relative;
-  border:2px solid rgba(255,255,255,0.2);
+  border:3px solid rgba(255,255,255,0.25);
   overflow:hidden;
+  box-shadow:0 8px 24px rgba(0,0,0,0.5), inset 0 2px 8px rgba(255,255,255,0.1);
 }
 /* Gift wrap patterns - red or green */
 .quizmas-gift[data-wrap-color="red"] .quizmas-gift-front{
@@ -640,39 +641,40 @@ body.ta-modal-open{overflow:hidden}
     linear-gradient(135deg, #006400 0%, #228b22 50%, #006400 100%);
   box-shadow:0 8px 20px rgba(34,139,34,0.4), inset 0 0 20px rgba(0,0,0,0.2);
 }
-/* Ribbon - positioned to avoid text area */
+/* Ribbon - crosses center like real gift wrapping */
 .quizmas-ribbon-horizontal{
   position:absolute;
-  top:30%;
-  left:10%;
-  right:10%;
-  height:12px;
-  background:linear-gradient(90deg, rgba(255,215,0,0.7) 0%, rgba(255,237,78,0.75) 50%, rgba(255,215,0,0.7) 100%);
-  box-shadow:0 2px 6px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.3);
+  top:50%;
+  left:0;
+  right:0;
+  height:18px;
+  transform:translateY(-50%);
+  background:linear-gradient(90deg, rgba(255,215,0,0.6) 0%, rgba(255,237,78,0.65) 50%, rgba(255,215,0,0.6) 100%);
+  box-shadow:0 2px 8px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.4);
   z-index:1;
   border-radius:2px;
 }
 .quizmas-ribbon-vertical{
   position:absolute;
   left:50%;
-  top:15%;
-  bottom:15%;
-  width:12px;
+  top:0;
+  bottom:0;
+  width:18px;
   transform:translateX(-50%);
-  background:linear-gradient(180deg, rgba(255,215,0,0.7) 0%, rgba(255,237,78,0.75) 50%, rgba(255,215,0,0.7) 100%);
-  box-shadow:2px 0 6px rgba(0,0,0,0.3), inset 1px 0 0 rgba(255,255,255,0.3);
+  background:linear-gradient(180deg, rgba(255,215,0,0.6) 0%, rgba(255,237,78,0.65) 50%, rgba(255,215,0,0.6) 100%);
+  box-shadow:2px 0 8px rgba(0,0,0,0.4), inset 1px 0 0 rgba(255,255,255,0.4);
   z-index:1;
   border-radius:2px;
 }
-/* Bow - smaller and positioned above text */
+/* Bow - centered at ribbon intersection */
 .quizmas-bow{
   position:absolute;
-  top:30%;
+  top:50%;
   left:50%;
   transform:translate(-50%,-50%);
-  width:40px;
-  height:40px;
-  z-index:2;
+  width:55px;
+  height:55px;
+  z-index:3;
 }
 .quizmas-bow-left,.quizmas-bow-right{
   position:absolute;
@@ -697,7 +699,7 @@ body.ta-modal-open{overflow:hidden}
   box-shadow:0 2px 4px rgba(0,0,0,0.4), inset 0 1px 2px rgba(255,255,255,0.5);
   z-index:1;
 }
-/* Day number */
+/* Day number - readable but ribbon shows through slightly */
 .quizmas-day-number{
   position:relative;
   z-index:10;
@@ -706,30 +708,30 @@ body.ta-modal-open{overflow:hidden}
   font-weight:800;
   letter-spacing:1px;
   color:#fff;
-  text-shadow:0 4px 8px rgba(0,0,0,1), 0 0 16px rgba(0,0,0,0.9), 3px 3px 6px rgba(0,0,0,1);
-  transform:translateY(8px);
-  background:rgba(0,0,0,0.75);
-  padding:8px 16px;
-  border-radius:10px;
-  border:2px solid rgba(255,215,0,0.3);
-  box-shadow:0 4px 12px rgba(0,0,0,0.6), inset 0 2px 4px rgba(255,255,255,0.1);
-  backdrop-filter:blur(4px);
+  text-shadow:0 4px 10px rgba(0,0,0,1), 0 0 20px rgba(0,0,0,0.95), 4px 4px 8px rgba(0,0,0,1), -2px -2px 4px rgba(0,0,0,0.8);
+  transform:translateY(0);
+  background:rgba(0,0,0,0.85);
+  padding:10px 18px;
+  border-radius:12px;
+  border:2px solid rgba(255,215,0,0.4);
+  box-shadow:0 6px 16px rgba(0,0,0,0.7), inset 0 2px 6px rgba(255,255,255,0.15), 0 0 20px rgba(0,0,0,0.5);
+  backdrop-filter:blur(6px);
 }
 .quizmas-day-label{
   font-size:11px;
   opacity:1;
   color:#fff;
-  text-shadow:0 2px 4px rgba(0,0,0,1), 0 0 8px rgba(0,0,0,0.9), 2px 2px 4px rgba(0,0,0,1);
+  text-shadow:0 3px 6px rgba(0,0,0,1), 0 0 12px rgba(0,0,0,0.95), 2px 2px 4px rgba(0,0,0,1);
   font-weight:700;
   z-index:10;
   position:relative;
-  background:rgba(0,0,0,0.8);
-  padding:4px 10px;
-  border-radius:6px;
-  border:1px solid rgba(255,215,0,0.2);
-  box-shadow:0 2px 8px rgba(0,0,0,0.5), inset 0 1px 2px rgba(255,255,255,0.1);
-  backdrop-filter:blur(4px);
-  margin-top:4px;
+  background:rgba(0,0,0,0.85);
+  padding:5px 12px;
+  border-radius:8px;
+  border:1px solid rgba(255,215,0,0.3);
+  box-shadow:0 3px 10px rgba(0,0,0,0.6), inset 0 1px 3px rgba(255,255,255,0.15);
+  backdrop-filter:blur(6px);
+  margin-top:6px;
 }
 .quizmas-badge{
   position:absolute;
