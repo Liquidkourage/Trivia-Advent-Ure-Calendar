@@ -607,7 +607,7 @@ body.ta-modal-open{overflow:hidden}
   width:100%;
   max-width:336px;
   min-width:252px;
-  aspect-ratio:1 / 1.25;
+  aspect-ratio:1 / 0.625;
   perspective:1000px;
   cursor:pointer;
 }
