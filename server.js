@@ -279,6 +279,9 @@ async function initDb() {
       ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS author_points_override NUMERIC;
     EXCEPTION WHEN others THEN NULL; END $$;
     DO $$ BEGIN
+      ALTER TABLE quizzes ADD COLUMN IF NOT EXISTS quiz_type TEXT;
+    EXCEPTION WHEN others THEN NULL; END $$;
+    DO $$ BEGIN
       ALTER TABLE players ADD COLUMN IF NOT EXISTS password_hash TEXT;
     EXCEPTION WHEN others THEN NULL; END $$;
     DO $$ BEGIN
@@ -525,8 +528,8 @@ async function sendMagicLink(email, token, linkUrl) {
         helpfulMessage += 'The token was revoked (possibly due to password change or manual revocation). ';
       }
       
-      helpfulMessage += 'Common causes: (1) Token not used for 6+ months, (2) Google account password was changed, (3) User manually revoked access in Google account settings, (4) Too many refresh tokens exist for this account. ';
-      helpfulMessage += 'To prevent frequent expiration: Use a dedicated Google account for sending emails, avoid changing the password, and don\'t generate multiple refresh tokens. ';
+      helpfulMessage += 'Common causes: (1) Token not used for 6+ months, (2) Google account password was changed, (3) User manually revoked access in Google account settings, (4) Too many refresh tokens exist for this account, (5) OAuth consent screen is in "Testing" mode (tokens expire after 7 days). ';
+      helpfulMessage += 'To prevent frequent expiration: (1) Use a dedicated Google account for sending emails, (2) Avoid changing the password, (3) Don\'t generate multiple refresh tokens, (4) Publish your OAuth consent screen to "Production" mode in Google Cloud Console (APIs & Services → OAuth consent screen). ';
       helpfulMessage += 'Generate a new refresh token using OAuth 2.0 Playground and update GMAIL_REFRESH_TOKEN environment variable.';
       
       const helpfulError = new Error(helpfulMessage);
@@ -634,6 +637,7 @@ async function renderHeader(req) {
     ? `<span class="ta-user" style="margin-right:12px;opacity:.9;">${displayName}</span>
        <a href="${homeHref}">Home</a>
        <a href="/calendar">Calendar</a>
+       <a href="/quizmas">Quizmas</a>
        <a href="/leaderboard">Leaderboard</a>
        <a href="/account">Account</a>
        ${isAdmin ? '<a href="/admin">Admin</a>' : ''}
@@ -668,6 +672,7 @@ function renderFooter(req) {
               <h4>Explore</h4>
               <a href="${homeHref}">Home</a>
               <a href="/calendar">Calendar</a>
+              <a href="/quizmas">Quizmas</a>
               <a href="/leaderboard">Leaderboard</a>
             </div>
             <div class="ta-footer-section">
@@ -3114,6 +3119,285 @@ app.get('/calendar', async (req, res) => {
   }
 });
 
+// --- Quizmas Calendar ---
+app.get('/quizmas', async (req, res) => {
+  try {
+    const email = req.session.user ? (req.session.user.email || '').toLowerCase() : '';
+    const isAdmin = await isAdminUser(req);
+    
+    // If logged in but not admin, check if they need to complete setup
+    if (email && !isAdmin) {
+      const setupCheck = await pool.query('SELECT onboarding_complete, username, password_set_at FROM players WHERE email=$1', [email]);
+      if (setupCheck.rows.length) {
+        const p = setupCheck.rows[0];
+        if (!p.onboarding_complete) return res.redirect('/onboarding');
+        if (!p.username || !p.password_set_at) return res.redirect('/account/credentials');
+      }
+    }
+    
+    // Get Quizmas quizzes: quiz_type = 'quizmas' OR unlock_at falls in Dec 26 - Jan 6 range
+    const now = new Date();
+    const currentYear = now.getUTCFullYear();
+    const quizmasStart = new Date(Date.UTC(currentYear, 11, 26, 5, 0, 0)); // Dec 26 midnight ET (UTC+5)
+    const quizmasEnd = new Date(Date.UTC(currentYear + 1, 0, 7, 5, 0, 0)); // Jan 7 midnight ET (UTC+5)
+    
+    const { rows: quizzes } = await pool.query(
+      `SELECT * FROM quizzes 
+       WHERE quiz_type = 'quizmas' 
+          OR (unlock_at >= $1 AND unlock_at < $2)
+       ORDER BY unlock_at ASC, id ASC`,
+      [quizmasStart, quizmasEnd]
+    );
+    
+    const nowUtc = new Date();
+    let completedSet = new Set();
+    let needsPassword = false;
+    let displayName = '';
+    if (email) {
+      const { rows: c } = await pool.query('SELECT DISTINCT quiz_id FROM responses WHERE user_email = $1', [email]);
+      c.forEach(r => completedSet.add(Number(r.quiz_id)));
+      try {
+        const pr = await pool.query('SELECT username, password_set_at FROM players WHERE email=$1', [email]);
+        needsPassword = pr.rows.length && !pr.rows[0].password_set_at;
+        displayName = (pr.rows.length && pr.rows[0].username) ? pr.rows[0].username : email;
+      } catch {}
+    }
+    
+    // Group quizzes by ET date (YYYY-MM-DD), one per day for Dec 26 - Jan 6
+    const byDay = new Map();
+    for (const q of quizzes) {
+      const unlockUtc = new Date(q.unlock_at);
+      const p = utcToEtParts(unlockUtc);
+      const key = `${p.y}-${String(p.m).padStart(2,'0')}-${String(p.d).padStart(2,'0')}`;
+      if (!byDay.has(key)) byDay.set(key, { day: key, quiz: null });
+      byDay.get(key).quiz = q;
+    }
+    
+    // Ensure placeholder doors exist for Dec 26 - Jan 6 even if DB has none
+    const baseYear = quizzes.length > 0
+      ? utcToEtParts(new Date(quizzes[0].unlock_at)).y
+      : currentYear;
+    // Dec 26-31
+    for (let d = 26; d <= 31; d++) {
+      const key = `${baseYear}-12-${String(d).padStart(2,'0')}`;
+      if (!byDay.has(key)) byDay.set(key, { day: key, quiz: null });
+    }
+    // Jan 1-6
+    for (let d = 1; d <= 6; d++) {
+      const key = `${baseYear + 1}-01-${String(d).padStart(2,'0')}`;
+      if (!byDay.has(key)) byDay.set(key, { day: key, quiz: null });
+    }
+    
+    const doors = Array.from(byDay.values()).sort((a,b)=> a.day.localeCompare(b.day));
+    const escapeAttr = (value) => String(value ?? '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+    const grid = doors.map(d => {
+      const q = d.quiz;
+      function qStatus(q){
+        if (!q) return { label:'Missing', finalized:false, unlocked:false, completed:false, id:null, title:'' };
+        const unlockUtc = new Date(q.unlock_at);
+        const freezeUtc = new Date(q.freeze_at);
+        const unlocked = nowUtc >= unlockUtc;
+        const finalized = nowUtc >= freezeUtc;
+        const completed = completedSet.has(q.id);
+        const label = finalized ? 'Finalized' : (unlocked ? 'Unlocked' : 'Locked');
+        return { label, finalized, unlocked, completed, id:q.id, title:q.title };
+      }
+      const s = qStatus(q);
+      const dayMatch = d.day.match(/-(\d{2})$/);
+      const num = dayMatch ? Number(dayMatch[1]) : 0;
+      const doorUnlocked = s.unlocked;
+      const doorFinal = s.finalized;
+      const completedCount = s.completed ? 1 : 0;
+      const cls = `ta-door ${doorFinal ? 'is-finalized' : doorUnlocked ? 'is-unlocked' : 'is-locked'}`;
+      const badge = completedCount > 0 ? `<span class="ta-badge">${completedCount}/1 complete</span>` : '';
+      const quizUnlocked = s.unlocked && !!s.id;
+      const quizUrl = quizUnlocked ? `/quiz/${s.id}` : '';
+      const quizLabel = s.label || 'Locked';
+      const quizTitle = q ? q.title || '' : '';
+      const quizHref = escapeAttr(quizUrl);
+      return `
+      <div class="ta-door-slot">
+        <div class="${cls}" data-day="${d.day}" data-day-number="${num}" data-quiz-unlocked="${quizUnlocked ? 'true' : 'false'}" data-quiz-url="${quizHref}" data-quiz-status="${escapeAttr(quizLabel)}" data-quiz-title="${escapeAttr(quizTitle)}">
+          <div class="ta-door-inner">
+            <div class="ta-door-front">
+              <div class="ta-door-leaf left"></div>
+              <div class="ta-door-leaf right"></div>
+              <div class="ta-door-number">${num}</div>
+              <div class="ta-door-label">${doorFinal ? 'Finalized' : doorUnlocked ? 'Unlocked' : 'Locked'}</div>
+              ${badge}
+            </div>
+            <div class="ta-door-back">
+              <div class="slot-grid">
+                ${quizUnlocked ? `<a class="slot-btn unlocked" href="${quizHref}">Quiz</a>` : `<span class="slot-btn ${s.unlocked?'unlocked':'locked'}">Quiz</span>`}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      `;
+    }).join('\n');
+    const header = await renderHeader(req);
+    res.type('html').send(`
+      ${renderHead('12 Days of Quizmas', true)}
+      <body class="ta-body">
+      ${header}
+        <main class="ta-main ta-container ta-calendar">
+          ${email && needsPassword ? `<div style="margin:12px 0;padding:10px;border:1px solid #ffecb5;border-radius:6px;background:#fff8e1;color:#6b4f00;">Welcome! For cross-device login, please <a href="/account/security">set your password</a>.</div>` : ''}
+          ${renderBreadcrumb([{ label: 'Calendar', href: '/calendar' }, { label: '12 Days of Quizmas' }])}
+          <h1 class="ta-page-title">12 Days of Quizmas</h1>
+          <p style="margin-bottom:16px;"><a href="/quizmas/leaderboard" class="ta-btn ta-btn-primary">View Quizmas Leaderboard</a></p>
+          <div class="ta-calendar-grid">${grid}</div>
+        </main>
+        ${renderFooter(req)}
+        <script>
+          (function(){
+            var recentlyOpened = new Set();
+            var touchStartDoor = null;
+            var touchStartTime = 0;
+            var isProcessing = false;
+            
+            function handleDoorClick(e){
+              if (isProcessing) {
+                e.preventDefault();
+                e.stopPropagation();
+                return false;
+              }
+              
+              var door = e.currentTarget;
+              
+              // CRITICAL: If door is NOT open, block ALL clicks from reaching buttons
+              var isOpen = door.classList.contains('is-open');
+              if (!isOpen) {
+                // Door is closed - prevent any clicks from reaching buttons
+                if (e.target.closest('.slot-btn')) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  e.stopImmediatePropagation();
+                  return false;
+                }
+              } else {
+                // Door is open - let slot buttons work normally
+                if (e.target && e.target.closest && e.target.closest('.slot-btn')) {
+                  // If door was just opened, prevent immediate navigation
+                  if (recentlyOpened.has(door)) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    e.stopImmediatePropagation();
+                    return false;
+                  }
+                  return; // Allow normal button navigation
+                }
+              }
+              
+              if (!door.classList.contains('is-unlocked')) return;
+              
+              isProcessing = true;
+              
+              // Toggle door open/closed (works on both mobile and desktop)
+              var wasOpen = door.classList.contains('is-open');
+              document.querySelectorAll('.ta-door.is-open').forEach(function(x){ 
+                x.classList.remove('is-open');
+                recentlyOpened.delete(x);
+              });
+              if (!wasOpen){
+                door.classList.add('is-open');
+                // Mark as recently opened to prevent immediate button clicks
+                recentlyOpened.add(door);
+                // Longer delay for mobile to ensure animation completes
+                setTimeout(function(){
+                  recentlyOpened.delete(door);
+                  isProcessing = false;
+                }, 800);
+              } else {
+                isProcessing = false;
+              }
+            }
+            
+            function setupDoors(){
+              var doors = document.querySelectorAll('.ta-door');
+              doors.forEach(function(d){
+                // Block all clicks on slot buttons when door is closed
+                var slotButtons = d.querySelectorAll('.slot-btn');
+                slotButtons.forEach(function(btn){
+                  btn.addEventListener('click', function(e){
+                    var door = btn.closest('.ta-door');
+                    if (!door || !door.classList.contains('is-open')) {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      e.stopImmediatePropagation();
+                      return false;
+                    }
+                    if (recentlyOpened.has(door)) {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      e.stopImmediatePropagation();
+                      return false;
+                    }
+                    return; // Allow normal button navigation
+                  }, true);
+                });
+                
+                // Handle touch events first to prevent double-firing
+                if ('ontouchstart' in window) {
+                  d.addEventListener('touchstart', function(e){
+                    // Block touch on buttons when door is closed
+                    if (e.target.closest('.slot-btn')) {
+                      var door = e.target.closest('.ta-door');
+                      if (!door || !door.classList.contains('is-open')) {
+                        return;
+                      }
+                    }
+                    if (!e.target.closest('.slot-btn')) {
+                      touchStartDoor = d;
+                      touchStartTime = Date.now();
+                    }
+                  }, { passive: true });
+                  
+                  d.addEventListener('touchend', function(e){
+                    // Block touch on buttons when door is closed
+                    if (e.target.closest('.slot-btn')) {
+                      var door = e.target.closest('.ta-door');
+                      if (!door || !door.classList.contains('is-open')) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        return false;
+                      }
+                    }
+                  }, { passive: false });
+                  
+                  // Also prevent click on touch devices
+                  d.addEventListener('click', function(e){
+                    if (touchStartDoor === d || recentlyOpened.has(d)) {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      e.stopImmediatePropagation();
+                      return false;
+                    }
+                  }, true);
+                } else {
+                  // Use click for desktop
+                  d.addEventListener('click', function(e){
+                    handleDoorClick(e);
+                  }, true);
+                }
+              });
+            }
+            
+            if (document.readyState === 'loading'){
+              document.addEventListener('DOMContentLoaded', setupDoors);
+            } else {
+              setupDoors();
+            }
+          })();
+        </script>
+      </body></html>
+    `);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to load Quizmas calendar');
+  }
+});
+
 // --- Admin: upload quiz ---
 app.get('/admin/upload-quiz', requireAdmin, async (req, res) => {
   const header = await renderHeader(req);
@@ -3758,9 +4042,10 @@ app.get('/admin/writer-submissions/:id', requireAdmin, async (req, res) => {
       console.log(`[preview] No slot data to auto-fill. slot_date=${row.slot_date}, slot_half=${row.slot_half}`);
     }
     
-    // Build calendar grid for slot selection (Dec 1-24, AM/PM)
+    // Build calendar grid for slot selection (Dec 1-24, AM/PM, plus Dec 26-Jan 6 for Quizmas)
     const currentYear = new Date().getFullYear();
     const calendarSlots = [];
+    // Advent calendar slots: Dec 1-24, AM/PM
     for (let d = 1; d <= 24; d++) {
       const dateStr = `${currentYear}-12-${String(d).padStart(2,'0')}`;
       for (const half of ['AM', 'PM']) {
@@ -3778,6 +4063,37 @@ app.get('/admin/writer-submissions/:id', requireAdmin, async (req, res) => {
           datetimeValue
         });
       }
+    }
+    // Quizmas slots: Dec 26-31 (one quiz per day at midnight)
+    for (let d = 26; d <= 31; d++) {
+      const dateStr = `${currentYear}-12-${String(d).padStart(2,'0')}`;
+      const slotKey = `${dateStr}-AM`;
+      const isTaken = takenSlots.has(slotKey);
+      const existingTitle = slotInfo.get(slotKey) || '';
+      calendarSlots.push({
+        date: dateStr,
+        day: d,
+        half: 'AM',
+        isTaken,
+        existingTitle,
+        datetimeValue: `${dateStr}T00:00`,
+        isQuizmas: true
+      });
+    }
+    for (let d = 1; d <= 6; d++) {
+      const dateStr = `${currentYear + 1}-01-${String(d).padStart(2,'0')}`;
+      const slotKey = `${dateStr}-AM`;
+      const isTaken = takenSlots.has(slotKey);
+      const existingTitle = slotInfo.get(slotKey) || '';
+      calendarSlots.push({
+        date: dateStr,
+        day: d,
+        half: 'AM',
+        isTaken,
+        existingTitle,
+        datetimeValue: `${dateStr}T00:00`,
+        isQuizmas: true
+      });
     }
     
     // Build calendar HTML - only show if no assigned slot (for manual selection)
@@ -4011,6 +4327,11 @@ app.post('/admin/writer-submissions/:id/publish', requireAdmin, express.urlencod
     const questions = Array.isArray(data?.questions) ? data.questions : [];
     if (!questions.length) return res.status(400).send('Submission has no questions');
     const unlockUtc = etToUtc(unlockInput);
+    // Determine if this is a Quizmas quiz (Dec 26 - Jan 6)
+    const unlockEt = utcToEtParts(unlockUtc);
+    const currentYear = unlockEt.y;
+    const isQuizmas = (unlockEt.m === 12 && unlockEt.d >= 26) || (unlockEt.m === 1 && unlockEt.d <= 6);
+    const quizType = isQuizmas ? 'quizmas' : null;
     const tok = sres.rows[0] && sres.rows[0].token;
     let authorEmail = null;
     let assignedSlotDate = null;
@@ -4031,7 +4352,6 @@ app.post('/admin/writer-submissions/:id/publish', requireAdmin, express.urlencod
       }
     }
     // Check if this unlock time matches the assigned slot
-    const unlockEt = utcToEtParts(unlockUtc);
     const unlockDateStr = `${unlockEt.y}-${String(unlockEt.m).padStart(2,'0')}-${String(unlockEt.d).padStart(2,'0')}`;
     const unlockHalf = unlockEt.h === 0 ? 'AM' : 'PM';
     let isAssignedSlot = false;
@@ -4092,8 +4412,8 @@ app.post('/admin/writer-submissions/:id/publish', requireAdmin, express.urlencod
         // Update author_email if we have it and the existing quiz doesn't
         const updateAuthorEmail = authorEmail && !existingAuthorEmail ? authorEmail : existingQuiz.author_email;
         await pool.query(
-          'UPDATE quizzes SET title=$1, freeze_at=$2, author=$3, author_blurb=$4, description=$5, author_email=$6 WHERE id=$7',
-          [title, freezeUtc, sres.rows[0].author || null, authorBlurb, description, updateAuthorEmail, existingQuiz.id]
+          'UPDATE quizzes SET title=$1, freeze_at=$2, author=$3, author_blurb=$4, description=$5, author_email=$6, quiz_type=$7 WHERE id=$8',
+          [title, freezeUtc, sres.rows[0].author || null, authorBlurb, description, updateAuthorEmail, quizType, existingQuiz.id]
         );
         // Delete old questions and insert new ones
         await pool.query('DELETE FROM questions WHERE quiz_id=$1', [existingQuiz.id]);
@@ -4117,7 +4437,6 @@ app.post('/admin/writer-submissions/:id/publish', requireAdmin, express.urlencod
         return;
       }
       // Different author or no author match - block duplicate slot
-      const unlockEt = utcToEtParts(unlockUtc);
       const dateStr = `${unlockEt.y}-${String(unlockEt.m).padStart(2,'0')}-${String(unlockEt.d).padStart(2,'0')}`;
       const timeStr = unlockEt.h === 0 ? 'Midnight (AM)' : 'Noon (PM)';
       const existingTitle = existingQuiz.title || 'Untitled Quiz';
@@ -4143,8 +4462,8 @@ app.post('/admin/writer-submissions/:id/publish', requireAdmin, express.urlencod
     const authorBlurb = (data && typeof data.author_blurb !== 'undefined') ? (String(data.author_blurb || '').trim() || null) : null;
     const description = (data && typeof data.description !== 'undefined') ? (String(data.description || '').trim() || null) : null;
     const qInsert = await pool.query(
-      'INSERT INTO quizzes(title, unlock_at, freeze_at, author, author_blurb, description, author_email) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id',
-      [title, unlockUtc, freezeUtc, sres.rows[0].author || null, authorBlurb, description, authorEmail]
+      'INSERT INTO quizzes(title, unlock_at, freeze_at, author, author_blurb, description, author_email, quiz_type) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id',
+      [title, unlockUtc, freezeUtc, sres.rows[0].author || null, authorBlurb, description, authorEmail, quizType]
     );
     const quizId = qInsert.rows[0].id;
     if (authorEmail) {
@@ -5236,6 +5555,173 @@ app.get('/quiz/:id/leaderboard', async (req, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).send('Failed to load leaderboard');
+  }
+});
+
+// --- Quizmas Leaderboard ---
+app.get('/quizmas/leaderboard', async (req, res) => {
+  try {
+    const now = new Date();
+    const currentYear = now.getUTCFullYear();
+    const quizmasStart = new Date(Date.UTC(currentYear, 11, 26, 5, 0, 0)); // Dec 26 midnight ET (UTC+5)
+    const quizmasEnd = new Date(Date.UTC(currentYear + 1, 0, 7, 5, 0, 0)); // Jan 7 midnight ET (UTC+5)
+    
+    const { rows } = await pool.query(
+      `SELECT r.user_email, COALESCE(p.username, r.user_email) AS handle, SUM(r.points) AS points
+       FROM responses r
+       JOIN quizzes q ON q.id = r.quiz_id
+       LEFT JOIN players p ON p.email = r.user_email
+       WHERE q.quiz_type = 'quizmas' OR (q.unlock_at >= $1 AND q.unlock_at < $2)
+       GROUP BY r.user_email, handle`,
+      [quizmasStart, quizmasEnd]
+    );
+    const totals = new Map();
+    rows.forEach(r => {
+      const email = (r.user_email || '').toLowerCase();
+      const points = Number(r.points || 0);
+      const existing = totals.get(email) || { handle: r.handle || email, points: 0, email: email };
+      existing.handle = r.handle || existing.handle;
+      existing.points += points;
+      totals.set(email, existing);
+    });
+    // Only add author bonuses if the author has actually submitted responses to quizzes
+    const { rows: quizAuthors } = await pool.query(
+      `SELECT id, author_email FROM quizzes 
+       WHERE (quiz_type = 'quizmas' OR (unlock_at >= $1 AND unlock_at < $2))
+         AND author_email IS NOT NULL AND author_email <> ''`,
+      [quizmasStart, quizmasEnd]
+    );
+    for (const qa of quizAuthors) {
+      const authorEmail = (qa.author_email || '').toLowerCase();
+      if (!authorEmail) continue;
+      
+      // Check if author has any actual responses (not just author bonus)
+      const { rows: authorResponses } = await pool.query(
+        `SELECT COUNT(*) as count FROM responses r
+         JOIN quizzes q ON q.id = r.quiz_id
+         WHERE r.user_email = $1 AND (q.quiz_type = 'quizmas' OR (q.unlock_at >= $2 AND q.unlock_at < $3))`,
+        [authorEmail, quizmasStart, quizmasEnd]
+      );
+      
+      // Only add author bonus if they have actual responses
+      if (authorResponses.length && parseInt(authorResponses[0].count) > 0) {
+        const avgInfo = await computeAuthorAveragePoints(pool, qa.id, authorEmail);
+        let entry = totals.get(authorEmail);
+        if (!entry) {
+          const { rows: playerRows } = await pool.query('SELECT username FROM players WHERE email=$1', [authorEmail]);
+          entry = { handle: (playerRows.length && playerRows[0].username) ? playerRows[0].username : authorEmail, points: 0, email: authorEmail };
+        }
+        entry.points += avgInfo.average;
+        totals.set(authorEmail, entry);
+      }
+    }
+    
+    // Get stats for each player: quizzes submitted, correct answers, avg score per correct
+    for (const [email, entry] of totals.entries()) {
+      const statsResult = await pool.query(`
+        SELECT 
+          COUNT(DISTINCT r.quiz_id) as quizzes_submitted,
+          COUNT(CASE WHEN r.override_correct = true OR (r.override_correct IS NULL AND LOWER(TRIM(r.response_text)) = LOWER(TRIM(q.answer))) THEN 1 END) as correct_count,
+          SUM(r.points) as total_points
+        FROM responses r
+        JOIN questions q ON q.id = r.question_id
+        JOIN quizzes qu ON qu.id = r.quiz_id
+        WHERE r.user_email = $1 AND (qu.quiz_type = 'quizmas' OR (qu.unlock_at >= $2 AND qu.unlock_at < $3))
+      `, [email, quizmasStart, quizmasEnd]);
+      
+      if (statsResult.rows.length) {
+        const stats = statsResult.rows[0];
+        entry.quizzesSubmitted = parseInt(stats.quizzes_submitted) || 0;
+        entry.correctCount = parseInt(stats.correct_count) || 0;
+        entry.totalPoints = parseFloat(stats.total_points) || 0;
+        entry.avgPerCorrect = entry.correctCount > 0 ? (entry.totalPoints / entry.correctCount) : 0;
+      } else {
+        entry.quizzesSubmitted = 0;
+        entry.correctCount = 0;
+        entry.avgPerCorrect = 0;
+      }
+    }
+    
+    const sorted = Array.from(totals.values()).sort((a, b) => b.points - a.points);
+    const totalPlayers = sorted.length;
+    const averagePoints = totalPlayers
+      ? sorted.reduce((acc, r) => acc + Number(r.points || 0), 0) / totalPlayers
+      : 0;
+    const topCards = sorted.slice(0, 3).map((r, idx) => {
+      const medal = ['🥇','🥈','🥉'][idx] || '⭐';
+      return `
+        <div style="background:#1a1a1a;border:1px solid rgba(255,255,255,0.12);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:8px;box-shadow:0 8px 20px rgba(0,0,0,0.25);">
+          <div style="font-size:32px;">${medal}</div>
+          <div style="font-weight:800;font-size:18px;color:#ffd700;">${r.handle}</div>
+          <div style="font-size:28px;font-weight:700;">${formatPoints(r.points)}</div>
+        </div>
+      `;
+    }).join('');
+    const tableRows = sorted.map((r, idx) => {
+      const rank = idx + 1;
+      const detail = `<span class="leaderboard-detail">${r.quizzesSubmitted} quiz${r.quizzesSubmitted !== 1 ? 'zes' : ''}</span> <span class="leaderboard-separator">•</span> <span class="leaderboard-detail">${r.correctCount} correct</span> <span class="leaderboard-separator">•</span> <span class="leaderboard-detail">${formatPoints(r.avgPerCorrect)} avg/correct</span>`;
+      return `
+        <tr style="border-bottom:1px solid rgba(255,255,255,0.08);${idx % 2 ? 'background:rgba(255,255,255,0.02);' : ''}">
+          <td style="padding:10px 8px;font-weight:700;color:${rank === 1 ? '#ffd700' : '#fff'};">${rank}</td>
+          <td style="padding:10px 8px;">${r.handle}</td>
+          <td style="padding:10px 8px;font-weight:600;">${formatPoints(r.points)}</td>
+          <td style="padding:10px 8px;font-size:13px;opacity:0.75;" class="leaderboard-details-cell">${detail}</td>
+        </tr>
+      `;
+    }).join('');
+    const header = await renderHeader(req);
+    res.type('html').send(`
+      ${renderHead('12 Days of Quizmas Leaderboard', false)}
+      <body class="ta-body">
+      ${header}
+        <main class="ta-main ta-container" style="max-width:900px;">
+          ${renderBreadcrumb([{ label: 'Calendar', href: '/calendar' }, { label: 'Quizmas', href: '/quizmas' }, { label: 'Leaderboard' }])}
+          <h1 class="ta-page-title">12 Days of Quizmas Leaderboard</h1>
+          <p style="opacity:0.9;margin-bottom:24px;">Overall standings for the 12 Days of Quizmas (December 26 - January 6).</p>
+          ${totalPlayers > 0 ? `
+          <section style="margin:28px 0;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+              <div>
+                <div style="font-size:14px;opacity:0.75;">Total Players</div>
+                <div style="font-size:24px;font-weight:700;">${totalPlayers}</div>
+              </div>
+              <div>
+                <div style="font-size:14px;opacity:0.75;">Average Points</div>
+                <div style="font-size:24px;font-weight:700;">${formatPoints(averagePoints)}</div>
+              </div>
+            </div>
+          </section>
+          <section style="margin:28px 0;">
+            <h2 style="margin:0 0 16px 0;color:#ffd700;">Top finishers</h2>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:18px;">
+              ${topCards}
+            </div>
+          </section>` : ''}
+          <section style="margin:28px 0;">
+            <div style="background:#0e0e0e;border:1px solid rgba(255,255,255,0.08);border-radius:12px;overflow:hidden;">
+              <table class="leaderboard-table" style="width:100%;border-collapse:collapse;">
+                <thead style="background:#111;">
+                  <tr>
+                    <th style="padding:10px 8px;text-align:left;">Rank</th>
+                    <th style="padding:10px 8px;text-align:left;">Player</th>
+                    <th style="padding:10px 8px;text-align:left;">Points</th>
+                    <th style="padding:10px 8px;text-align:left;">Details</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${tableRows || '<tr><td colspan="4" style="padding:16px;text-align:center;opacity:0.75;">No submissions yet.</td></tr>'}
+                </tbody>
+        </table>
+            </div>
+          </section>
+        <p style="margin-top:16px;"><a href="/quizmas" class="ta-btn ta-btn-outline">Back to Quizmas</a> <a href="/leaderboard" class="ta-btn ta-btn-outline" style="margin-left:8px;">Overall Leaderboard</a></p>
+        </main>
+        ${renderFooter(req)}
+      </body></html>
+    `);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to load Quizmas leaderboard');
   }
 });
 
