@@ -3570,14 +3570,14 @@ app.get('/admin/writer-invite', requireAdmin, async (req, res) => {
   const quizmasOptions = [];
   for (let day = 1; day <= 12; day++) {
     let dateStr, label;
-    if (day <= 7) {
-      // Days 1-7: Dec 26-31
+    if (day <= 6) {
+      // Days 1-6: Dec 26-31
       const d = 25 + day;
       dateStr = `${currentYear}-12-${String(d).padStart(2,'0')}`;
       label = `Day ${day} (Dec ${d})`;
     } else {
-      // Days 8-12: Jan 1-6
-      const d = day - 7;
+      // Days 7-12: Jan 1-6
+      const d = day - 6;
       dateStr = `${currentYear + 1}-01-${String(d).padStart(2,'0')}`;
       label = `Day ${day} (Jan ${d})`;
     }
