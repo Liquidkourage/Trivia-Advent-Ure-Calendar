@@ -2334,18 +2334,29 @@ app.get('/admin/author-slots', requireAdmin, async (req, res) => {
   try {
     const header = await renderHeader(req);
     const msg = String(req.query.msg || '');
-    const { rows: quizzes } = await pool.query('SELECT id, title, unlock_at, author, author_email, author_points_override FROM quizzes ORDER BY unlock_at ASC LIMIT 200');
+    const { rows: quizzes } = await pool.query('SELECT id, title, unlock_at, author, author_email, author_points_override, quiz_type FROM quizzes ORDER BY unlock_at ASC LIMIT 200');
     const esc = (v) => String(v || '').replace(/&/g, '&amp;').replace(/</g, '&lt;');
     const items = quizzes.map(q => {
       const unlock = q.unlock_at ? new Date(q.unlock_at) : null;
-      const dateStr = unlock ? unlock.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true }) : '—';
+      let dateStr = '—';
+      if (unlock) {
+        const unlockUtc = new Date(q.unlock_at);
+        const p = utcToEtParts(unlockUtc);
+        const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        const monthName = monthNames[p.m - 1];
+        const hour = p.h === 0 ? 12 : (p.h > 12 ? p.h - 12 : p.h);
+        const ampm = p.h < 12 ? 'AM' : 'PM';
+        const minute = String(p.et.getUTCMinutes()).padStart(2, '0');
+        dateStr = `${monthName} ${p.d}, ${p.y} ${hour}:${minute} ${ampm} ET`;
+      }
+      const quizTypeBadge = q.quiz_type === 'quizmas' ? '<span style="background:#d4af37;color:#000;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:bold;margin-left:6px;">QUIZMAS</span>' : '';
       const overrideStr = (q.author_points_override !== null && q.author_points_override !== undefined)
         ? formatPoints(q.author_points_override)
         : '';
       return `
         <tr>
           <td style="padding:10px 8px;">${q.id}</td>
-          <td style="padding:10px 8px;">${esc(q.title || 'Untitled Quiz')}</td>
+          <td style="padding:10px 8px;">${esc(q.title || 'Untitled Quiz')}${quizTypeBadge}</td>
           <td style="padding:10px 8px;">${dateStr}</td>
           <td style="padding:10px 8px;">${esc(q.author || '')}</td>
           <td style="padding:10px 8px;">
