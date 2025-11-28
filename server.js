@@ -3913,7 +3913,8 @@ app.post('/writer/:token', express.urlencoded({ extended: true }), async (req, r
 app.get('/admin/writer-submissions', requireAdmin, async (req, res) => {
   try {
     const { rows } = await pool.query(`
-      SELECT ws.id, ws.submitted_at, ws.updated_at, ws.author, ws.data, wi.submitted_at as invite_submitted_at
+      SELECT ws.id, ws.submitted_at, ws.updated_at, ws.author, ws.data, ws.token,
+             wi.submitted_at as invite_submitted_at, wi.published_at
       FROM writer_submissions ws
       LEFT JOIN writer_invites wi ON wi.token = ws.token
       ORDER BY ws.id DESC
@@ -3923,19 +3924,29 @@ app.get('/admin/writer-submissions', requireAdmin, async (req, res) => {
     const list = rows.map(r => {
       let first = '';
       try { first = (r.data?.questions?.[0]?.text) || ''; } catch {}
-      // Determine if this is a draft (autosave) or actual submission
+      // Determine status: draft, submitted, or published
+      const isPublished = !!r.published_at;
       const isDraft = !r.invite_submitted_at;
-      const bgColor = isDraft ? '#2a1a0a' : '#0a2a1a';
-      const borderColor = isDraft ? '#ff9800' : '#4caf50';
-      const accentColor = isDraft ? '#ff9800' : '#4caf50';
-      const statusBadge = isDraft 
-        ? '<span style="background:#ff9800;color:#000;padding:6px 12px;border-radius:6px;font-size:14px;font-weight:800;text-transform:uppercase;letter-spacing:1px;box-shadow:0 2px 8px rgba(255,152,0,0.4);">⚠️ DRAFT</span>'
-        : '<span style="background:#4caf50;color:#fff;padding:6px 12px;border-radius:6px;font-size:14px;font-weight:800;text-transform:uppercase;letter-spacing:1px;box-shadow:0 2px 8px rgba(76,175,80,0.4);">✓ SUBMITTED</span>';
-      const statusText = isDraft 
-        ? `<span style="color:#ffaa44;font-weight:600;">Draft - Last saved: ${fmtEt(r.updated_at || r.submitted_at)}</span>`
-        : `<span style="color:#66ff88;font-weight:600;">Submitted: ${fmtEt(r.invite_submitted_at)}</span>`;
+      const statusCategory = isPublished ? 'published' : (isDraft ? 'draft' : 'submitted');
+      
+      const bgColor = isPublished ? '#1a0a2a' : (isDraft ? '#2a1a0a' : '#0a2a1a');
+      const borderColor = isPublished ? '#9c27b0' : (isDraft ? '#ff9800' : '#4caf50');
+      const accentColor = isPublished ? '#9c27b0' : (isDraft ? '#ff9800' : '#4caf50');
+      
+      const statusBadge = isPublished
+        ? '<span style="background:#9c27b0;color:#fff;padding:6px 12px;border-radius:6px;font-size:14px;font-weight:800;text-transform:uppercase;letter-spacing:1px;box-shadow:0 2px 8px rgba(156,39,176,0.4);">📢 PUBLISHED</span>'
+        : (isDraft 
+          ? '<span style="background:#ff9800;color:#000;padding:6px 12px;border-radius:6px;font-size:14px;font-weight:800;text-transform:uppercase;letter-spacing:1px;box-shadow:0 2px 8px rgba(255,152,0,0.4);">⚠️ DRAFT</span>'
+          : '<span style="background:#4caf50;color:#fff;padding:6px 12px;border-radius:6px;font-size:14px;font-weight:800;text-transform:uppercase;letter-spacing:1px;box-shadow:0 2px 8px rgba(76,175,80,0.4);">✓ SUBMITTED</span>');
+      
+      const statusText = isPublished
+        ? `<span style="color:#bb86fc;font-weight:600;">Published: ${fmtEt(r.published_at)}</span>`
+        : (isDraft 
+          ? `<span style="color:#ffaa44;font-weight:600;">Draft - Last saved: ${fmtEt(r.updated_at || r.submitted_at)}</span>`
+          : `<span style="color:#66ff88;font-weight:600;">Submitted: ${fmtEt(r.invite_submitted_at)}</span>`);
+      
       return `
-        <li style="margin:16px 0;padding:16px;background:${bgColor};border:3px solid ${borderColor};border-radius:8px;border-left-width:8px;box-shadow:0 4px 12px rgba(0,0,0,0.3);">
+        <li data-status="${statusCategory}" style="margin:16px 0;padding:16px;background:${bgColor};border:3px solid ${borderColor};border-radius:8px;border-left-width:8px;box-shadow:0 4px 12px rgba(0,0,0,0.3);">
           <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap;">
             ${statusBadge}
             <div style="flex:1;min-width:200px;">
@@ -3954,10 +3965,51 @@ app.get('/admin/writer-submissions', requireAdmin, async (req, res) => {
       <body class="ta-body" style="padding:24px;">
       ${header}
         <h1>Writer Submissions</h1>
-        <ul style="list-style:none;padding:0;margin:0;">
+        <div style="margin:16px 0;display:flex;gap:12px;flex-wrap:wrap;align-items:center;">
+          <select id="statusFilter" style="padding:8px;border-radius:6px;border:1px solid #444;background:#2a2a2a;color:#fff;min-width:200px;">
+            <option value="all">All Statuses</option>
+            <option value="draft">Draft</option>
+            <option value="submitted">Submitted</option>
+            <option value="published">Published</option>
+          </select>
+          <span id="filterCount" style="opacity:0.7;font-size:14px;"></span>
+        </div>
+        <ul id="submissionsList" style="list-style:none;padding:0;margin:0;">
           ${list || '<li>No submissions yet.</li>'}
         </ul>
         <p style="margin-top:16px;"><a href="/admin" class="ta-btn ta-btn-outline">Back</a></p>
+        <script>
+          (function() {
+            const statusFilter = document.getElementById('statusFilter');
+            const filterCount = document.getElementById('filterCount');
+            const submissionsList = document.getElementById('submissionsList');
+            const items = Array.from(submissionsList.querySelectorAll('li[data-status]'));
+            
+            function updateFilter() {
+              const statusValue = statusFilter.value;
+              let visibleCount = 0;
+              
+              items.forEach(item => {
+                const matchesStatus = statusValue === 'all' || item.getAttribute('data-status') === statusValue;
+                
+                if (matchesStatus) {
+                  item.style.display = '';
+                  visibleCount++;
+                } else {
+                  item.style.display = 'none';
+                }
+              });
+              
+              filterCount.textContent = 'Showing ' + visibleCount + ' of ' + items.length;
+            }
+            
+            if (statusFilter && items.length > 0) {
+              statusFilter.addEventListener('change', updateFilter);
+              // Initial count
+              updateFilter();
+            }
+          })();
+        </script>
       </body></html>
     `);
   } catch (e) {
