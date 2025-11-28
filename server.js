@@ -718,8 +718,10 @@ const ADMIN_NAV_LINKS = [
   { id: 'quizzes', label: 'Quizzes', href: '/admin/quizzes' },
   { id: 'calendar', label: 'Calendar', href: '/admin/calendar' },
   { id: 'authors', label: 'Author Assignments', href: '/admin/author-slots' },
-  { id: 'writers', label: 'Writer Invites', href: '/admin/writer-invites' },
+  { id: 'writers', label: 'Writer Invites', href: '/admin/writer-invites/list' },
+  { id: 'submissions', label: 'Writer Submissions', href: '/admin/writer-submissions' },
   { id: 'players', label: 'Players', href: '/admin/players' },
+  { id: 'admins', label: 'Admins', href: '/admin/admins' },
   { id: 'announcements', label: 'Announcements', href: '/admin/announcements' }
 ];
 
@@ -4043,7 +4045,9 @@ app.get('/admin/writer-submissions', requireAdmin, async (req, res) => {
       ${renderHead('Writer Submissions', false)}
       <body class="ta-body" style="padding:24px;">
       ${header}
-        <h1>Writer Submissions</h1>
+        ${renderBreadcrumb([ADMIN_CRUMB, { label: 'Writer Submissions' }])}
+        ${renderAdminNav('submissions')}
+        <h1 class="ta-page-title">Writer Submissions</h1>
         <div style="margin:16px 0;display:flex;gap:12px;flex-wrap:wrap;align-items:center;">
           <select id="statusFilter" style="padding:8px;border-radius:6px;border:1px solid #444;background:#2a2a2a;color:#fff;min-width:200px;">
             <option value="all">All Statuses</option>
