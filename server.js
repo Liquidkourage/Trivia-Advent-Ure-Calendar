@@ -3866,9 +3866,14 @@ app.get('/writer/:token', async (req, res) => {
               </div>`
             }).join('')}
           </fieldset>
-          <div style="margin-top:12px;"><button type="submit">Submit Quiz</button></div>
+          <div style="margin-top:48px;padding-top:32px;border-top:3px solid #ffd700;background:#1a1a1a;padding:32px;border-radius:12px;text-align:center;">
+            <h2 style="margin-top:0;margin-bottom:16px;color:#ffd700;font-size:24px;">Ready to Submit?</h2>
+            <p style="margin-bottom:24px;opacity:0.9;">Review your quiz and click the button below to submit it for review.</p>
+            <button type="submit" class="ta-btn ta-btn-primary" style="font-size:20px;padding:16px 48px;font-weight:bold;min-width:280px;">Submit Quiz</button>
+            <p style="margin-top:16px;font-size:14px;opacity:0.7;">Your quiz will be automatically saved as you work, but you must click Submit to finalize it.</p>
+          </div>
         </form>
-        <p style="margin-top:16px;"><a href="/" class="ta-btn ta-btn-outline">Home</a></p>
+        <p style="margin-top:24px;text-align:center;"><a href="/" class="ta-btn ta-btn-outline">Home</a></p>
         </div>
         <script src="/js/writer-form.js"></script>
       </body></html>
