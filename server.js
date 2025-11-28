@@ -6295,7 +6295,7 @@ app.get('/admin/quizzes', requireAdmin, async (req, res) => {
           ${renderAdminNav('quizzes')}
           <h1 class="ta-page-title">Quizzes</h1>
           <div class="ta-admin-toolbar">
-            <p class="ta-admin-toolbar__count">Total: <span id="total-count">${rows.length}</span> quiz${rows.length !== 1 ? 'zes' : ''}</p>
+            <p class="ta-admin-toolbar__count">Total: <span id="total-count">${rows.length}</span> quiz${rows.length !== 1 ? 'zes' : ''} (${rows.filter(q => q.quiz_type === 'quizmas').length} Quizmas, ${rows.filter(q => !q.quiz_type || q.quiz_type !== 'quizmas').length} Advent)</p>
             <div class="ta-admin-toolbar__filters">
               <input type="text" id="quiz-search" class="ta-input" placeholder="Search by title or ID…" />
               <select id="status-filter" class="ta-input">
