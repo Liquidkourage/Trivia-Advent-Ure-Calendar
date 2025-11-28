@@ -4649,7 +4649,7 @@ app.get('/admin/writer-invites/list', requireAdmin, async (req, res) => {
             <form method="post" action="/admin/writer-invites/${esc(r.token)}/resend" onsubmit="return confirm('Send email now?');" style="display:inline;">
               <button type="submit" style="font-size:12px;">Resend</button>
             </form>
-            ${r.active ? `<form method="post" action="/admin/writer-invites/${esc(r.token)}/deactivate" onsubmit="return confirm('Deactivate this invite?');" style="display:inline;"><button type="submit" style="font-size:12px;">Deactivate</button></form>` : ''}
+            ${r.active ? `<form method="post" action="/admin/writer-invites/${esc(r.token)}/deactivate" onsubmit="return confirm('Deactivate this invite?');" style="display:inline;"><button type="submit" style="font-size:12px;">Deactivate</button></form>` : `<form method="post" action="/admin/writer-invites/${esc(r.token)}/delete" onsubmit="return confirm('Are you sure you want to permanently delete this invite? This cannot be undone.');" style="display:inline;"><button type="submit" style="font-size:12px;background:#c62828;color:#fff;">Delete</button></form>`}
             <button class="copy" data-link="${link}" type="button" style="font-size:12px;">Copy</button>
           </td>
         </tr>
@@ -4657,11 +4657,14 @@ app.get('/admin/writer-invites/list', requireAdmin, async (req, res) => {
     }).join('');
     const header = await renderHeader(req);
     const adminEmail = getAdminEmail();
+    const msg = String(req.query.msg || '');
+    const esc = (s) => String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
     res.type('html').send(`
       ${renderHead('Writer Invites', true)}
       <body class="ta-body" style="padding:24px;">
       ${header}
         <h1>Writer Invites</h1>
+        ${msg ? `<div style="margin-bottom:16px;padding:12px;border:1px solid #2e7d32;border-radius:6px;background:rgba(46,125,50,0.15);color:#81c784;">${esc(msg)}</div>` : ''}
         <p>
           <a href="/admin" class="ta-btn ta-btn-outline">Back</a>
           <a href="/admin/writer-invites/my" class="ta-btn ta-btn-primary" style="margin-left:8px;">My Writer Invites</a>
@@ -4884,6 +4887,24 @@ app.post('/admin/writer-invites/:token/deactivate', requireAdmin, async (req, re
   } catch (e) {
     console.error(e);
     res.status(500).send('Failed to deactivate');
+  }
+});
+
+app.post('/admin/writer-invites/:token/delete', requireAdmin, async (req, res) => {
+  try {
+    // Check if there are any submissions linked to this invite
+    const { rows: submissions } = await pool.query('SELECT id FROM writer_submissions WHERE token=$1', [req.params.token]);
+    if (submissions.length > 0) {
+      // Don't delete if there are submissions - just deactivate instead
+      await pool.query('UPDATE writer_invites SET active = FALSE WHERE token=$1', [req.params.token]);
+      return res.redirect('/admin/writer-invites/list?msg=Invite+has+submissions%2C+deactivated+instead+of+deleted');
+    }
+    // Safe to delete - no submissions exist
+    await pool.query('DELETE FROM writer_invites WHERE token=$1', [req.params.token]);
+    res.redirect('/admin/writer-invites/list?msg=Invite+deleted');
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to delete invite');
   }
 });
 
