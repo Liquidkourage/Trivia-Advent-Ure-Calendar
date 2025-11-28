@@ -4616,10 +4616,10 @@ app.get('/admin/writer-invites/list', requireAdmin, async (req, res) => {
       ].filter(Boolean).join(' · ');
       // Determine status category for filtering
       let statusCategory = 'all';
-      if (!r.active) {
-        statusCategory = 'inactive';
-      } else if (r.published_at) {
+      if (r.published_at) {
         statusCategory = 'published';
+      } else if (!r.active) {
+        statusCategory = 'inactive';
       } else if (r.submitted_at) {
         statusCategory = 'submitted';
       } else if (r.clicked_at) {
