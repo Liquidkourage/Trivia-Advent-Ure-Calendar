@@ -4614,9 +4614,24 @@ app.get('/admin/writer-invites/list', requireAdmin, async (req, res) => {
         r.submitted_at ? 'submitted' : '',
         r.published_at ? 'published' : ''
       ].filter(Boolean).join(' · ');
+      // Determine status category for filtering
+      let statusCategory = 'all';
+      if (!r.active) {
+        statusCategory = 'inactive';
+      } else if (r.published_at) {
+        statusCategory = 'published';
+      } else if (r.submitted_at) {
+        statusCategory = 'submitted';
+      } else if (r.clicked_at) {
+        statusCategory = 'clicked';
+      } else if (r.sent_at) {
+        statusCategory = 'sent';
+      } else {
+        statusCategory = 'not-sent';
+      }
       const esc = (s) => String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
       return `
-        <tr data-token="${esc(r.token)}">
+        <tr data-token="${esc(r.token)}" data-status="${statusCategory}" data-active="${r.active ? 'true' : 'false'}" data-sent="${r.sent_at ? 'true' : 'false'}" data-clicked="${r.clicked_at ? 'true' : 'false'}" data-submitted="${r.submitted_at ? 'true' : 'false'}" data-published="${r.published_at ? 'true' : 'false'}">
           <td style="padding:6px 4px;white-space:nowrap;">${slotStr} ${r.slot_half || ''}</td>
           <td style="padding:6px 4px;">${esc(r.author)}</td>
           <td style="padding:6px 4px;">
@@ -4651,8 +4666,18 @@ app.get('/admin/writer-invites/list', requireAdmin, async (req, res) => {
           <a href="/admin" class="ta-btn ta-btn-outline">Back</a>
           <a href="/admin/writer-invites/my" class="ta-btn ta-btn-primary" style="margin-left:8px;">My Writer Invites</a>
         </p>
-        <div style="margin:16px 0;">
+        <div style="margin:16px 0;display:flex;gap:12px;flex-wrap:wrap;align-items:center;">
           <input type="text" id="searchInput" placeholder="Search by author, email, or token..." style="width:100%;max-width:400px;padding:8px;border-radius:6px;border:1px solid #444;background:#2a2a2a;color:#fff;" />
+          <select id="statusFilter" style="padding:8px;border-radius:6px;border:1px solid #444;background:#2a2a2a;color:#fff;min-width:200px;">
+            <option value="all">All Statuses</option>
+            <option value="not-sent">Not Sent</option>
+            <option value="sent">Sent (Not Clicked)</option>
+            <option value="clicked">Clicked (Not Submitted)</option>
+            <option value="submitted">Submitted (Not Published)</option>
+            <option value="published">Published</option>
+            <option value="inactive">Inactive</option>
+          </select>
+          <span id="filterCount" style="opacity:0.7;font-size:14px;"></span>
         </div>
         <table id="invitesTable" style="width:100%;border-collapse:collapse;">
           <thead>
@@ -4675,17 +4700,38 @@ app.get('/admin/writer-invites/list', requireAdmin, async (req, res) => {
         <script>
           (function() {
             const searchInput = document.getElementById('searchInput');
+            const statusFilter = document.getElementById('statusFilter');
+            const filterCount = document.getElementById('filterCount');
             const table = document.getElementById('invitesTable');
             const tbody = table.querySelector('tbody');
             const rows = Array.from(tbody.querySelectorAll('tr'));
             
-            searchInput.addEventListener('input', function(e) {
-              const query = e.target.value.toLowerCase().trim();
+            function updateFilter() {
+              const searchQuery = searchInput.value.toLowerCase().trim();
+              const statusValue = statusFilter.value;
+              let visibleCount = 0;
+              
               rows.forEach(row => {
                 const text = row.textContent.toLowerCase();
-                row.style.display = query === '' || text.includes(query) ? '' : 'none';
+                const matchesSearch = searchQuery === '' || text.includes(searchQuery);
+                const matchesStatus = statusValue === 'all' || row.getAttribute('data-status') === statusValue;
+                
+                if (matchesSearch && matchesStatus) {
+                  row.style.display = '';
+                  visibleCount++;
+                } else {
+                  row.style.display = 'none';
+                }
               });
-            });
+              
+              filterCount.textContent = `Showing ${visibleCount} of ${rows.length}`;
+            }
+            
+            searchInput.addEventListener('input', updateFilter);
+            statusFilter.addEventListener('change', updateFilter);
+            
+            // Initial count
+            updateFilter();
             
             // Email editing functionality
             document.querySelectorAll('.edit-email-btn').forEach(function(btn) {
