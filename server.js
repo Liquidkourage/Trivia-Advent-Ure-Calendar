@@ -720,7 +720,6 @@ const ADMIN_NAV_LINKS = [
   { id: 'authors', label: 'Author Assignments', href: '/admin/author-slots' },
   { id: 'writers', label: 'Writer Invites', href: '/admin/writer-invites' },
   { id: 'players', label: 'Players', href: '/admin/players' },
-  { id: 'access', label: 'Access & Links', href: '/admin/access' },
   { id: 'announcements', label: 'Announcements', href: '/admin/announcements' }
 ];
 
@@ -2403,19 +2402,7 @@ app.get('/admin/author-slots', requireAdmin, async (req, res) => {
   }
 });
 
-app.get('/admin/quizzes/:id/author-email', requireAdmin, async (req, res) => {
-  try {
-    const id = Number(req.params.id);
-    if (!id) return res.status(400).send('Invalid quiz id');
-    const clear = String(req.query.clear || '').toLowerCase() === '1';
-    const value = clear ? null : String(req.query.author_email || '').trim().toLowerCase();
-    await pool.query('UPDATE quizzes SET author_email=$1 WHERE id=$2', [value ? value : null, id]);
-    res.redirect('/admin/author-slots?msg=Author%20email%20updated');
-  } catch (e) {
-    console.error(e);
-    res.status(500).send('Failed to update author email');
-  }
-});
+// GET endpoint removed - use POST only (redirects to author-slots page)
 
 app.post('/admin/quizzes/:id/author-email', requireAdmin, express.urlencoded({ extended: true }), async (req, res) => {
   try {
@@ -2696,7 +2683,7 @@ app.get('/admin', requireAdmin, async (req, res) => {
         <section style="margin-bottom:32px;">
           <h2 style="margin-bottom:12px;color:#ffd700;">Writers</h2>
           <div class="ta-card-grid">
-            <a class="ta-card" href="/admin/writer-invite"><strong>Writer Invite</strong><span>Create token link for guest authors</span></a>
+            <a class="ta-card" href="/admin/writer-invites/list"><strong>Writer Invites</strong><span>Create and manage writer invites</span></a>
             <a class="ta-card" href="/admin/writer-invites"><strong>Writer Invites (CSV)</strong><span>Prepare CSV and bulk-generate links</span></a>
             <a class="ta-card" href="/admin/writer-invites/list"><strong>Writer Invites (List)</strong><span>Status, resend, deactivate, copy</span></a>
             <a class="ta-card" href="/admin/writer-invites/my"><strong>My Writer Invites</strong><span>View and access your own quiz writing links</span></a>
@@ -2713,7 +2700,7 @@ app.get('/admin', requireAdmin, async (req, res) => {
           <h2 style="margin-bottom:12px;color:#ffd700;">Access & Users</h2>
           <div class="ta-card-grid">
             <a class="ta-card" href="/admin/players"><strong>Players</strong><span>View and manage all players</span></a>
-            <a class="ta-card" href="/admin/access"><strong>Access & Links</strong><span>Grant or send magic links</span></a>
+            <a class="ta-card" href="/admin/players"><strong>Players & Access</strong><span>Manage players and grant access</span></a>
             <a class="ta-card" href="/admin/admins"><strong>Admins</strong><span>Manage admin emails</span></a>
           </div>
         </section>
@@ -4669,6 +4656,47 @@ app.get('/admin/writer-invites/list', requireAdmin, async (req, res) => {
           <a href="/admin" class="ta-btn ta-btn-outline">Back</a>
           <a href="/admin/writer-invites/my" class="ta-btn ta-btn-primary" style="margin-left:8px;">My Writer Invites</a>
         </p>
+        
+        <!-- Create New Invite Form -->
+        <div style="margin:24px 0;padding:20px;background:#1a1a1a;border:1px solid #333;border-radius:8px;">
+          <h2 style="margin-top:0;margin-bottom:16px;color:#ffd700;font-size:20px;">Create New Invite</h2>
+          <form id="inviteForm" style="max-width:600px;">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+              <div><label style="display:block;margin-bottom:4px;font-weight:600;">Author <input name="author" required style="width:100%;padding:6px;border-radius:6px;border:1px solid #555;background:#0a0a0a;color:#ffd700;"/></label></div>
+              <div><label style="display:block;margin-bottom:4px;font-weight:600;">Email (optional) <input name="email" type="email" style="width:100%;padding:6px;border-radius:6px;border:1px solid #555;background:#0a0a0a;color:#ffd700;"/></label></div>
+            </div>
+            <div style="margin-bottom:12px;">
+              <label style="display:block;margin-bottom:4px;font-weight:600;">Quizmas Day (optional)
+                <select name="quizmasDay" id="quizmasDay" style="width:100%;max-width:300px;padding:6px;border-radius:6px;border:1px solid #555;background:#0a0a0a;color:#ffd700;">
+                  <option value="">-- No slot assignment --</option>
+                  ${(() => {
+                    const currentYear = new Date().getFullYear();
+                    const quizmasOptions = [];
+                    for (let day = 1; day <= 12; day++) {
+                      let dateStr, label;
+                      if (day <= 6) {
+                        const d = 25 + day;
+                        dateStr = `${currentYear}-12-${String(d).padStart(2,'0')}`;
+                        label = `Day ${day} (Dec ${d})`;
+                      } else {
+                        const d = day - 6;
+                        dateStr = `${currentYear + 1}-01-${String(d).padStart(2,'0')}`;
+                        label = `Day ${day} (Jan ${d})`;
+                      }
+                      quizmasOptions.push({ day, dateStr, label });
+                    }
+                    return quizmasOptions.map(opt => `<option value="${opt.day}" data-date="${opt.dateStr}">${opt.label}</option>`).join('');
+                  })()}
+                </select>
+              </label>
+              <input type="hidden" name="slotDate" id="slotDate" />
+              <input type="hidden" name="slotHalf" id="slotHalf" value="AM" />
+            </div>
+            <button type="submit" class="ta-btn ta-btn-primary">Generate Invite Link</button>
+          </form>
+          <div id="inviteResult" style="margin-top:16px;font-family:monospace;padding:8px;background:#0a0a0a;border-radius:4px;display:none;"></div>
+        </div>
+        
         <div style="margin:16px 0;display:flex;gap:12px;flex-wrap:wrap;align-items:center;">
           <input type="text" id="searchInput" placeholder="Search by author, email, or token..." style="width:100%;max-width:400px;padding:8px;border-radius:6px;border:1px solid #444;background:#2a2a2a;color:#fff;" />
           <select id="statusFilter" style="padding:8px;border-radius:6px;border:1px solid #444;background:#2a2a2a;color:#fff;min-width:200px;">
@@ -4735,6 +4763,48 @@ app.get('/admin/writer-invites/list', requireAdmin, async (req, res) => {
             
             // Initial count
             updateFilter();
+            
+            // Create invite form functionality
+            const inviteForm = document.getElementById('inviteForm');
+            const inviteResult = document.getElementById('inviteResult');
+            const quizmasDaySelect = document.getElementById('quizmasDay');
+            const slotDateInput = document.getElementById('slotDate');
+            const slotHalfInput = document.getElementById('slotHalf');
+            
+            if (inviteForm && quizmasDaySelect) {
+              quizmasDaySelect.addEventListener('change', function() {
+                const selectedOption = this.options[this.selectedIndex];
+                if (selectedOption.value) {
+                  slotDateInput.value = selectedOption.dataset.date;
+                  slotHalfInput.value = 'AM';
+                } else {
+                  slotDateInput.value = '';
+                  slotHalfInput.value = '';
+                }
+              });
+              
+              inviteForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const fd = new FormData(inviteForm);
+                const body = new URLSearchParams();
+                for (const [k,v] of fd.entries()) {
+                  if (k !== 'quizmasDay') {
+                    body.append(k, v);
+                  }
+                }
+                inviteResult.style.display = 'block';
+                inviteResult.textContent = 'Generating...';
+                try {
+                  const res = await fetch('/admin/writer-invite', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
+                  const text = await res.text();
+                  if (!res.ok) throw new Error(text || 'Failed');
+                  inviteResult.innerHTML = 'Invite Link: <a href="' + text + '" target="_blank" style="color:#ffd700;">' + text + '</a><br/><button onclick="location.reload()" class="ta-btn ta-btn-small" style="margin-top:8px;">Refresh List</button>';
+                  inviteForm.reset();
+                } catch (err) {
+                  inviteResult.textContent = 'Error: ' + (err && err.message ? err.message : 'Failed to create invite');
+                }
+              });
+            }
             
             // Email editing functionality
             document.querySelectorAll('.edit-email-btn').forEach(function(btn) {
@@ -6160,6 +6230,7 @@ app.get('/admin/quizzes', requireAdmin, async (req, res) => {
         q.title, 
         q.unlock_at, 
         q.freeze_at,
+        q.quiz_type,
         latest_grading.last_graded_at,
         latest_grading.last_graded_by
       FROM quizzes q
@@ -6197,10 +6268,11 @@ app.get('/admin/quizzes', requireAdmin, async (req, res) => {
       const gradedInfo = q.last_graded_at 
         ? `<div style="font-size:12px;opacity:0.8;">${q.last_graded_by || 'Unknown'} · ${fmtTime(q.last_graded_at)}</div>`
         : '<div style="font-size:12px;opacity:0.5;">Not graded</div>';
+      const quizTypeBadge = q.quiz_type === 'quizmas' ? '<span style="background:#d4af37;color:#000;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:bold;margin-left:6px;">QUIZMAS</span>' : '';
       return `<tr>
         <td><input type="checkbox" class="quiz-checkbox" value="${q.id}" /></td>
         <td>#${q.id}</td>
-        <td>${q.title || 'Untitled'}</td>
+        <td>${q.title || 'Untitled'}${quizTypeBadge}</td>
         <td>${fmtEt(q.unlock_at)}</td>
         <td>${fmtEt(q.freeze_at)}</td>
         <td>${gradedInfo}</td>
@@ -7103,46 +7175,10 @@ app.get('/admin/quiz/:id/analytics', requireAdmin, async (req, res) => {
 });
 
 // --- Admin: access & links ---
+// /admin/access route removed - functionality merged into /admin/players
+// Redirect old access page to players page
 app.get('/admin/access', requireAdmin, async (req, res) => {
-  const header = await renderHeader(req);
-  res.type('html').send(`
-    ${renderHead('Access & Links', false)}
-    <body class="ta-body" style="padding:24px;">
-    ${header}
-      <h1>Access & Links</h1>
-      ${req.query.msg ? `<p style="padding:8px 12px;background:#2e7d32;color:#fff;border-radius:4px;margin-bottom:16px;">${req.query.msg}</p>` : ''}
-      <h3>Grant Access</h3>
-      <form method="post" action="/admin/grant">
-        <label>Email <input name="email" type="email" required /></label>
-        <button type="submit">Grant</button>
-      </form>
-      <h3 style="margin-top:12px;">Send Magic Link</h3>
-      ${req.query.msg ? `<div style="background:#4caf50;color:#fff;padding:12px;border-radius:6px;margin-bottom:16px;">${String(req.query.msg).replace(/&/g,'&amp;').replace(/</g,'&lt;')}</div>` : ''}
-      <form method="post" action="/admin/send-link">
-        <label>Email <input name="email" type="email" value="${req.query.email ? String(req.query.email).replace(/&/g,'&amp;').replace(/"/g,'&quot;') : ''}" required /></label>
-        <div style="margin-top:12px;">
-          <label style="display:flex;align-items:center;gap:8px;">
-            <input type="checkbox" name="test" value="true" />
-            <span>Test mode (create link without sending email)</span>
-          </label>
-        </div>
-        <button type="submit" style="margin-top:12px;">Send Magic Link</button>
-      </form>
-      <h3 style="margin-top:24px;">Test Ko-fi Webhook</h3>
-      <form method="post" action="/admin/test-kofi" style="border:1px solid #ddd;padding:16px;border-radius:6px;max-width:500px;">
-        <div style="margin-bottom:12px;">
-          <label>Test Email <input name="email" type="email" required style="width:100%;" /></label>
-          <div style="font-size:12px;opacity:0.7;margin-top:4px;">This will simulate a Ko-fi donation webhook</div>
-        </div>
-        <div style="margin-bottom:12px;">
-          <label>Donation Date (optional) <input name="created_at" type="datetime-local" style="width:100%;" /></label>
-          <div style="font-size:12px;opacity:0.7;margin-top:4px;">Leave blank to use current time</div>
-        </div>
-        <button type="submit" style="background:#ff5e5e;color:#fff;border:none;padding:8px 16px;border-radius:4px;cursor:pointer;">Simulate Ko-fi Donation</button>
-      </form>
-      <p style="margin-top:16px;"><a href="/admin">Back</a></p>
-    </body></html>
-  `);
+  res.redirect('/admin/players' + (req.query.msg ? '?msg=' + encodeURIComponent(req.query.msg) : '') + (req.query.email ? (req.query.msg ? '&' : '?') + 'email=' + encodeURIComponent(req.query.email) : ''));
 });
 
 app.post('/admin/grant', requireAdmin, async (req, res) => {
@@ -7150,7 +7186,7 @@ app.post('/admin/grant', requireAdmin, async (req, res) => {
     const email = String(req.body.email || '').trim().toLowerCase();
     if (!email) return res.status(400).send('Email required');
     await pool.query('INSERT INTO players(email, access_granted_at) VALUES($1, NOW()) ON CONFLICT (email) DO NOTHING', [email]);
-    res.redirect('/admin/access');
+    res.redirect('/admin/players?msg=Access granted to ' + encodeURIComponent(email));
   } catch (e) {
     console.error(e);
     res.status(500).send('Failed to grant');
@@ -7193,7 +7229,7 @@ app.post('/admin/send-link', requireAdmin, async (req, res) => {
           <div style="display:flex;gap:12px;">
             <button onclick="navigator.clipboard.writeText('${linkUrl.replace(/'/g,"\\'")}').then(() => alert('Link copied!'))" class="ta-btn ta-btn-primary">Copy Link</button>
             <a href="${linkUrl.replace(/&/g,'&amp;').replace(/</g,'&lt;')}" target="_blank" class="ta-btn ta-btn-outline">Open Link</a>
-            <a href="/admin/access" class="ta-btn ta-btn-outline">Back to Access</a>
+            <a href="/admin/players" class="ta-btn ta-btn-outline">Back to Players</a>
           </div>
         </main>
         ${renderFooter(req)}
@@ -7204,7 +7240,7 @@ app.post('/admin/send-link', requireAdmin, async (req, res) => {
     
     try {
     await sendMagicLink(email, token, linkUrl);
-      res.redirect('/admin/access?msg=Magic link sent successfully to ' + encodeURIComponent(email));
+      res.redirect('/admin/players?msg=Magic link sent successfully to ' + encodeURIComponent(email));
     } catch (mailErr) {
       console.error('[admin/send-link] Email send failed:', mailErr);
       const header = await renderHeader(req);
@@ -7282,12 +7318,12 @@ app.post('/admin/test-kofi', requireAdmin, express.urlencoded({ extended: true }
     
     if (!result.success) {
       if (result.beforeCutoff) {
-        return res.redirect('/admin/access?msg=Donation date is before cutoff date');
+        return res.redirect('/admin/players?msg=Donation date is before cutoff date');
       }
       return res.status(400).send(result.error || 'Failed to process webhook');
     }
     
-    res.redirect(`/admin/access?msg=Ko-fi webhook simulated successfully. Magic link sent to ${result.email}`);
+    res.redirect(`/admin/players?msg=Ko-fi webhook simulated successfully. Magic link sent to ${result.email}`);
   } catch (e) {
     console.error('Test Ko-fi webhook error:', e);
     res.status(500).send(`Failed to simulate webhook: ${e.message}`);
@@ -7365,8 +7401,60 @@ app.get('/admin/players', requireAdmin, async (req, res) => {
       <body class="ta-body">
         ${header}
         <main class="ta-main ta-container">
+          ${renderBreadcrumb([ADMIN_CRUMB, { label: 'Players' }])}
+          ${renderAdminNav('players')}
           <h1 class="ta-page-title">Players</h1>
           ${req.query.msg ? `<p style="padding:8px 12px;background:#2e7d32;color:#fff;border-radius:4px;margin-bottom:16px;">${req.query.msg}</p>` : ''}
+          
+          <!-- Access Management Section -->
+          <div style="margin-bottom:24px;padding:20px;background:#1a1a1a;border:1px solid #333;border-radius:8px;">
+            <h2 style="margin-top:0;margin-bottom:16px;color:#ffd700;font-size:20px;">Access Management</h2>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+              <div>
+                <h3 style="margin-top:0;margin-bottom:12px;font-size:16px;">Grant Access</h3>
+                <form method="post" action="/admin/grant" style="display:flex;gap:8px;align-items:flex-end;">
+                  <div style="flex:1;">
+                    <label style="display:block;margin-bottom:4px;font-weight:600;">Email</label>
+                    <input name="email" type="email" required style="width:100%;padding:6px;border-radius:6px;border:1px solid #555;background:#0a0a0a;color:#ffd700;"/>
+                  </div>
+                  <button type="submit" class="ta-btn ta-btn-primary">Grant</button>
+                </form>
+              </div>
+              <div>
+                <h3 style="margin-top:0;margin-bottom:12px;font-size:16px;">Send Magic Link</h3>
+                <form method="post" action="/admin/send-link" style="display:flex;flex-direction:column;gap:8px;">
+                  <div>
+                    <label style="display:block;margin-bottom:4px;font-weight:600;">Email</label>
+                    <input name="email" type="email" value="${req.query.email ? String(req.query.email).replace(/&/g,'&amp;').replace(/"/g,'&quot;') : ''}" required style="width:100%;padding:6px;border-radius:6px;border:1px solid #555;background:#0a0a0a;color:#ffd700;"/>
+                  </div>
+                  <div>
+                    <label style="display:flex;align-items:center;gap:8px;font-size:14px;">
+                      <input type="checkbox" name="test" value="true" />
+                      <span>Test mode (create link without sending email)</span>
+                    </label>
+                  </div>
+                  <button type="submit" class="ta-btn ta-btn-primary">Send Magic Link</button>
+                </form>
+              </div>
+            </div>
+            <div style="margin-top:20px;padding-top:20px;border-top:1px solid #333;">
+              <h3 style="margin-top:0;margin-bottom:12px;font-size:16px;">Test Ko-fi Webhook</h3>
+              <form method="post" action="/admin/test-kofi" style="max-width:500px;">
+                <div style="margin-bottom:12px;">
+                  <label style="display:block;margin-bottom:4px;font-weight:600;">Test Email</label>
+                  <input name="email" type="email" required style="width:100%;padding:6px;border-radius:6px;border:1px solid #555;background:#0a0a0a;color:#ffd700;"/>
+                  <div style="font-size:12px;opacity:0.7;margin-top:4px;">This will simulate a Ko-fi donation webhook</div>
+                </div>
+                <div style="margin-bottom:12px;">
+                  <label style="display:block;margin-bottom:4px;font-weight:600;">Donation Date (optional)</label>
+                  <input name="created_at" type="datetime-local" style="width:100%;padding:6px;border-radius:6px;border:1px solid #555;background:#0a0a0a;color:#ffd700;"/>
+                  <div style="font-size:12px;opacity:0.7;margin-top:4px;">Leave blank to use current time</div>
+                </div>
+                <button type="submit" style="background:#ff5e5e;color:#fff;border:none;padding:8px 16px;border-radius:4px;cursor:pointer;">Simulate Ko-fi Donation</button>
+              </form>
+            </div>
+          </div>
+          
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:12px;">
             <p style="margin:0;opacity:0.8;">Total: <span id="total-count">${rows.length}</span> player${rows.length !== 1 ? 's' : ''}</p>
             <div style="display:flex;gap:8px;align-items:center;">
