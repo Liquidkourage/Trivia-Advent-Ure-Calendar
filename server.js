@@ -4785,10 +4785,11 @@ app.get('/admin/writer-invites/list', requireAdmin, async (req, res) => {
       ${renderHead('Writer Invites', true)}
       <body class="ta-body" style="padding:24px;">
       ${header}
-        <h1>Writer Invites</h1>
+        ${renderBreadcrumb([ADMIN_CRUMB, { label: 'Writer Invites' }])}
+        ${renderAdminNav('writers')}
+        <h1 class="ta-page-title">Writer Invites</h1>
         ${msg ? `<div style="margin-bottom:16px;padding:12px;border:1px solid #2e7d32;border-radius:6px;background:rgba(46,125,50,0.15);color:#81c784;">${esc(msg)}</div>` : ''}
         <p>
-          <a href="/admin" class="ta-btn ta-btn-outline">Back</a>
           <a href="/admin/writer-invites/my" class="ta-btn ta-btn-primary" style="margin-left:8px;">My Writer Invites</a>
         </p>
         
