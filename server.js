@@ -3542,6 +3542,24 @@ app.post('/admin/writer-invite', requireAdmin, express.urlencoded({ extended: tr
 // --- Admin: writer invite form (GET) ---
 app.get('/admin/writer-invite', requireAdmin, async (req, res) => {
   const header = await renderHeader(req);
+  const currentYear = new Date().getFullYear();
+  // Build Quizmas day options (Day 1 = Dec 26, Day 12 = Jan 6)
+  const quizmasOptions = [];
+  for (let day = 1; day <= 12; day++) {
+    let dateStr, label;
+    if (day <= 7) {
+      // Days 1-7: Dec 26-31
+      const d = 25 + day;
+      dateStr = `${currentYear}-12-${String(d).padStart(2,'0')}`;
+      label = `Day ${day} (Dec ${d})`;
+    } else {
+      // Days 8-12: Jan 1-6
+      const d = day - 7;
+      dateStr = `${currentYear + 1}-01-${String(d).padStart(2,'0')}`;
+      label = `Day ${day} (Jan ${d})`;
+    }
+    quizmasOptions.push({ day, dateStr, label });
+  }
   res.type('html').send(`
     ${renderHead('Create Writer Invite', false)}
     <body class="ta-body" style="padding:24px;">
@@ -3549,19 +3567,49 @@ app.get('/admin/writer-invite', requireAdmin, async (req, res) => {
       <h1>Create Writer Invite</h1>
       <form id="inviteForm" style="margin-top:12px;max-width:520px;">
         <div style="margin:8px 0;"><label>Author <input name="author" required style="width:100%"/></label></div>
-        <div style="margin:8px 0;"><label>Email (optional) <input name="email" style="width:100%"/></label></div>
-        <button type="submit">Generate Invite Link</button>
+        <div style="margin:8px 0;"><label>Email (optional) <input name="email" type="email" style="width:100%"/></label></div>
+        <div style="margin:8px 0;">
+          <label>Quizmas Day (optional)
+            <select name="quizmasDay" id="quizmasDay" style="width:100%;padding:6px;border-radius:6px;border:1px solid #555;background:#0a0a0a;color:#ffd700;">
+              <option value="">-- No slot assignment --</option>
+              ${quizmasOptions.map(opt => `<option value="${opt.day}" data-date="${opt.dateStr}">${opt.label}</option>`).join('')}
+            </select>
+          </label>
+          <input type="hidden" name="slotDate" id="slotDate" />
+          <input type="hidden" name="slotHalf" id="slotHalf" value="AM" />
+        </div>
+        <button type="submit" class="ta-btn ta-btn-primary">Generate Invite Link</button>
       </form>
       <div id="result" style="margin-top:16px;font-family:monospace;"></div>
       <p style="margin-top:16px;"><a href="/admin" class="ta-btn ta-btn-outline">Back</a></p>
       <script>
         const form = document.getElementById('inviteForm');
         const result = document.getElementById('result');
+        const quizmasDaySelect = document.getElementById('quizmasDay');
+        const slotDateInput = document.getElementById('slotDate');
+        const slotHalfInput = document.getElementById('slotHalf');
+        
+        // Update hidden inputs when Quizmas day is selected
+        quizmasDaySelect.addEventListener('change', function() {
+          const selectedOption = this.options[this.selectedIndex];
+          if (selectedOption.value) {
+            slotDateInput.value = selectedOption.dataset.date;
+            slotHalfInput.value = 'AM'; // Quizmas slots are always AM
+          } else {
+            slotDateInput.value = '';
+            slotHalfInput.value = '';
+          }
+        });
+        
         form.addEventListener('submit', async (e) => {
           e.preventDefault();
           const fd = new FormData(form);
           const body = new URLSearchParams();
-          for (const [k,v] of fd.entries()) body.append(k, v);
+          for (const [k,v] of fd.entries()) {
+            if (k !== 'quizmasDay') { // Don't send quizmasDay, only slotDate/slotHalf
+              body.append(k, v);
+            }
+          }
           result.textContent = 'Generating...';
           try {
             const res = await fetch('/admin/writer-invite', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
@@ -4132,7 +4180,11 @@ app.get('/admin/writer-submissions/:id', requireAdmin, async (req, res) => {
               const bgColor = slot.isTaken ? '#4a1a1a' : '#1a4a1a';
               const borderColor = slot.isTaken ? '#ff4444' : '#44ff44';
               const cursor = slot.isTaken ? 'not-allowed' : 'pointer';
-              const title = slot.isTaken ? `Taken: ${esc(slot.existingTitle)}` : `Available: Dec ${slot.day} ${slot.half}`;
+              // Determine month from date string (YYYY-MM-DD)
+              const dateParts = slot.date.split('-');
+              const month = parseInt(dateParts[1]);
+              const monthName = month === 1 ? 'Jan' : 'Dec';
+              const title = slot.isTaken ? `Taken: ${esc(slot.existingTitle)}` : `Available: ${monthName} ${slot.day} ${slot.half}`;
               return `
                 <div 
                   id="${slotId}"
@@ -4154,7 +4206,7 @@ app.get('/admin/writer-submissions/:id', requireAdmin, async (req, res) => {
                   onmouseover="${slot.isTaken ? '' : 'this.style.opacity=1;this.style.transform=\'scale(1.02)\';'}"
                   onmouseout="${slot.isTaken ? '' : 'this.style.opacity=1;this.style.transform=\'scale(1)\';'}"
                 >
-                  <div class="slot-calendar-day" style="font-weight:bold;color:#ffd700;font-size:12px;">Dec ${slot.day}</div>
+                  <div class="slot-calendar-day" style="font-weight:bold;color:#ffd700;font-size:12px;">${monthName} ${slot.day}</div>
                   <div class="slot-calendar-half" style="font-size:11px;color:${slot.isTaken ? '#ff8888' : '#88ff88'};margin-top:4px;">${slot.half}</div>
                   ${slot.isTaken 
                     ? '<div class="slot-calendar-status" style="font-size:9px;color:#ff8888;margin-top:2px;">TAKEN</div>' 
