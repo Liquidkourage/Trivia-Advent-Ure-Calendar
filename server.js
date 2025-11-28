@@ -2249,13 +2249,28 @@ app.get('/admin/calendar', requireAdmin, async (req, res) => {
       bySlot.get(key).push(q);
     }
     const rows = [];
+    // Advent calendar: Dec 1-24, AM/PM slots
     for (let d=1; d<=24; d++) {
       const day = `${baseYear}-12-${String(d).padStart(2,'0')}`;
       const amKey = `${day}|AM`;
       const pmKey = `${day}|PM`;
       const am = bySlot.get(amKey) || [];
       const pm = bySlot.get(pmKey) || [];
-      rows.push({ day, am, pm });
+      rows.push({ day, am, pm, isQuizmas: false });
+    }
+    // Quizmas: Dec 26-31, AM only (one quiz per day)
+    for (let d=26; d<=31; d++) {
+      const day = `${baseYear}-12-${String(d).padStart(2,'0')}`;
+      const amKey = `${day}|AM`;
+      const am = bySlot.get(amKey) || [];
+      rows.push({ day, am, pm: [], isQuizmas: true });
+    }
+    // Quizmas: Jan 1-6, AM only (one quiz per day)
+    for (let d=1; d<=6; d++) {
+      const day = `${baseYear + 1}-01-${String(d).padStart(2,'0')}`;
+      const amKey = `${day}|AM`;
+      const am = bySlot.get(amKey) || [];
+      rows.push({ day, am, pm: [], isQuizmas: true });
     }
     function cellHtml(list, day, half){
       if (!list.length) {
@@ -2271,12 +2286,20 @@ app.get('/admin/calendar', requireAdmin, async (req, res) => {
       const links = list.map(q=>`<div><a href=\"/admin/quiz/${q.id}\" class=\"ta-btn ta-btn-small\">#${q.id} ${q.title.replace(/</g,'&lt;')}</a></div>`).join('');
       return `<div style=\"color:#c62828;\"><strong>Conflict (${list.length})</strong></div>${links}`;
     }
-    const htmlRows = rows.map(r => `
+    const htmlRows = rows.map(r => {
+      const dateParts = r.day.split('-');
+      const month = parseInt(dateParts[1]);
+      const dayNum = parseInt(dateParts[2]);
+      const monthName = month === 1 ? 'Jan' : 'Dec';
+      const dayLabel = `${monthName} ${dayNum}`;
+      const quizmasBadge = r.isQuizmas ? '<span style="background:#d4af37;color:#000;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:bold;margin-left:6px;">QUIZMAS</span>' : '';
+      return `
       <tr>
-        <td style=\"padding:6px 4px;\">${r.day}</td>
+        <td style=\"padding:6px 4px;\">${dayLabel}${quizmasBadge}</td>
         <td style=\"padding:6px 4px;\">${cellHtml(r.am, r.day, 'AM')}</td>
-        <td style=\"padding:6px 4px;\">${cellHtml(r.pm, r.day, 'PM')}</td>
-      </tr>`).join('');
+        <td style=\"padding:6px 4px;\">${r.isQuizmas ? '<div style=\"color:#666;font-style:italic;\">N/A</div>' : cellHtml(r.pm, r.day, 'PM')}</td>
+      </tr>`;
+    }).join('');
     const header = await renderHeader(req);
     res.type('html').send(`
       ${renderHead('Admin Calendar', true)}
@@ -2286,7 +2309,7 @@ app.get('/admin/calendar', requireAdmin, async (req, res) => {
           ${renderBreadcrumb([ADMIN_CRUMB, { label: 'Calendar' }])}
           ${renderAdminNav('calendar')}
           <h1 class="ta-page-title">Calendar Overview</h1>
-          <p style="margin:0 0 16px 0;opacity:0.85;">Review daily AM/PM slots, identify conflicts, and jump into quiz details.</p>
+          <p style="margin:0 0 16px 0;opacity:0.85;">Review daily AM/PM slots, identify conflicts, and jump into quiz details. Quizmas days (Dec 26 - Jan 6) show AM slots only.</p>
           <div style="background:#0e0e0e;border:1px solid rgba(255,255,255,0.08);border-radius:12px;overflow:hidden;">
             <table style="width:100%;border-collapse:collapse;">
               <thead style="background:rgba(255,255,255,0.05);">
