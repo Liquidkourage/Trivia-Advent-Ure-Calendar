@@ -8203,7 +8203,9 @@ app.get('/admin/admins', requireAdmin, async (_req, res) => {
       ${renderHead('Admins', false)}
       <body class="ta-body" style="padding:24px;">
       ${header}
-      <h1>Admins</h1>
+        ${renderBreadcrumb([ADMIN_CRUMB, { label: 'Admins' }])}
+        ${renderAdminNav('admins')}
+        <h1 class="ta-page-title">Admins</h1>
         <form method="post" action="/admin/admins/add" style="margin-bottom:12px;">
           <label>Email <input name="email" type="email" required /></label>
           <button type="submit">Add admin</button>
@@ -8215,7 +8217,6 @@ app.get('/admin/admins', requireAdmin, async (_req, res) => {
           <tr><th>Email</th><th>Added</th><th>Actions</th></tr>
           ${items || '<tr><td colspan="3">No admins yet</td></tr>'}
         </table>
-        <p style="margin-top:16px;"><a href="/admin" class="ta-btn ta-btn-outline">Back</a></p>
       </body></html>
     `);
   } catch (e) {
@@ -8298,8 +8299,9 @@ app.get('/admin/announcements', requireAdmin, async (req, res) => {
       <body class="ta-body">
         ${header}
         <main class="ta-main ta-container" style="max-width:800px;">
+          ${renderBreadcrumb([ADMIN_CRUMB, { label: 'Announcements' }])}
+          ${renderAdminNav('announcements')}
           <h1 class="ta-page-title">Send Announcement</h1>
-          <p style="margin-bottom:24px;"><a href="/admin" class="ta-btn ta-btn-outline">← Back to Admin</a></p>
           
           <div style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:24px;margin-bottom:24px;">
             <p style="margin:0;opacity:0.9;">This announcement will be sent to <strong>${recipientCount}</strong> player${recipientCount !== 1 ? 's' : ''} who have announcements enabled.</p>
