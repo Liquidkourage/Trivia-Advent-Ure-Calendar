@@ -4631,7 +4631,7 @@ app.get('/admin/writer-invites/list', requireAdmin, async (req, res) => {
       }
       const esc = (s) => String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
       return `
-        <tr data-token="${esc(r.token)}" data-status="${statusCategory}" data-active="${r.active ? 'true' : 'false'}" data-sent="${r.sent_at ? 'true' : 'false'}" data-clicked="${r.clicked_at ? 'true' : 'false'}" data-submitted="${r.submitted_at ? 'true' : 'false'}" data-published="${r.published_at ? 'true' : 'false'}">
+        <tr data-token="${esc(r.token)}" data-status="${esc(statusCategory)}" data-active="${r.active ? 'true' : 'false'}" data-sent="${r.sent_at ? 'true' : 'false'}" data-clicked="${r.clicked_at ? 'true' : 'false'}" data-submitted="${r.submitted_at ? 'true' : 'false'}" data-published="${r.published_at ? 'true' : 'false'}">
           <td style="padding:6px 4px;white-space:nowrap;">${slotStr} ${r.slot_half || ''}</td>
           <td style="padding:6px 4px;">${esc(r.author)}</td>
           <td style="padding:6px 4px;">
@@ -4646,10 +4646,10 @@ app.get('/admin/writer-invites/list', requireAdmin, async (req, res) => {
           <td style="padding:6px 4px;white-space:nowrap;">${fmt(r.published_at)}</td>
           <td style="padding:6px 4px;display:flex;gap:6px;flex-wrap:wrap;">
             <button class="edit-email-btn" data-token="${esc(r.token)}" type="button" style="background:#d4af37;color:#000;border:none;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:12px;">Edit Email</button>
-            <form method="post" action="/admin/writer-invites/${r.token}/resend" onsubmit="return confirm('Send email now?');" style="display:inline;">
+            <form method="post" action="/admin/writer-invites/${esc(r.token)}/resend" onsubmit="return confirm('Send email now?');" style="display:inline;">
               <button type="submit" style="font-size:12px;">Resend</button>
             </form>
-            ${r.active ? `<form method="post" action="/admin/writer-invites/${r.token}/deactivate" onsubmit="return confirm('Deactivate this invite?');" style="display:inline;"><button type="submit" style="font-size:12px;">Deactivate</button></form>` : ''}
+            ${r.active ? `<form method="post" action="/admin/writer-invites/${esc(r.token)}/deactivate" onsubmit="return confirm('Deactivate this invite?');" style="display:inline;"><button type="submit" style="font-size:12px;">Deactivate</button></form>` : ''}
             <button class="copy" data-link="${link}" type="button" style="font-size:12px;">Copy</button>
           </td>
         </tr>
@@ -4724,7 +4724,7 @@ app.get('/admin/writer-invites/list', requireAdmin, async (req, res) => {
                 }
               });
               
-              filterCount.textContent = `Showing ${visibleCount} of ${rows.length}`;
+              filterCount.textContent = 'Showing ' + visibleCount + ' of ' + rows.length;
             }
             
             searchInput.addEventListener('input', updateFilter);
@@ -7182,7 +7182,7 @@ app.post('/admin/send-link', requireAdmin, async (req, res) => {
     }
     
     try {
-      await sendMagicLink(email, token, linkUrl);
+    await sendMagicLink(email, token, linkUrl);
       res.redirect('/admin/access?msg=Magic link sent successfully to ' + encodeURIComponent(email));
     } catch (mailErr) {
       console.error('[admin/send-link] Email send failed:', mailErr);
