@@ -2336,45 +2336,113 @@ app.get('/admin/author-slots', requireAdmin, async (req, res) => {
     const msg = String(req.query.msg || '');
     const { rows: quizzes } = await pool.query('SELECT id, title, unlock_at, author, author_email, author_points_override, quiz_type FROM quizzes ORDER BY unlock_at ASC LIMIT 200');
     const esc = (v) => String(v || '').replace(/&/g, '&amp;').replace(/</g, '&lt;');
-    const items = quizzes.map(q => {
-      const unlock = q.unlock_at ? new Date(q.unlock_at) : null;
-      let dateStr = '—';
-      if (unlock) {
-        const unlockUtc = new Date(q.unlock_at);
-        const p = utcToEtParts(unlockUtc);
-        const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-        const monthName = monthNames[p.m - 1];
-        const hour = p.h === 0 ? 12 : (p.h > 12 ? p.h - 12 : p.h);
-        const ampm = p.h < 12 ? 'AM' : 'PM';
-        const minute = String(p.et.getUTCMinutes()).padStart(2, '0');
-        dateStr = `${monthName} ${p.d}, ${p.y} ${hour}:${minute} ${ampm} ET`;
+    
+    // Build slot map similar to calendar page
+    const bySlot = new Map(); // key: YYYY-MM-DD|AM|PM → quiz object
+    let baseYear = quizzes.length ? utcToEtParts(new Date(quizzes[0].unlock_at)).y : new Date().getUTCFullYear();
+    function slotKey(dParts){
+      const day = `${dParts.y}-${String(dParts.m).padStart(2,'0')}-${String(dParts.d).padStart(2,'0')}`;
+      const half = dParts.h === 0 ? 'AM' : 'PM';
+      return `${day}|${half}`;
+    }
+    for (const q of quizzes) {
+      const p = utcToEtParts(new Date(q.unlock_at));
+      baseYear = p.y;
+      const key = slotKey(p);
+      bySlot.set(key, q);
+    }
+    
+    // Build rows for all slots
+    const rows = [];
+    // Advent calendar: Dec 1-24, AM/PM slots
+    for (let d = 1; d <= 24; d++) {
+      const day = `${baseYear}-12-${String(d).padStart(2,'0')}`;
+      const amKey = `${day}|AM`;
+      const pmKey = `${day}|PM`;
+      const amQuiz = bySlot.get(amKey) || null;
+      const pmQuiz = bySlot.get(pmKey) || null;
+      rows.push({ day, am: amQuiz, pm: pmQuiz, isQuizmas: false });
+    }
+    // Quizmas: Dec 26-31, AM only
+    for (let d = 26; d <= 31; d++) {
+      const day = `${baseYear}-12-${String(d).padStart(2,'0')}`;
+      const amKey = `${day}|AM`;
+      const amQuiz = bySlot.get(amKey) || null;
+      rows.push({ day, am: amQuiz, pm: null, isQuizmas: true });
+    }
+    // Quizmas: Jan 1-6, AM only
+    for (let d = 1; d <= 6; d++) {
+      const day = `${baseYear + 1}-01-${String(d).padStart(2,'0')}`;
+      const amKey = `${day}|AM`;
+      const amQuiz = bySlot.get(amKey) || null;
+      rows.push({ day, am: amQuiz, pm: null, isQuizmas: true });
+    }
+    
+    function formatDateStr(day, half) {
+      const dateParts = day.split('-');
+      const month = parseInt(dateParts[1]);
+      const dayNum = parseInt(dateParts[2]);
+      const year = parseInt(dateParts[0]);
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const monthName = monthNames[month - 1];
+      const hour = half === 'AM' ? 12 : 12;
+      const ampm = half;
+      return `${monthName} ${dayNum}, ${year} ${hour}:00 ${ampm} ET`;
+    }
+    
+    function renderSlot(quiz, day, half) {
+      if (!quiz) {
+        return `<tr style="opacity:0.6;">
+          <td style="padding:10px 8px;">—</td>
+          <td style="padding:10px 8px;"><em style="color:#999;">Empty slot</em></td>
+          <td style="padding:10px 8px;">${formatDateStr(day, half)}</td>
+          <td style="padding:10px 8px;">—</td>
+          <td style="padding:10px 8px;">—</td>
+          <td style="padding:10px 8px;">—</td>
+        </tr>`;
       }
-      const quizTypeBadge = q.quiz_type === 'quizmas' ? '<span style="background:#d4af37;color:#000;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:bold;margin-left:6px;">QUIZMAS</span>' : '';
-      const overrideStr = (q.author_points_override !== null && q.author_points_override !== undefined)
-        ? formatPoints(q.author_points_override)
+      const unlockUtc = new Date(quiz.unlock_at);
+      const p = utcToEtParts(unlockUtc);
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const monthName = monthNames[p.m - 1];
+      const hour = p.h === 0 ? 12 : (p.h > 12 ? p.h - 12 : p.h);
+      const ampm = p.h < 12 ? 'AM' : 'PM';
+      const minute = String(p.et.getUTCMinutes()).padStart(2, '0');
+      const dateStr = `${monthName} ${p.d}, ${p.y} ${hour}:${minute} ${ampm} ET`;
+      const quizTypeBadge = quiz.quiz_type === 'quizmas' ? '<span style="background:#d4af37;color:#000;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:bold;margin-left:6px;">QUIZMAS</span>' : '';
+      const overrideStr = (quiz.author_points_override !== null && quiz.author_points_override !== undefined)
+        ? formatPoints(quiz.author_points_override)
         : '';
-      return `
-        <tr>
-          <td style="padding:10px 8px;">${q.id}</td>
-          <td style="padding:10px 8px;">${esc(q.title || 'Untitled Quiz')}${quizTypeBadge}</td>
-          <td style="padding:10px 8px;">${dateStr}</td>
-          <td style="padding:10px 8px;">${esc(q.author || '')}</td>
-          <td style="padding:10px 8px;">
-            <form method="post" action="/admin/quizzes/${q.id}/author-email" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-              <input type="email" name="author_email" value="${esc(q.author_email || '')}" placeholder="name@example.com" style="padding:6px 8px;border-radius:6px;border:1px solid #555;background:#0a0a0a;color:#ffd700;min-width:220px;"/>
-              <button type="submit" class="ta-btn ta-btn-primary" style="margin:0;">Save</button>
-              ${q.author_email ? `<a href="/admin/quizzes/${q.id}/author-email?clear=1" class="ta-btn ta-btn-outline" style="margin:0;">Clear</a>` : ''}
-            </form>
-          </td>
-          <td style="padding:10px 8px;">
-            <form method="post" action="/admin/quizzes/${q.id}/author-average" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-              <input type="text" name="author_points_override" value="${overrideStr}" placeholder="e.g. 42" style="padding:6px 8px;border-radius:6px;border:1px solid #555;background:#0a0a0a;color:#ffd700;min-width:120px;"/>
-              <button type="submit" class="ta-btn ta-btn-primary" style="margin:0;">Apply</button>
-              ${overrideStr ? `<a href="/admin/quizzes/${q.id}/author-average?clear=1" class="ta-btn ta-btn-outline" style="margin:0;">Clear</a>` : ''}
-            </form>
-          </td>
-        </tr>
-      `;
+      return `<tr>
+        <td style="padding:10px 8px;">${quiz.id}</td>
+        <td style="padding:10px 8px;">${esc(quiz.title || 'Untitled Quiz')}${quizTypeBadge}</td>
+        <td style="padding:10px 8px;">${dateStr}</td>
+        <td style="padding:10px 8px;">${esc(quiz.author || '')}</td>
+        <td style="padding:10px 8px;">
+          <form method="post" action="/admin/quizzes/${quiz.id}/author-email" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <input type="email" name="author_email" value="${esc(quiz.author_email || '')}" placeholder="name@example.com" style="padding:6px 8px;border-radius:6px;border:1px solid #555;background:#0a0a0a;color:#ffd700;min-width:220px;"/>
+            <button type="submit" class="ta-btn ta-btn-primary" style="margin:0;">Save</button>
+            ${quiz.author_email ? `<a href="/admin/quizzes/${quiz.id}/author-email?clear=1" class="ta-btn ta-btn-outline" style="margin:0;">Clear</a>` : ''}
+          </form>
+        </td>
+        <td style="padding:10px 8px;">
+          <form method="post" action="/admin/quizzes/${quiz.id}/author-average" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <input type="text" name="author_points_override" value="${overrideStr}" placeholder="e.g. 42" style="padding:6px 8px;border-radius:6px;border:1px solid #555;background:#0a0a0a;color:#ffd700;min-width:120px;"/>
+            <button type="submit" class="ta-btn ta-btn-primary" style="margin:0;">Apply</button>
+            ${overrideStr ? `<a href="/admin/quizzes/${quiz.id}/author-average?clear=1" class="ta-btn ta-btn-outline" style="margin:0;">Clear</a>` : ''}
+          </form>
+        </td>
+      </tr>`;
+    }
+    
+    const items = rows.flatMap(r => {
+      const result = [];
+      if (r.am) result.push(renderSlot(r.am, r.day, 'AM'));
+      else if (!r.isQuizmas) result.push(renderSlot(null, r.day, 'AM'));
+      if (r.pm) result.push(renderSlot(r.pm, r.day, 'PM'));
+      else if (!r.isQuizmas) result.push(renderSlot(null, r.day, 'PM'));
+      if (r.isQuizmas && !r.am) result.push(renderSlot(null, r.day, 'AM'));
+      return result;
     }).join('');
     res.type('html').send(`
       ${renderHead('Author Assignments • Admin', true)}
