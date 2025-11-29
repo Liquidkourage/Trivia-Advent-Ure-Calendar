@@ -7537,7 +7537,20 @@ app.get('/admin/players', requireAdmin, async (req, res) => {
       if (r.onboarding_complete) status.push('Onboarded');
       if (r.password_set_at) status.push('Password set');
       const statusStr = status.length ? status.join(' • ') : 'Pending setup';
-      return `<tr>
+      
+      // Determine registration status category for filtering
+      let regStatus = 'pending';
+      if (r.is_admin) {
+        regStatus = 'admin';
+      } else if (r.onboarding_complete && r.password_set_at) {
+        regStatus = 'fully-registered';
+      } else if (r.onboarding_complete) {
+        regStatus = 'onboarded';
+      } else if (r.password_set_at) {
+        regStatus = 'password-set';
+      }
+      
+      return `<tr data-reg-status="${regStatus}">
         <td><input type="checkbox" class="player-checkbox" value="${r.email}" /></td>
         <td><a href="/admin/players/${encodeURIComponent(r.email)}" class="ta-btn ta-btn-small" style="color:#111;text-decoration:none;">${r.email || ''}</a></td>
         <td><a href="/admin/players/${encodeURIComponent(r.email)}" class="ta-btn ta-btn-small" style="color:#111;text-decoration:none;">${r.username || '<em>Not set</em>'}</a></td>
@@ -7638,10 +7651,21 @@ app.get('/admin/players', requireAdmin, async (req, res) => {
           
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:12px;">
             <p style="margin:0;opacity:0.8;">Total: <span id="total-count">${rows.length}</span> player${rows.length !== 1 ? 's' : ''}</p>
-            <div style="display:flex;gap:8px;align-items:center;">
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
               <input type="text" id="player-search" placeholder="Search by email or username..." style="padding:8px 12px;border-radius:6px;border:1px solid #444;background:#1a1a1a;color:#fff;min-width:250px;" />
+              <select id="statusFilter" style="padding:8px;border-radius:6px;border:1px solid #444;background:#2a2a2a;color:#fff;min-width:200px;">
+                <option value="all">All Statuses</option>
+                <option value="pending">Pending Setup</option>
+                <option value="onboarded">Onboarded (No Password)</option>
+                <option value="password-set">Password Set (Not Onboarded)</option>
+                <option value="fully-registered">Fully Registered</option>
+                <option value="admin">Admin</option>
+              </select>
               <button onclick="clearSearch()" class="ta-btn ta-btn-outline" style="padding:8px 16px;">Clear</button>
             </div>
+          </div>
+          <div style="margin-bottom:16px;">
+            <span id="filterCount" style="opacity:0.7;font-size:14px;"></span>
           </div>
           
           <div id="bulk-actions" style="display:none;margin-bottom:16px;padding:12px;background:#1a1a1a;border-radius:6px;">
@@ -7678,22 +7702,39 @@ app.get('/admin/players', requireAdmin, async (req, res) => {
           <script>
             function filterPlayers() {
               const searchTerm = document.getElementById('player-search').value.toLowerCase().trim();
+              const statusFilter = document.getElementById('statusFilter');
+              const statusValue = statusFilter ? statusFilter.value : 'all';
               const rows = document.querySelectorAll('tbody tr');
               let visibleCount = 0;
               rows.forEach(row => {
                 const email = row.cells[1]?.textContent?.toLowerCase() || '';
                 const username = row.cells[2]?.textContent?.toLowerCase() || '';
-                const matches = !searchTerm || email.includes(searchTerm) || username.includes(searchTerm);
+                const regStatus = row.getAttribute('data-reg-status') || '';
+                const matchesSearch = !searchTerm || email.includes(searchTerm) || username.includes(searchTerm);
+                const matchesStatus = statusValue === 'all' || regStatus === statusValue;
+                const matches = matchesSearch && matchesStatus;
                 row.style.display = matches ? '' : 'none';
                 if (matches) visibleCount++;
               });
               document.getElementById('total-count').textContent = visibleCount;
+              const filterCount = document.getElementById('filterCount');
+              if (filterCount) {
+                filterCount.textContent = 'Showing ' + visibleCount + ' of ' + rows.length;
+              }
             }
             function clearSearch() {
               document.getElementById('player-search').value = '';
+              const statusFilter = document.getElementById('statusFilter');
+              if (statusFilter) statusFilter.value = 'all';
               filterPlayers();
             }
             document.getElementById('player-search').addEventListener('input', filterPlayers);
+            const statusFilter = document.getElementById('statusFilter');
+            if (statusFilter) {
+              statusFilter.addEventListener('change', filterPlayers);
+            }
+            // Initial filter count
+            filterPlayers();
             function toggleAll(checkbox) {
               document.querySelectorAll('.player-checkbox').forEach(cb => cb.checked = checkbox.checked);
               updateBulkActions();
