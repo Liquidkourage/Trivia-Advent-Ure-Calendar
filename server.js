@@ -7668,6 +7668,16 @@ app.get('/admin/players', requireAdmin, async (req, res) => {
             <span id="filterCount" style="opacity:0.7;font-size:14px;"></span>
           </div>
           
+          <div style="margin-bottom:16px;padding:12px;background:#1a3a1a;border:1px solid #2e7d32;border-radius:6px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
+              <div>
+                <strong style="color:#4caf50;">Quick Actions:</strong>
+                <span style="opacity:0.8;font-size:14px;margin-left:8px;">Send magic links to all currently visible players</span>
+              </div>
+              <button onclick="sendToAllVisible()" class="ta-btn ta-btn-primary" style="padding:8px 20px;font-weight:bold;">Send Magic Links to All Visible</button>
+            </div>
+          </div>
+          
           <div id="bulk-actions" style="display:none;margin-bottom:16px;padding:12px;background:#1a1a1a;border-radius:6px;">
             <div style="margin-bottom:8px;"><strong>Bulk Actions (<span id="selected-count">0</span> selected):</strong></div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
@@ -7786,6 +7796,35 @@ app.get('/admin/players', requireAdmin, async (req, res) => {
             document.querySelectorAll('.player-checkbox').forEach(cb => {
               cb.addEventListener('change', updateBulkActions);
             });
+            function sendToAllVisible() {
+              const visibleRows = Array.from(document.querySelectorAll('tbody tr')).filter(row => row.style.display !== 'none');
+              const visibleEmails = visibleRows.map(row => {
+                const checkbox = row.querySelector('.player-checkbox');
+                return checkbox ? checkbox.value : null;
+              }).filter(Boolean);
+              
+              if (visibleEmails.length === 0) {
+                alert('No visible players to send links to');
+                return;
+              }
+              
+              if (!confirm('Send magic links to all ' + visibleEmails.length + ' visible player(s)?')) {
+                return;
+              }
+              
+              const form = document.createElement('form');
+              form.method = 'POST';
+              form.action = '/admin/players/bulk/send-link';
+              visibleEmails.forEach(email => {
+                const input = document.createElement('input');
+                input.type = 'hidden';
+                input.name = 'emails[]';
+                input.value = email;
+                form.appendChild(input);
+              });
+              document.body.appendChild(form);
+              form.submit();
+            }
           </script>
           <p style="margin-top:16px;"><a href="/admin">Back to Admin</a></p>
         </main>
