@@ -311,6 +311,12 @@ async function initDb() {
     DO $$ BEGIN
       ALTER TABLE players ADD COLUMN IF NOT EXISTS email_announcements BOOLEAN NOT NULL DEFAULT TRUE;
     EXCEPTION WHEN others THEN NULL; END $$;
+    DO $$ BEGIN
+      ALTER TABLE players ADD COLUMN IF NOT EXISTS access_choice TEXT;
+    EXCEPTION WHEN others THEN NULL; END $$;
+    DO $$ BEGIN
+      ALTER TABLE players ADD COLUMN IF NOT EXISTS gift_recipient_email CITEXT;
+    EXCEPTION WHEN others THEN NULL; END $$;
     -- Optimistic locking fields for manual grading
     DO $$ BEGIN
       ALTER TABLE responses ADD COLUMN IF NOT EXISTS override_version INTEGER NOT NULL DEFAULT 0;
@@ -1150,6 +1156,143 @@ app.get('/account', requireAuth, async (req, res) => {
   }
 });
 
+// Access choice page - choose if access is for yourself, gift, or both
+app.get('/access-choice', requireAuth, async (req, res) => {
+  try {
+    const email = (req.session.user.email || '').toLowerCase();
+    const r = await pool.query('SELECT access_choice FROM players WHERE email=$1', [email]);
+    if (r.rows.length && r.rows[0].access_choice) {
+      // Already made choice, redirect to next step
+      const onboardingCheck = await pool.query('SELECT onboarding_complete, username, password_set_at FROM players WHERE email=$1', [email]);
+      const onboardingData = onboardingCheck.rows[0] || {};
+      if (!onboardingData.onboarding_complete) return res.redirect('/onboarding');
+      if (!onboardingData.username || !onboardingData.password_set_at) return res.redirect('/account/credentials');
+      return res.redirect('/');
+    }
+    const header = await renderHeader(req);
+    res.type('html').send(`
+      ${renderHead('Choose Your Access • Trivia Advent-ure', false)}
+      <body class="ta-body">
+      ${header}
+      <main class="ta-main ta-container" style="max-width:720px; margin:0 auto; padding:24px;">
+        <h1 class="ta-page-title">How would you like to use your access?</h1>
+        <p style="opacity:0.9;margin-bottom:24px;font-size:16px;">Please let us know how you'd like to use your Trivia Advent-ure access.</p>
+        <form method="post" action="/access-choice" style="display:flex;flex-direction:column;gap:16px;">
+          <div style="background:#1a1a1a;border:2px solid #333;border-radius:8px;padding:20px;cursor:pointer;" onclick="document.getElementById('choice-self').checked=true;document.getElementById('gift-email').style.display='none';document.querySelector('input[name=\\'gift_recipient_email\\']').removeAttribute('required');">
+            <label style="display:flex;align-items:center;gap:12px;cursor:pointer;">
+              <input type="radio" name="access_choice" id="choice-self" value="self" required style="width:20px;height:20px;cursor:pointer;" />
+              <div style="flex:1;">
+                <div style="font-weight:600;font-size:18px;margin-bottom:4px;color:#ffd700;">For myself</div>
+                <div style="opacity:0.8;font-size:14px;">I want to play Trivia Advent-ure myself</div>
+              </div>
+            </label>
+          </div>
+          <div style="background:#1a1a1a;border:2px solid #333;border-radius:8px;padding:20px;cursor:pointer;" onclick="document.getElementById('choice-gift').checked=true;document.getElementById('gift-email').style.display='block';document.querySelector('input[name=\\'gift_recipient_email\\']').setAttribute('required','required');">
+            <label style="display:flex;align-items:center;gap:12px;cursor:pointer;">
+              <input type="radio" name="access_choice" id="choice-gift" value="gift" required style="width:20px;height:20px;cursor:pointer;" />
+              <div style="flex:1;">
+                <div style="font-weight:600;font-size:18px;margin-bottom:4px;color:#ffd700;">As a gift</div>
+                <div style="opacity:0.8;font-size:14px;">I want to give this access to someone else</div>
+              </div>
+            </label>
+          </div>
+          <div id="gift-email" style="display:none;margin-left:32px;margin-top:-8px;margin-bottom:8px;">
+            <label style="display:block;margin-bottom:8px;font-weight:600;color:#ffd700;">Recipient Email</label>
+            <input type="email" name="gift_recipient_email" placeholder="their@email.com" style="width:100%;max-width:400px;padding:10px;border-radius:6px;border:1px solid #444;background:#2a2a2a;color:#fff;font-size:16px;" />
+            <div style="opacity:.8;font-size:.9em;margin-top:4px;">We'll send them a magic link to claim their access</div>
+          </div>
+          <div style="background:#1a1a1a;border:2px solid #333;border-radius:8px;padding:20px;cursor:pointer;" onclick="document.getElementById('choice-both').checked=true;document.getElementById('gift-email').style.display='block';document.querySelector('input[name=\\'gift_recipient_email\\']').setAttribute('required','required');">
+            <label style="display:flex;align-items:center;gap:12px;cursor:pointer;">
+              <input type="radio" name="access_choice" id="choice-both" value="both" required style="width:20px;height:20px;cursor:pointer;" />
+              <div style="flex:1;">
+                <div style="font-weight:600;font-size:18px;margin-bottom:4px;color:#ffd700;">Both</div>
+                <div style="opacity:0.8;font-size:14px;">I want to play myself AND give access to someone else</div>
+              </div>
+            </label>
+          </div>
+          <button type="submit" class="ta-btn ta-btn-primary" style="font-size:18px;padding:14px 32px;margin-top:8px;">Continue</button>
+        </form>
+        <script>
+          document.querySelectorAll('input[name="access_choice"]').forEach(radio => {
+            radio.addEventListener('change', function() {
+              const giftEmailDiv = document.getElementById('gift-email');
+              const giftEmailInput = document.querySelector('input[name="gift_recipient_email"]');
+              if (this.value === 'gift' || this.value === 'both') {
+                giftEmailDiv.style.display = 'block';
+                giftEmailInput.setAttribute('required', 'required');
+              } else {
+                giftEmailDiv.style.display = 'none';
+                giftEmailInput.removeAttribute('required');
+                giftEmailInput.value = '';
+              }
+            });
+          });
+        </script>
+      </main>
+      ${renderFooter(req)}
+      </body></html>
+    `);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to load access choice page');
+  }
+});
+
+app.post('/access-choice', requireAuth, express.urlencoded({ extended: true }), async (req, res) => {
+  try {
+    const email = (req.session.user.email || '').toLowerCase();
+    const accessChoice = String(req.body.access_choice || '').trim();
+    const giftRecipientEmail = accessChoice === 'gift' || accessChoice === 'both' 
+      ? String(req.body.gift_recipient_email || '').trim().toLowerCase() 
+      : null;
+    
+    if (!accessChoice || !['self', 'gift', 'both'].includes(accessChoice)) {
+      return res.status(400).send('Invalid access choice');
+    }
+    
+    if ((accessChoice === 'gift' || accessChoice === 'both') && !giftRecipientEmail) {
+      return res.status(400).send('Gift recipient email required');
+    }
+    
+    // Update player record
+    await pool.query(
+      'UPDATE players SET access_choice = $1, gift_recipient_email = $2 WHERE email = $3',
+      [accessChoice, giftRecipientEmail, email]
+    );
+    
+    // If gift or both, create access for recipient and send them a magic link
+    if (giftRecipientEmail && (accessChoice === 'gift' || accessChoice === 'both')) {
+      // Create player record for recipient if it doesn't exist
+      await pool.query(
+        'INSERT INTO players(email, access_granted_at, access_choice) VALUES($1, NOW(), $2) ON CONFLICT (email) DO UPDATE SET access_choice = $2',
+        [giftRecipientEmail, 'gift-received']
+      );
+      
+      // Create and send magic link to recipient
+      await pool.query('DELETE FROM magic_tokens WHERE email = $1 AND used = false', [giftRecipientEmail]);
+      const token = crypto.randomBytes(24).toString('base64url');
+      const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
+      await pool.query('INSERT INTO magic_tokens(token,email,expires_at,used) VALUES($1,$2,$3,false)', [token, giftRecipientEmail, expiresAt]);
+      const linkUrl = `${process.env.PUBLIC_BASE_URL || ''}/auth/magic?token=${encodeURIComponent(token)}`;
+      try {
+        await sendMagicLink(giftRecipientEmail, token, linkUrl);
+      } catch (err) {
+        console.error('[access-choice] Failed to send gift link:', err);
+      }
+    }
+    
+    // Redirect to next step
+    const r = await pool.query('SELECT onboarding_complete, username, password_set_at FROM players WHERE email=$1', [email]);
+    const p = r.rows[0] || {};
+    if (!p.onboarding_complete) return res.redirect('/onboarding');
+    if (!p.username || !p.password_set_at) return res.redirect('/account/credentials');
+    res.redirect('/');
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to save access choice');
+  }
+});
+
 // Onboarding page - first-time user welcome
 app.get('/onboarding', requireAuth, async (req, res) => {
   try {
@@ -1827,6 +1970,7 @@ app.get('/auth/magic', async (req, res) => {
               `);
             }
             const p = orow.rows[0];
+            if (!p.access_choice) return res.redirect('/access-choice');
             const onboardingDone = p.onboarding_complete === true;
             if (!onboardingDone) return res.redirect('/onboarding');
             if (!p.username || !p.password_set_at) return res.redirect('/account/credentials');
@@ -1883,6 +2027,7 @@ app.get('/auth/magic', async (req, res) => {
             `);
           }
           const p = orow.rows[0];
+          if (!p.access_choice) return res.redirect('/access-choice');
           const onboardingDone = p.onboarding_complete === true;
           if (!onboardingDone) return res.redirect('/onboarding');
           if (!p.username || !p.password_set_at) return res.redirect('/account/credentials');
@@ -1928,6 +2073,8 @@ app.get('/auth/magic', async (req, res) => {
     }
     
     const p = orow.rows[0];
+    // Check if they need to choose access type (for themselves, gift, or both)
+    if (!p.access_choice) return res.redirect('/access-choice');
     const onboardingDone = p.onboarding_complete === true;
     if (!onboardingDone) return res.redirect('/onboarding');
     if (!p.username || !p.password_set_at) return res.redirect('/account/credentials');
@@ -2540,9 +2687,10 @@ app.get('/player', requireAuth, async (req, res) => {
   
   // Check if user needs to complete setup (unless admin)
   if (!isAdmin) {
-    const setupCheck = await pool.query('SELECT onboarding_complete, username, password_set_at FROM players WHERE email=$1', [email]);
+    const setupCheck = await pool.query('SELECT access_choice, onboarding_complete, username, password_set_at FROM players WHERE email=$1', [email]);
     if (setupCheck.rows.length) {
       const p = setupCheck.rows[0];
+      if (!p.access_choice) return res.redirect('/access-choice');
       if (!p.onboarding_complete) return res.redirect('/onboarding');
       if (!p.username || !p.password_set_at) return res.redirect('/account/credentials');
     }
