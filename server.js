@@ -7704,34 +7704,36 @@ app.get('/admin/players', requireAdmin, async (req, res) => {
         <td>${statusStr}</td>
         <td>${r.quizzes_played || 0}</td>
         <td>${r.last_activity ? fmtEt(r.last_activity) : '<em>Never</em>'}</td>
-        <td style="white-space:nowrap;">
-          <form method="post" action="/admin/players/send-link" style="display:inline;" onsubmit="return confirm('Send magic link to ${r.email}?');">
-            <input type="hidden" name="email" value="${r.email}"/>
-            <button type="submit" style="padding:4px 8px;font-size:12px;margin:2px;">Send Link</button>
-          </form>
-          <form method="post" action="/admin/players/reset-password" style="display:inline;" onsubmit="return confirm('Reset password for ${r.email}? They will need to set a new password.');">
-            <input type="hidden" name="email" value="${r.email}"/>
-            <button type="submit" style="padding:4px 8px;font-size:12px;margin:2px;">Reset PW</button>
-          </form>
-          ${r.is_admin ? `
-          <form method="post" action="/admin/players/revoke-admin" style="display:inline;" onsubmit="return confirm('Revoke admin status from ${r.email}?');">
-            <input type="hidden" name="email" value="${r.email}"/>
-            <button type="submit" style="padding:4px 8px;font-size:12px;margin:2px;background:#d32f2f;">Revoke Admin</button>
-          </form>
-          ` : `
-          <form method="post" action="/admin/players/grant-admin" style="display:inline;" onsubmit="return confirm('Grant admin status to ${r.email}?');">
-            <input type="hidden" name="email" value="${r.email}"/>
-            <button type="submit" style="padding:4px 8px;font-size:12px;margin:2px;background:#2e7d32;">Grant Admin</button>
-          </form>
-          `}
-          <form method="post" action="/admin/players/delete" style="display:inline;" onsubmit="return confirm('DELETE ${r.email} and all their data? This cannot be undone.');">
-            <input type="hidden" name="email" value="${r.email}"/>
-            <button type="submit" style="padding:4px 8px;font-size:12px;margin:2px;background:#d32f2f;color:#fff;">Delete</button>
-          </form>
-          <form method="post" action="/admin/players/revoke-access" style="display:inline;" onsubmit="return confirm('REVOKE ACCESS and delete all data for ${r.email}? This cannot be undone.');">
-            <input type="hidden" name="email" value="${r.email}"/>
-            <button type="submit" style="padding:4px 8px;font-size:12px;margin:2px;background:#d32f2f;">Revoke Access</button>
-          </form>
+        <td style="white-space:nowrap;min-width:450px;">
+          <div style="display:flex;flex-wrap:wrap;gap:4px;align-items:center;">
+            <form method="post" action="/admin/players/send-link" style="display:inline;" onsubmit="return confirm('Send magic link to ${r.email}?');">
+              <input type="hidden" name="email" value="${r.email}"/>
+              <button type="submit" style="padding:4px 8px;font-size:11px;margin:0;">Send Link</button>
+            </form>
+            <form method="post" action="/admin/players/reset-password" style="display:inline;" onsubmit="return confirm('Reset password for ${r.email}? They will need to set a new password.');">
+              <input type="hidden" name="email" value="${r.email}"/>
+              <button type="submit" style="padding:4px 8px;font-size:11px;margin:0;">Reset PW</button>
+            </form>
+            ${r.is_admin ? `
+            <form method="post" action="/admin/players/revoke-admin" style="display:inline;" onsubmit="return confirm('Revoke admin status from ${r.email}?');">
+              <input type="hidden" name="email" value="${r.email}"/>
+              <button type="submit" style="padding:4px 8px;font-size:11px;margin:0;background:#d32f2f;">Revoke Admin</button>
+            </form>
+            ` : `
+            <form method="post" action="/admin/players/grant-admin" style="display:inline;" onsubmit="return confirm('Grant admin status to ${r.email}?');">
+              <input type="hidden" name="email" value="${r.email}"/>
+              <button type="submit" style="padding:4px 8px;font-size:11px;margin:0;background:#2e7d32;">Grant Admin</button>
+            </form>
+            `}
+            <form method="post" action="/admin/players/delete" style="display:inline;" onsubmit="return confirm('DELETE ${r.email} and all their data? This cannot be undone.');">
+              <input type="hidden" name="email" value="${r.email}"/>
+              <button type="submit" style="padding:4px 8px;font-size:11px;margin:0;background:#d32f2f;color:#fff;">Delete</button>
+            </form>
+            <form method="post" action="/admin/players/revoke-access" style="display:inline;" onsubmit="return confirm('REVOKE ACCESS and delete all data for ${r.email}? This cannot be undone.');">
+              <input type="hidden" name="email" value="${r.email}"/>
+              <button type="submit" style="padding:4px 8px;font-size:11px;margin:0;background:#d32f2f;">Revoke Access</button>
+            </form>
+          </div>
         </td>
       </tr>`;
     }).join('');
