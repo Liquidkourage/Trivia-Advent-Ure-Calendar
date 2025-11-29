@@ -210,8 +210,11 @@ async function initDb() {
       token TEXT PRIMARY KEY,
       email CITEXT NOT NULL,
       expires_at TIMESTAMPTZ NOT NULL,
-      used BOOLEAN NOT NULL DEFAULT FALSE
+      used BOOLEAN NOT NULL DEFAULT FALSE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+    -- Add created_at column to existing tables if it doesn't exist
+    DO $$ BEGIN ALTER TABLE magic_tokens ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(); EXCEPTION WHEN others THEN NULL; END $$;
     CREATE TABLE IF NOT EXISTS quizzes (
       id SERIAL PRIMARY KEY,
       title TEXT NOT NULL,
@@ -1891,6 +1894,29 @@ app.get('/auth/magic', async (req, res) => {
     
     console.log('[auth/magic] Attempting to use token:', token.substring(0, 10) + '...');
     
+    // Check if user is already authenticated - if so, don't consume token, just redirect
+    if (req.session && req.session.user && req.session.user.email) {
+      const existingEmail = (req.session.user.email || '').toLowerCase();
+      console.log('[auth/magic] User already authenticated:', existingEmail, '- checking if token matches');
+      const { rows: tokenCheck } = await pool.query(
+        'SELECT email FROM magic_tokens WHERE token = $1 AND email = $2 AND used = false AND expires_at > NOW()',
+        [token, existingEmail]
+      );
+      if (tokenCheck.length > 0) {
+        console.log('[auth/magic] Token matches existing session, redirecting without consuming token');
+        // User is already logged in and token is valid - just redirect to next step
+        const orow = await pool.query('SELECT onboarding_complete, username, password_set_at, access_choice FROM players WHERE email = $1', [existingEmail]);
+        if (orow.rows.length) {
+          const p = orow.rows[0];
+          if (!p.access_choice) return res.redirect('/access-choice');
+          const onboardingDone = p.onboarding_complete === true;
+          if (!onboardingDone) return res.redirect('/onboarding');
+          if (!p.username || !p.password_set_at) return res.redirect('/account/credentials');
+          return res.redirect('/');
+        }
+      }
+    }
+    
     // Get all tokens matching this token string (should only be one, but check for duplicates)
     // Note: token is PRIMARY KEY so there should only be one, but we check for duplicates anyway
     const { rows } = await pool.query('SELECT * FROM magic_tokens WHERE token = $1', [token]);
@@ -1910,24 +1936,34 @@ app.get('/auth/magic', async (req, res) => {
     
     // Find the first unused, non-expired token
     // Use database NOW() for accurate timezone comparison
-    const now = new Date();
-    let row = null;
-    for (const r of rows) {
-      const expiresAt = new Date(r.expires_at);
-      const isNotUsed = !r.used;
-      const isNotExpired = expiresAt >= now;
-      console.log('[auth/magic] Token check - used:', r.used, 'expires_at:', expiresAt.toISOString(), 'now:', now.toISOString(), 'valid:', isNotUsed && isNotExpired);
-      if (isNotUsed && isNotExpired) {
-        row = r;
-        break;
-      }
+    // Also require token to be at least 5 seconds old to prevent email scanner consumption
+    // Query database directly for valid tokens matching our criteria
+    const { rows: validTokens } = await pool.query(
+      'SELECT * FROM magic_tokens WHERE token = $1 AND used = false AND expires_at > NOW() AND created_at < NOW() - INTERVAL \'5 seconds\' LIMIT 1',
+      [token]
+    );
+    const row = validTokens.length > 0 ? validTokens[0] : null;
+    
+    // Log details for debugging
+    if (rows.length > 0) {
+      console.log('[auth/magic] Token check results:', rows.map(r => ({
+        used: r.used,
+        expires_at: r.expires_at,
+        created_at: r.created_at || 'N/A'
+      })));
     }
     
     if (!row) {
       // Check if all are used or expired
-      const allUsed = rows.every(r => r.used);
-      const allExpired = rows.every(r => new Date(r.expires_at) < now);
-      console.log('[auth/magic] Token issue - All used:', allUsed, 'All expired:', allExpired, 'Email:', rows[0]?.email);
+      const { rows: statusCheck } = await pool.query(
+        'SELECT COUNT(*) FILTER (WHERE used = true) as used_count, COUNT(*) FILTER (WHERE expires_at <= NOW()) as expired_count, COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL \'5 seconds\') as too_new_count FROM magic_tokens WHERE token = $1',
+        [token]
+      );
+      const allUsed = statusCheck[0]?.used_count === rows.length;
+      const allExpired = statusCheck[0]?.expired_count === rows.length;
+      const tooNew = statusCheck[0]?.too_new_count > 0;
+      
+      console.log('[auth/magic] Token issue - All used:', allUsed, 'All expired:', allExpired, 'Too new:', tooNew, 'Email:', rows[0]?.email);
       console.log('[auth/magic] Token details:', rows.map(r => ({ 
         token: r.token.substring(0, 10) + '...', 
         used: r.used, 
@@ -1935,20 +1971,24 @@ app.get('/auth/magic', async (req, res) => {
         email: r.email 
       })));
       
+      if (tooNew && !allUsed) {
+        return res.status(400).send('Token is too new. Please wait a few seconds and try again. This prevents automated scanners from consuming your link.');
+      }
+      
       if (allUsed) {
         // Double-check: maybe token was used between our SELECT and now
         // Try to find any unused token for this email that's not expired
         const { rows: freshCheck } = await pool.query(
-          'SELECT * FROM magic_tokens WHERE email = $1 AND used = false AND expires_at > $2 ORDER BY expires_at DESC LIMIT 1',
-          [rows[0]?.email, now]
+          'SELECT * FROM magic_tokens WHERE email = $1 AND used = false AND expires_at > NOW() AND created_at < NOW() - INTERVAL \'5 seconds\' ORDER BY expires_at DESC LIMIT 1',
+          [rows[0]?.email]
         );
         if (freshCheck.length > 0) {
           console.log('[auth/magic] Found unused token for same email, redirecting to use it');
           // Use the fresh token instead
           const freshToken = freshCheck[0].token;
           const updateResult = await pool.query(
-            'UPDATE magic_tokens SET used = true WHERE token = $1 AND used = false AND expires_at > $2 RETURNING email',
-            [freshToken, now]
+            'UPDATE magic_tokens SET used = true WHERE token = $1 AND used = false AND expires_at > NOW() RETURNING email',
+            [freshToken]
           );
           if (updateResult.rows.length > 0) {
             // Continue with authentication using the fresh token
@@ -1987,26 +2027,27 @@ app.get('/auth/magic', async (req, res) => {
     }
     
     // Mark as used using the specific row's ID or token (atomic update)
+    // Use database NOW() for consistent timezone handling and require token to be at least 5 seconds old
     console.log('[auth/magic] Attempting to mark token as used. Token:', token.substring(0, 10) + '...', 'Email:', row.email);
     const updateResult = await pool.query(
-      'UPDATE magic_tokens SET used = true WHERE token = $1 AND used = false AND expires_at > $2 RETURNING email',
-      [token, now]
+      'UPDATE magic_tokens SET used = true WHERE token = $1 AND used = false AND expires_at > NOW() AND created_at < NOW() - INTERVAL \'5 seconds\' RETURNING email',
+      [token]
     );
     
     if (updateResult.rows.length === 0) {
       console.log('[auth/magic] Failed to mark token as used - may have been used concurrently:', token.substring(0, 10) + '...');
-      console.log('[auth/magic] Token state check - used:', row.used, 'expires_at:', row.expires_at, 'now:', now);
+      console.log('[auth/magic] Token state check - used:', row.used, 'expires_at:', row.expires_at);
       // Try one more time to find an unused token for this email
       const { rows: retryCheck } = await pool.query(
-        'SELECT * FROM magic_tokens WHERE email = $1 AND used = false AND expires_at > $2 ORDER BY expires_at DESC LIMIT 1',
-        [row.email, now]
+        'SELECT * FROM magic_tokens WHERE email = $1 AND used = false AND expires_at > NOW() AND created_at < NOW() - INTERVAL \'5 seconds\' ORDER BY expires_at DESC LIMIT 1',
+        [row.email]
       );
       if (retryCheck.length > 0) {
         console.log('[auth/magic] Found unused token on retry, using it');
         const retryToken = retryCheck[0].token;
         const retryUpdate = await pool.query(
-          'UPDATE magic_tokens SET used = true WHERE token = $1 AND used = false AND expires_at > $2 RETURNING email',
-          [retryToken, now]
+          'UPDATE magic_tokens SET used = true WHERE token = $1 AND used = false AND expires_at > NOW() RETURNING email',
+          [retryToken]
         );
         if (retryUpdate.rows.length > 0) {
           // Continue with authentication
