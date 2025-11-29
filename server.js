@@ -2258,10 +2258,8 @@ app.get('/', (req, res) => {
 // Public landing (logged-out)
 app.get('/public', async (req, res) => {
   // Get some stats to make it more enticing
-  let stats = { totalQuizzes: 0, totalPlayers: 0 };
+  let stats = { totalQuizzes: 60, totalPlayers: 0 }; // Total available: 48 Advent + 12 Quizmas = 60
   try {
-    const quizCount = await pool.query('SELECT COUNT(*) as count FROM quizzes');
-    stats.totalQuizzes = parseInt(quizCount.rows[0]?.count || 0);
     const playerCount = await pool.query('SELECT COUNT(*) as count FROM players');
     stats.totalPlayers = parseInt(playerCount.rows[0]?.count || 0);
   } catch (e) {
