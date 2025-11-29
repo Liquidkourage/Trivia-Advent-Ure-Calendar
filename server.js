@@ -1174,7 +1174,7 @@ app.get('/onboarding', requireAuth, async (req, res) => {
             We're excited to have you join the community! Here's what you need to know:
           </p>
           <ul style="line-height:1.8;margin:0;padding-left:24px;">
-            <li><strong>48 quizzes</strong> unlock twice daily (midnight and noon ET) from December 1–24</li>
+            <li><strong>60 quizzes total:</strong> 48 Advent quizzes unlock twice daily (midnight and noon ET) from December 1–24, plus 12 Days of Quizmas from December 26–January 6</li>
             <li><strong>10 questions per quiz</strong> with immediate feedback and scoring</li>
             <li><strong>Leaderboards</strong> track your progress and compare with other players</li>
             <li><strong>Play at your own pace</strong> during each 24-hour window</li>
@@ -2130,7 +2130,7 @@ app.get('/public', async (req, res) => {
         <div style="text-align:center;margin:32px 0 48px 0;">
           <h1 class="ta-page-title" style="font-size:48px;margin-bottom:16px;background:linear-gradient(90deg, #FFA726 0%, #FFC46B 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">Trivia Advent-ure Calendar</h1>
           <p style="font-size:20px;line-height:1.6;opacity:0.9;max-width:700px;margin:0 auto 24px auto;">
-            Join the ultimate December trivia challenge! 48 quizzes unlock twice daily from December 1–24. 
+            Join the ultimate December trivia challenge! 48 Advent quizzes unlock twice daily from December 1–24, plus 12 Days of Quizmas from December 26–January 6. 
             Test your knowledge, compete on leaderboards, and have fun with friends.
           </p>
           ${stats.totalPlayers > 0 ? `
@@ -2159,7 +2159,7 @@ app.get('/public', async (req, res) => {
             <div style="text-align:center;">
               <div style="font-size:36px;margin-bottom:8px;">🎯</div>
               <h3 style="color:#ffd700;margin:0 0 8px 0;font-size:18px;">Daily Challenges</h3>
-              <p style="margin:0;opacity:0.8;line-height:1.5;">48 unique quizzes unlock at midnight and noon ET. Play at your own pace!</p>
+              <p style="margin:0;opacity:0.8;line-height:1.5;">60 unique quizzes across Advent and Quizmas events. Play at your own pace!</p>
             </div>
             <div style="text-align:center;">
               <div style="font-size:36px;margin-bottom:8px;">🏆</div>
@@ -8627,12 +8627,12 @@ app.get('/faq', async (req, res) => {
 
         <div class="faq-section" style="margin-bottom:32px;">
           <h2 style="color:#ffd700;margin-bottom:16px;">What is Trivia Advent-ure Calendar?</h2>
-          <p style="opacity:0.9;line-height:1.6;margin-bottom:16px;">Trivia Advent-ure Calendar is a daily trivia event that runs throughout December, featuring 48 unique quiz challenges created by different authors. Each day brings new trivia questions to test your knowledge while supporting charitable causes.</p>
+          <p style="opacity:0.9;line-height:1.6;margin-bottom:16px;">Trivia Advent-ure Calendar is a daily trivia event that runs throughout December and into January, featuring 60 unique quiz challenges created by different authors. The Advent calendar includes 48 quizzes from December 1–24, and the 12 Days of Quizmas adds 12 more quizzes from December 26–January 6. Each day brings new trivia questions to test your knowledge while supporting charitable causes.</p>
         </div>
 
         <div class="faq-section" style="margin-bottom:32px;">
           <h2 style="color:#ffd700;margin-bottom:16px;">How does the event work?</h2>
-          <p style="opacity:0.9;line-height:1.6;margin-bottom:16px;">From December 1st through December 24th, quizzes will unlock every 12 hours (at midnight and noon Eastern). So that's 48 total quizzes written by 48 different authors in 48 different topics.</p>
+          <p style="opacity:0.9;line-height:1.6;margin-bottom:16px;">The Advent calendar runs from December 1st through December 24th, with quizzes unlocking every 12 hours (at midnight and noon Eastern) - that's 48 Advent quizzes. The 12 Days of Quizmas runs from December 26th through January 6th, with one quiz unlocking each day at midnight Eastern - that's 12 Quizmas quizzes. In total, 60 quizzes written by 60 different authors covering 60 different topics.</p>
         </div>
 
         <div class="faq-section" style="margin-bottom:32px;">
@@ -8683,7 +8683,7 @@ app.get('/faq', async (req, res) => {
 
         <div class="faq-section" style="margin-bottom:32px;">
           <h2 style="color:#ffd700;margin-bottom:16px;">Who creates the quizzes?</h2>
-          <p style="opacity:0.9;line-height:1.6;margin-bottom:16px;">Each quiz was written by a trivia professional or enthusiast. 48 quizzes, 48 authors who you'll learn about when their quiz becomes available.</p>
+          <p style="opacity:0.9;line-height:1.6;margin-bottom:16px;">Each quiz was written by a trivia professional or enthusiast. 60 quizzes total, 60 authors who you'll learn about when their quiz becomes available.</p>
         </div>
 
         <div class="faq-section" style="margin-bottom:32px;">
