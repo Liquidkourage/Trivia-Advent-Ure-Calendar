@@ -4157,11 +4157,50 @@ app.get('/admin/writer-submissions/:id', requireAdmin, async (req, res) => {
   try {
     const id = Number(req.params.id);
     if (!id) return res.status(400).send('Invalid id');
-    const sres = await pool.query('SELECT ws.token, ws.author, ws.submitted_at, ws.updated_at, ws.data, wi.slot_date, wi.slot_half, wi.submitted_at as invite_submitted_at FROM writer_submissions ws LEFT JOIN writer_invites wi ON wi.token = ws.token WHERE ws.id=$1', [id]);
+    const sres = await pool.query('SELECT ws.token, ws.author, ws.submitted_at, ws.updated_at, ws.data, wi.slot_date, wi.slot_half, wi.submitted_at as invite_submitted_at, wi.published_at FROM writer_submissions ws LEFT JOIN writer_invites wi ON wi.token = ws.token WHERE ws.id=$1', [id]);
     if (!sres.rows.length) return res.status(404).send('Not found');
     const row = sres.rows[0];
-    const data = typeof row.data === 'string' ? JSON.parse(row.data) : row.data;
-    const questions = Array.isArray(data?.questions) ? data.questions : [];
+    
+    // Check if this submission has been published - if so, load the published quiz data instead
+    let publishedQuiz = null;
+    let publishedQuestions = [];
+    if (row.published_at) {
+      // Find the published quiz by matching author_email or author name
+      try {
+        const { rows: inviteRows } = await pool.query('SELECT email FROM writer_invites WHERE token=$1', [row.token]);
+        const authorEmail = inviteRows.length && inviteRows[0].email ? String(inviteRows[0].email).trim().toLowerCase() : null;
+        
+        // Try to find quiz by author_email first, then by author name
+        let quizQuery, quizParams;
+        if (authorEmail && authorEmail !== '') {
+          quizQuery = 'SELECT q.* FROM quizzes q WHERE q.author_email=$1 ORDER BY q.id DESC LIMIT 1';
+          quizParams = [authorEmail];
+        } else {
+          quizQuery = 'SELECT q.* FROM quizzes q WHERE q.author=$1 ORDER BY q.id DESC LIMIT 1';
+          quizParams = [row.author];
+        }
+        
+        const quizRes = await pool.query(quizQuery, quizParams);
+        if (quizRes.rows.length) {
+          publishedQuiz = quizRes.rows[0];
+          const qRes = await pool.query('SELECT * FROM questions WHERE quiz_id=$1 ORDER BY number ASC', [publishedQuiz.id]);
+          publishedQuestions = qRes.rows;
+        }
+      } catch (e) {
+        console.error('[preview] Error loading published quiz:', e);
+      }
+    }
+    
+    // Use published quiz data if available, otherwise use submission data
+    const usePublishedData = publishedQuiz && publishedQuestions.length > 0;
+    const data = usePublishedData ? null : (typeof row.data === 'string' ? JSON.parse(row.data) : row.data);
+    const questions = usePublishedData 
+      ? publishedQuestions.map(q => ({ text: q.text, answer: q.answer, category: q.category || 'General', ask: q.ask }))
+      : (Array.isArray(data?.questions) ? data.questions : []);
+    
+    const displayDescription = usePublishedData ? (publishedQuiz.description || '') : (data?.description || '');
+    const displayAuthorBlurb = usePublishedData ? (publishedQuiz.author_blurb || '') : (data?.author_blurb || '');
+    
     const warn = [];
     const esc = (v)=>String(v||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
     const qHtml = questions.map((q, i) => {
