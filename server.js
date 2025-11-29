@@ -4412,8 +4412,8 @@ app.get('/admin/writer-submissions/:id', requireAdmin, async (req, res) => {
           </div>
         `}
         <div>First saved: ${fmtEt(row.submitted_at)}${row.updated_at ? ` · Last updated: ${fmtEt(row.updated_at)}` : ''}</div>
-        ${data.description ? `<h3 style="margin-top:12px;">About this quiz</h3><div>${esc(data.description)}</div>` : ''}
-        ${data.author_blurb ? `<h3 style="margin-top:12px;">About the author</h3><div>${esc(data.author_blurb)}</div>` : ''}
+        ${data.description ? `<h3 style="margin-top:12px;">About this quiz</h3><div style="white-space:pre-wrap;">${esc(data.description)}</div>` : ''}
+        ${data.author_blurb ? `<h3 style="margin-top:12px;">About the author</h3><div style="white-space:pre-wrap;">${esc(data.author_blurb)}</div>` : ''}
         ${warnHtml}
         <h3 style="margin-top:12px;">Questions</h3>
         ${qHtml || '<div>No questions.</div>'}
