@@ -1189,7 +1189,7 @@ app.get('/access-choice', requireAuth, async (req, res) => {
                 <div style="opacity:0.8;font-size:14px;">I want to play Trivia Advent-ure myself</div>
               </div>
             </label>
-          </div>
+              </div>
           <div style="background:#1a1a1a;border:2px solid #333;border-radius:8px;padding:20px;cursor:pointer;" onclick="document.getElementById('choice-gift').checked=true;document.getElementById('gift-email').style.display='block';document.querySelector('input[name=\\'gift_recipient_email\\']').setAttribute('required','required');">
             <label style="display:flex;align-items:center;gap:12px;cursor:pointer;">
               <input type="radio" name="access_choice" id="choice-gift" value="gift" required style="width:20px;height:20px;cursor:pointer;" />
@@ -1198,7 +1198,7 @@ app.get('/access-choice', requireAuth, async (req, res) => {
                 <div style="opacity:0.8;font-size:14px;">I want to give this access to someone else</div>
               </div>
             </label>
-          </div>
+            </div>
           <div id="gift-email" style="display:none;margin-left:32px;margin-top:-8px;margin-bottom:8px;">
             <label style="display:block;margin-bottom:8px;font-weight:600;color:#ffd700;">Recipient Email</label>
             <input type="email" name="gift_recipient_email" placeholder="their@email.com" style="width:100%;max-width:400px;padding:10px;border-radius:6px;border:1px solid #444;background:#2a2a2a;color:#fff;font-size:16px;" />
@@ -1231,7 +1231,7 @@ app.get('/access-choice', requireAuth, async (req, res) => {
             });
           });
         </script>
-      </main>
+        </main>
       ${renderFooter(req)}
       </body></html>
     `);
@@ -2930,7 +2930,6 @@ app.get('/admin', requireAdmin, async (req, res) => {
           <h2 style="margin-bottom:12px;color:#ffd700;">Access & Users</h2>
           <div class="ta-card-grid">
             <a class="ta-card" href="/admin/players"><strong>Players</strong><span>View and manage all players</span></a>
-            <a class="ta-card" href="/admin/players"><strong>Players & Access</strong><span>Manage players and grant access</span></a>
             <a class="ta-card" href="/admin/admins"><strong>Admins</strong><span>Manage admin emails</span></a>
           </div>
         </section>
@@ -7709,33 +7708,33 @@ app.get('/admin/players', requireAdmin, async (req, res) => {
         <td>${r.last_activity ? fmtEt(r.last_activity) : '<em>Never</em>'}</td>
         <td style="white-space:nowrap;min-width:450px;">
           <div style="display:flex;flex-wrap:wrap;gap:4px;align-items:center;">
-            <form method="post" action="/admin/players/send-link" style="display:inline;" onsubmit="return confirm('Send magic link to ${r.email}?');">
-              <input type="hidden" name="email" value="${r.email}"/>
+          <form method="post" action="/admin/players/send-link" style="display:inline;" onsubmit="return confirm('Send magic link to ${r.email}?');">
+            <input type="hidden" name="email" value="${r.email}"/>
               <button type="submit" style="padding:4px 8px;font-size:11px;margin:0;">Send Link</button>
-            </form>
-            <form method="post" action="/admin/players/reset-password" style="display:inline;" onsubmit="return confirm('Reset password for ${r.email}? They will need to set a new password.');">
-              <input type="hidden" name="email" value="${r.email}"/>
+          </form>
+          <form method="post" action="/admin/players/reset-password" style="display:inline;" onsubmit="return confirm('Reset password for ${r.email}? They will need to set a new password.');">
+            <input type="hidden" name="email" value="${r.email}"/>
               <button type="submit" style="padding:4px 8px;font-size:11px;margin:0;">Reset PW</button>
-            </form>
-            ${r.is_admin ? `
-            <form method="post" action="/admin/players/revoke-admin" style="display:inline;" onsubmit="return confirm('Revoke admin status from ${r.email}?');">
-              <input type="hidden" name="email" value="${r.email}"/>
+          </form>
+          ${r.is_admin ? `
+          <form method="post" action="/admin/players/revoke-admin" style="display:inline;" onsubmit="return confirm('Revoke admin status from ${r.email}?');">
+            <input type="hidden" name="email" value="${r.email}"/>
               <button type="submit" style="padding:4px 8px;font-size:11px;margin:0;background:#d32f2f;">Revoke Admin</button>
-            </form>
-            ` : `
-            <form method="post" action="/admin/players/grant-admin" style="display:inline;" onsubmit="return confirm('Grant admin status to ${r.email}?');">
-              <input type="hidden" name="email" value="${r.email}"/>
+          </form>
+          ` : `
+          <form method="post" action="/admin/players/grant-admin" style="display:inline;" onsubmit="return confirm('Grant admin status to ${r.email}?');">
+            <input type="hidden" name="email" value="${r.email}"/>
               <button type="submit" style="padding:4px 8px;font-size:11px;margin:0;background:#2e7d32;">Grant Admin</button>
-            </form>
-            `}
+          </form>
+          `}
             <form method="post" action="/admin/players/delete" style="display:inline;" onsubmit="return confirm('DELETE ${r.email} and all their data? This cannot be undone.');">
               <input type="hidden" name="email" value="${r.email}"/>
               <button type="submit" style="padding:4px 8px;font-size:11px;margin:0;background:#d32f2f;color:#fff;">Delete</button>
             </form>
-            <form method="post" action="/admin/players/revoke-access" style="display:inline;" onsubmit="return confirm('REVOKE ACCESS and delete all data for ${r.email}? This cannot be undone.');">
-              <input type="hidden" name="email" value="${r.email}"/>
+          <form method="post" action="/admin/players/revoke-access" style="display:inline;" onsubmit="return confirm('REVOKE ACCESS and delete all data for ${r.email}? This cannot be undone.');">
+            <input type="hidden" name="email" value="${r.email}"/>
               <button type="submit" style="padding:4px 8px;font-size:11px;margin:0;background:#d32f2f;">Revoke Access</button>
-            </form>
+          </form>
           </div>
         </td>
       </tr>`;
