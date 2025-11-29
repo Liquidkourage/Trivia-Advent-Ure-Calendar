@@ -4412,8 +4412,9 @@ app.get('/admin/writer-submissions/:id', requireAdmin, async (req, res) => {
           </div>
         `}
         <div>First saved: ${fmtEt(row.submitted_at)}${row.updated_at ? ` · Last updated: ${fmtEt(row.updated_at)}` : ''}</div>
-        ${data.description ? `<h3 style="margin-top:12px;">About this quiz</h3><div style="white-space:pre-wrap;">${esc(data.description)}</div>` : ''}
-        ${data.author_blurb ? `<h3 style="margin-top:12px;">About the author</h3><div style="white-space:pre-wrap;">${esc(data.author_blurb)}</div>` : ''}
+        ${usePublishedData ? `<div style="margin:12px 0;padding:12px;background:rgba(156,39,176,0.15);border:2px solid #9c27b0;border-radius:6px;"><div style="font-weight:bold;color:#9c27b0;font-size:16px;margin-bottom:4px;">📢 Published Quiz</div><div style="color:#ffd700;font-size:16px;"><strong>Quiz #${publishedQuiz.id}: ${esc(publishedQuiz.title || 'Untitled')}</strong></div><div style="color:#aaa;font-size:13px;margin-top:4px;">Showing published quiz data (may differ from original submission). <a href="/admin/quiz/${publishedQuiz.id}" style="color:#bb86fc;">Edit published quiz</a></div></div>` : ''}
+        ${displayDescription ? `<h3 style="margin-top:12px;">About this quiz</h3><div style="white-space:pre-wrap;">${esc(displayDescription)}</div>` : ''}
+        ${displayAuthorBlurb ? `<h3 style="margin-top:12px;">About the author</h3><div style="white-space:pre-wrap;">${esc(displayAuthorBlurb)}</div>` : ''}
         ${warnHtml}
         <h3 style="margin-top:12px;">Questions</h3>
         ${qHtml || '<div>No questions.</div>'}
