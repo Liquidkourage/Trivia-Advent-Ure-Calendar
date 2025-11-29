@@ -3186,6 +3186,7 @@ app.get('/calendar', async (req, res) => {
         <main class="ta-main ta-container ta-calendar">
           ${email && needsPassword ? `<div style="margin:12px 0;padding:10px;border:1px solid #ffecb5;border-radius:6px;background:#fff8e1;color:#6b4f00;">Welcome! For cross-device login, please <a href="/account/security">set your password</a>.</div>` : ''}
           <h1 class="ta-page-title">Advent Calendar</h1>
+          <p style="margin-bottom:16px;"><a href="/leaderboard" class="ta-btn ta-btn-primary">View Overall Leaderboard</a></p>
           <div class="ta-calendar-grid">${grid}</div>
         </main>
         ${renderFooter(req)}
