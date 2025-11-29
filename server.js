@@ -8763,7 +8763,8 @@ app.post('/contact', express.urlencoded({ extended: true }), async (req, res) =>
     const emailContent = `
       New contact form submission from Trivia Advent-ure Calendar:
 
-      From: ${name} <${email}>
+      Name: ${name}
+      Email: ${email}
       Subject: ${subject}
 
       Message:
