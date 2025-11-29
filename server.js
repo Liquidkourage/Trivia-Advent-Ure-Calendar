@@ -8773,7 +8773,26 @@ app.post('/contact', express.urlencoded({ extended: true }), async (req, res) =>
       Sent via contact form at ${new Date().toISOString()}
     `;
 
-    await sendHTMLEmail('Trivia.Adventure12124@gmail.com', `Contact Form: ${subject}`, `<pre>${emailContent.replace(/\n/g, '<br>')}</pre>`);
+    // Send email with Reply-To header so replies go to the submitter
+    const fromHeader = process.env.EMAIL_FROM || 'no-reply@example.com';
+    const oAuth2Client = getOAuth2Client();
+    const gmail = google.gmail({ version: 'v1', auth: oAuth2Client });
+    const rawLines = [
+      `From: ${fromHeader}`,
+      `To: Trivia.Adventure12124@gmail.com`,
+      `Reply-To: ${name} <${email}>`,
+      `Subject: Contact Form: ${subject}`,
+      'MIME-Version: 1.0',
+      'Content-Type: text/html; charset=UTF-8',
+      '',
+      `<pre>${emailContent.replace(/\n/g, '<br>')}</pre>`
+    ];
+    const rawMessage = Buffer.from(rawLines.join('\r\n'))
+      .toString('base64')
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
+    await gmail.users.messages.send({ userId: 'me', requestBody: { raw: rawMessage } });
 
     res.type('html').send(`
       ${renderHead('Message Sent', false)}
