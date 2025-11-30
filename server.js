@@ -582,20 +582,30 @@ function getOAuth2Client() {
   return cachedOAuth2Client;
 }
 
-async function sendMagicLink(email, token, linkUrl) {
+async function sendMagicLink(email, token, linkUrl, giftInfo = null) {
   try {
     const fromHeader = process.env.EMAIL_FROM || 'no-reply@example.com';
     const fromEmail = parseEmailAddress(fromHeader) || 'no-reply@example.com';
     const url = linkUrl || `${process.env.PUBLIC_BASE_URL || ''}/auth/magic?token=${encodeURIComponent(token)}`;
     console.log('[sendMagicLink] Sending magic link to:', email);
     console.log('[sendMagicLink] Magic link URL:', url);
+    if (giftInfo) {
+      console.log('[sendMagicLink] This is a gift from:', giftInfo.donorEmail);
+    }
 
     // Get OAuth2 client (reused or newly created)
     const oAuth2Client = getOAuth2Client();
     const gmail = google.gmail({ version: 'v1', auth: oAuth2Client });
 
-    const subject = 'Welcome to Trivia Advent-ure!';
-    const text = `Welcome to Trivia Advent-ure!\r\n\r\nClick the link below to sign in and get started:\r\n${url}\r\n\r\nThis link expires in 30 days and can only be used once.\r\n\r\nIf you didn't request this link, you can safely ignore this email.\r\n\r\nHappy trivia-ing!`;
+    const subject = giftInfo ? 'You\'ve been gifted Trivia Advent-ure access!' : 'Welcome to Trivia Advent-ure!';
+    
+    let text;
+    if (giftInfo) {
+      const donorName = giftInfo.donorName || giftInfo.donorEmail;
+      text = `You've been gifted access to Trivia Advent-ure!\r\n\r\n${donorName} has gifted you access to play Trivia Advent-ure. Click the link below to claim your access and get started:\r\n${url}\r\n\r\nThis link expires in 30 days and can only be used once.\r\n\r\nHappy trivia-ing!`;
+    } else {
+      text = `Welcome to Trivia Advent-ure!\r\n\r\nClick the link below to sign in and get started:\r\n${url}\r\n\r\nThis link expires in 30 days and can only be used once.\r\n\r\nIf you didn't request this link, you can safely ignore this email.\r\n\r\nHappy trivia-ing!`;
+    }
 
     const rawLines = [
       `From: ${fromHeader}`,
@@ -1423,6 +1433,11 @@ app.post('/access-choice', requireAuth, express.urlencoded({ extended: true }), 
         [giftRecipientEmail, 'gift-received']
       );
       
+      // Get donor information for gift email
+      const donorInfo = await pool.query('SELECT email, username FROM players WHERE email=$1', [email]);
+      const donor = donorInfo.rows[0] || {};
+      const donorName = donor.username || donor.email || email;
+      
       // Create and send magic link to recipient
       await pool.query('DELETE FROM magic_tokens WHERE email = $1 AND used = false', [giftRecipientEmail]);
       const token = crypto.randomBytes(24).toString('base64url');
@@ -1430,7 +1445,10 @@ app.post('/access-choice', requireAuth, express.urlencoded({ extended: true }), 
       await pool.query('INSERT INTO magic_tokens(token,email,expires_at,used) VALUES($1,$2,$3,false)', [token, giftRecipientEmail, expiresAt]);
       const linkUrl = `${process.env.PUBLIC_BASE_URL || ''}/auth/magic?token=${encodeURIComponent(token)}`;
       try {
-        await sendMagicLink(giftRecipientEmail, token, linkUrl);
+        await sendMagicLink(giftRecipientEmail, token, linkUrl, {
+          donorEmail: email,
+          donorName: donorName
+        });
       } catch (err) {
         console.error('[access-choice] Failed to send gift link:', err);
       }
