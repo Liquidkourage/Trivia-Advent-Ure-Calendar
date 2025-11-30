@@ -1451,10 +1451,14 @@ app.post('/access-choice', requireAuth, express.urlencoded({ extended: true }), 
       // Get donor information for gift email
       const donorInfo = await pool.query('SELECT email, username FROM players WHERE email=$1', [email]);
       const donor = donorInfo.rows[0] || {};
-      // Use username if available, otherwise extract a friendly name from email
+      // Use username if available and it's not an email address, otherwise extract a friendly name from email
       let donorName = donor.username;
+      // Check if username looks like an email address (contains @)
+      if (donorName && donorName.includes('@')) {
+        donorName = null; // Treat email-like usernames as if no username
+      }
       if (!donorName) {
-        // Extract a friendly name from email (part before @, capitalize first letter)
+        // Extract a friendly name from email (part before @, capitalize first letter, replace separators with spaces)
         const emailPart = (donor.email || email).split('@')[0];
         donorName = emailPart.charAt(0).toUpperCase() + emailPart.slice(1).replace(/[._-]/g, ' ');
       }
