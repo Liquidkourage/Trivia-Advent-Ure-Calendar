@@ -399,6 +399,58 @@ async function initDb() {
     try { await pool.query('INSERT INTO admins(email) VALUES($1) ON CONFLICT (email) DO NOTHING', [seedAdmin]); } catch {}
   }
 }
+// --- Quiz unlock notification email ---
+async function sendQuizUnlockEmail(email, quizTitle, quizId, unlockTime) {
+  const baseUrl = process.env.PUBLIC_BASE_URL || '';
+  const quizUrl = `${baseUrl}/quiz/${quizId}`;
+  const preferencesUrl = `${baseUrl}/account/preferences`;
+  
+  // Escape HTML in quiz title to prevent XSS
+  const escapedTitle = String(quizTitle || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  
+  const htmlContent = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="UTF-8">
+      <style>
+        body { font-family: system-ui, -apple-system, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background: linear-gradient(90deg, #FFA726 0%, #FFC46B 100%); color: #111; padding: 20px; border-radius: 8px 8px 0 0; text-align: center; }
+        .content { background: #f9f9f9; padding: 24px; border: 1px solid #ddd; border-top: none; }
+        .footer { text-align: center; padding: 16px; color: #666; font-size: 12px; border-top: 1px solid #ddd; }
+        .cta-button { display: inline-block; background: #FFA726; color: #111; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; margin: 16px 0; }
+        .opt-out { margin-top: 24px; padding-top: 16px; border-top: 1px solid #ddd; font-size: 12px; color: #666; }
+        a { color: #FFA726; }
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        <h1 style="margin: 0;">Trivia Advent-ure</h1>
+      </div>
+      <div class="content">
+        <h2 style="margin-top: 0;">New Quiz Unlocked!</h2>
+        <p>A new quiz has just unlocked:</p>
+        <p style="font-size: 18px; font-weight: bold; color: #FFA726;">${escapedTitle}</p>
+        <p style="opacity: 0.8;">Unlocked at ${unlockTime}</p>
+        <div style="text-align: center;">
+          <a href="${quizUrl}" class="cta-button">Play Now</a>
+        </div>
+        <div class="opt-out">
+          <p style="margin: 0;"><strong>Don't want these notifications?</strong> You can opt out of quiz unlock emails in your <a href="${preferencesUrl}">account preferences</a>.</p>
+        </div>
+      </div>
+      <div class="footer">
+        <p>Trivia Advent-ure Calendar</p>
+      </div>
+    </body>
+    </html>
+  `;
+  
+  const textContent = `New Quiz Unlocked!\r\n\r\nA new quiz has just unlocked: ${quizTitle}\r\nUnlocked at ${unlockTime}\r\n\r\nPlay now: ${quizUrl}\r\n\r\nDon't want these notifications? You can opt out of quiz unlock emails in your account preferences: ${preferencesUrl}`;
+  
+  await sendHTMLEmail(email, `New Quiz Unlocked: ${quizTitle}`, htmlContent);
+}
+
 // --- Writer invite scheduler: send emails when due ---
 const WRITER_INVITE_CHECK_MS = 60 * 1000;
 setInterval(async () => {
@@ -426,6 +478,60 @@ setInterval(async () => {
     console.error('writer invite scheduler error:', e);
   }
 }, WRITER_INVITE_CHECK_MS);
+
+// --- Quiz unlock notification scheduler: check for newly unlocked quizzes ---
+const QUIZ_UNLOCK_CHECK_MS = 60 * 1000; // Check every minute
+setInterval(async () => {
+  try {
+    // Find quizzes that unlocked in the last 1 minute
+    // Quizzes unlock at midnight or noon ET, so checking every minute should catch them
+    // Using a 1-minute window (with <= for upper bound to catch exact unlock times)
+    const now = new Date();
+    const oneMinuteAgo = new Date(now.getTime() - 60 * 1000);
+    
+    const { rows: unlockedQuizzes } = await pool.query(
+      `SELECT id, title, unlock_at, quiz_type
+       FROM quizzes
+       WHERE unlock_at >= $1 AND unlock_at <= $2
+       ORDER BY unlock_at ASC`,
+      [oneMinuteAgo, now]
+    );
+    
+    if (unlockedQuizzes.length === 0) return;
+    
+    // Get all players who want quiz unlock notifications
+    const { rows: players } = await pool.query(
+      `SELECT email, username FROM players
+       WHERE email_notifications_enabled = TRUE
+         AND email_quiz_unlocks = TRUE
+         AND email IS NOT NULL`
+    );
+    
+    if (players.length === 0) return;
+    
+    console.log(`[quiz-unlock] Found ${unlockedQuizzes.length} newly unlocked quiz(zes), notifying ${players.length} player(s)`);
+    
+    // Send notification for each unlocked quiz to each player
+    for (const quiz of unlockedQuizzes) {
+      const unlockEt = utcToEtParts(new Date(quiz.unlock_at));
+      const unlockTimeStr = `${unlockEt.y}-${String(unlockEt.m).padStart(2,'0')}-${String(unlockEt.d).padStart(2,'0')} ${unlockEt.h === 0 ? '12:00 AM' : '12:00 PM'} ET`;
+      
+      for (const player of players) {
+        try {
+          await sendQuizUnlockEmail(player.email, quiz.title, quiz.id, unlockTimeStr);
+          // Small delay to avoid rate limiting
+          await new Promise(resolve => setTimeout(resolve, 100));
+        } catch (e) {
+          console.error(`[quiz-unlock] Failed to notify ${player.email} about quiz ${quiz.id}:`, e?.message || e);
+        }
+      }
+    }
+    
+    console.log(`[quiz-unlock] Notifications sent for ${unlockedQuizzes.length} quiz(zes)`);
+  } catch (e) {
+    console.error('[quiz-unlock] Scheduler error:', e);
+  }
+}, QUIZ_UNLOCK_CHECK_MS);
 
 
 // --- Mailer (Gmail OAuth via nodemailer) ---
@@ -1428,7 +1534,7 @@ app.get('/account/credentials', requireAuth, async (req, res) => {
             <div style="position:relative;width:100%;max-width:400px;">
               <input type="password" name="password" id="password" ${havePw ? '' : 'required'} minlength="8" style="width:100%;padding:10px;padding-right:45px;border-radius:6px;border:1px solid #444;background:#2a2a2a;color:#fff;font-size:16px;" />
               <button type="button" onclick="togglePassword('password', this)" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;color:#888;cursor:pointer;font-size:14px;padding:4px 8px;" title="Show password">👁️</button>
-            </div>
+          </div>
             <div style="opacity:.8;font-size:.9em;margin-top:4px;">Minimum 8 characters</div>
           </div>
           <div style="margin-bottom:24px;">
@@ -1870,9 +1976,10 @@ app.get('/account/export', requireAuth, async (req, res) => {
 app.get('/account/preferences', requireAuth, async (req, res) => {
   try {
     const email = (req.session.user.email || '').toLowerCase();
-    const player = (await pool.query('SELECT email_notifications_enabled, email_announcements FROM players WHERE email=$1', [email])).rows[0];
+    const player = (await pool.query('SELECT email_notifications_enabled, email_announcements, email_quiz_unlocks FROM players WHERE email=$1', [email])).rows[0];
     const notificationsEnabled = player ? (player.email_notifications_enabled !== false) : true;
     const announcements = player ? (player.email_announcements !== false) : true;
+    const quizUnlocks = player ? (player.email_quiz_unlocks !== false) : true;
     
     const header = await renderHeader(req);
     res.type('html').send(`
@@ -1897,6 +2004,13 @@ app.get('/account/preferences', requireAuth, async (req, res) => {
             <div style="margin-top:32px;padding-top:24px;border-top:1px solid #333;">
               <h3 style="margin:0 0 16px 0;color:#ffd700;font-size:18px;">Notification Types</h3>
               <div style="display:flex;flex-direction:column;gap:16px;">
+                <label style="display:flex;align-items:center;gap:12px;cursor:pointer;padding:12px;border-radius:6px;background:rgba(255,255,255,0.02);">
+                  <input type="checkbox" name="email_quiz_unlocks" value="1" ${quizUnlocks ? 'checked' : ''} style="width:20px;height:20px;cursor:pointer;" />
+                  <div>
+                    <div style="font-weight:bold;margin-bottom:4px;">Quiz Unlock Notifications</div>
+                    <div style="font-size:14px;opacity:0.7;">Get notified when new quizzes unlock (midnight and noon ET)</div>
+                  </div>
+                </label>
                 <label style="display:flex;align-items:center;gap:12px;cursor:pointer;padding:12px;border-radius:6px;background:rgba(255,255,255,0.02);">
                   <input type="checkbox" name="email_announcements" value="1" ${announcements ? 'checked' : ''} style="width:20px;height:20px;cursor:pointer;" />
                   <div>
@@ -1925,10 +2039,11 @@ app.post('/account/preferences', requireAuth, express.urlencoded({ extended: tru
   try {
     const email = (req.session.user.email || '').toLowerCase();
     const enabled = req.body.email_notifications_enabled === '1';
+    const quizUnlocks = req.body.email_quiz_unlocks === '1';
     const announcements = req.body.email_announcements === '1';
     await pool.query(
-      'UPDATE players SET email_notifications_enabled=$1, email_announcements=$2 WHERE email=$3',
-      [enabled, announcements, email]
+      'UPDATE players SET email_notifications_enabled=$1, email_quiz_unlocks=$2, email_announcements=$3 WHERE email=$4',
+      [enabled, quizUnlocks, announcements, email]
     );
     res.redirect('/account?msg=Preferences saved');
   } catch (e) {
