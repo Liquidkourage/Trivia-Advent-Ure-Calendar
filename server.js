@@ -550,6 +550,49 @@ async function sendMagicLink(email, token, linkUrl) {
   }
 }
 
+async function sendReminderEmail(email, token, linkUrl) {
+  try {
+    const fromHeader = process.env.EMAIL_FROM || 'no-reply@example.com';
+    const fromEmail = parseEmailAddress(fromHeader) || 'no-reply@example.com';
+    const url = linkUrl || `${process.env.PUBLIC_BASE_URL || ''}/auth/magic?token=${encodeURIComponent(token)}`;
+    console.log('[sendReminderEmail] Sending reminder to:', email);
+    console.log('[sendReminderEmail] Magic link URL:', url);
+
+    // Get OAuth2 client (reused or newly created)
+    const oAuth2Client = getOAuth2Client();
+    const gmail = google.gmail({ version: 'v1', auth: oAuth2Client });
+
+    const subject = 'Complete Your Trivia Advent-ure Setup';
+    const text = `Hi there!\r\n\r\nWe noticed you haven't finished setting up your Trivia Advent-ure account yet. Just a friendly reminder to complete your account setup so you can start playing!\r\n\r\nClick the link below to finish setting up your account:\r\n${url}\r\n\r\nThis link expires in 30 days and can only be used once.\r\n\r\nIf you've already completed setup or have any questions, feel free to reach out.\r\n\r\nHappy trivia-ing!`;
+
+    const rawLines = [
+      `From: ${fromHeader}`,
+      `To: ${email}`,
+      `Subject: ${subject}`,
+      'MIME-Version: 1.0',
+      'Content-Type: text/plain; charset=UTF-8',
+      '',
+      text
+    ];
+    const rawMessage = Buffer.from(rawLines.join('\r\n'))
+      .toString('base64')
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
+
+    const result = await gmail.users.messages.send({
+      userId: 'me',
+      requestBody: { raw: rawMessage }
+    });
+    
+    console.log('[sendReminderEmail] Reminder sent successfully. Message ID:', result.data.id);
+    return result;
+  } catch (error) {
+    console.error('[sendReminderEmail] Error sending reminder to', email, ':', error.message);
+    throw error;
+  }
+}
+
 async function sendPlainEmail(email, subject, text) {
   const fromHeader = process.env.EMAIL_FROM || 'no-reply@example.com';
   const oAuth2Client = getOAuth2Client();
@@ -7912,6 +7955,17 @@ app.get('/admin/players', requireAdmin, async (req, res) => {
               <button onclick="sendToAllVisible()" class="ta-btn ta-btn-primary" style="padding:8px 20px;font-weight:bold;">Send Magic Links to All Visible</button>
             </div>
           </div>
+          <div style="margin-bottom:16px;padding:12px;background:#1a1a3a;border:1px solid #4488ff;border-radius:6px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
+              <div>
+                <strong style="color:#88ccff;">Reminder:</strong>
+                <span style="opacity:0.8;font-size:14px;margin-left:8px;">Send courtesy reminder emails to all pending accounts</span>
+              </div>
+              <form method="post" action="/admin/players/bulk/send-reminder" style="display:inline;" onsubmit="return confirm('Send reminder emails to all pending accounts? This will send a friendly reminder with a magic link to complete setup.');">
+                <button type="submit" class="ta-btn ta-btn-outline" style="padding:8px 20px;font-weight:bold;background:#4488ff;color:#fff;border-color:#4488ff;">Send Reminders to Pending</button>
+              </form>
+            </div>
+          </div>
           
           <div id="bulk-actions" style="display:none;margin-bottom:16px;padding:12px;background:#1a1a1a;border-radius:6px;">
             <div style="margin-bottom:8px;"><strong>Bulk Actions (<span id="selected-count">0</span> selected):</strong></div>
@@ -8254,6 +8308,50 @@ app.post('/admin/players/bulk/send-link', requireAdmin, async (req, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).send('Failed to send links');
+  }
+});
+
+app.post('/admin/players/bulk/send-reminder', requireAdmin, async (req, res) => {
+  try {
+    // Get all pending accounts (not fully registered)
+    const { rows: pendingPlayers } = await pool.query(`
+      SELECT p.email 
+      FROM players p
+      LEFT JOIN admins a ON a.email = p.email
+      WHERE a.email IS NULL 
+        AND (p.onboarding_complete = false OR p.password_set_at IS NULL)
+      ORDER BY p.access_granted_at DESC
+    `);
+    
+    if (pendingPlayers.length === 0) {
+      return res.redirect('/admin/players?msg=No pending accounts found');
+    }
+    
+    let sent = 0;
+    let failed = 0;
+    for (const player of pendingPlayers) {
+      try {
+        const e = String(player.email || '').trim().toLowerCase();
+        if (!e) continue;
+        
+        // Delete any existing unused tokens for this email to prevent conflicts
+        await pool.query('DELETE FROM magic_tokens WHERE email = $1 AND used = false', [e]);
+        
+        const token = crypto.randomBytes(24).toString('base64url');
+        const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
+        await pool.query('INSERT INTO magic_tokens(token, email, expires_at, used) VALUES($1, $2, $3, false)', [token, e, expiresAt]);
+        const linkUrl = `${process.env.PUBLIC_BASE_URL || ''}/auth/magic?token=${encodeURIComponent(token)}`;
+        await sendReminderEmail(e, token, linkUrl);
+        sent++;
+      } catch (err) {
+        console.error('Failed to send reminder to', player.email, err);
+        failed++;
+      }
+    }
+    res.redirect(`/admin/players?msg=${sent} reminder(s) sent to pending accounts${failed > 0 ? `, ${failed} failed` : ''}`);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to send reminders');
   }
 });
 
