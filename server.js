@@ -5768,7 +5768,6 @@ app.get('/quiz/:id', async (req, res) => {
           ${locked && !previewAsPlayer ? `
             <div class="ta-quiz-hero">
               <div class="ta-quiz-hero-top">
-                ${quiz.author ? `<div class="ta-quiz-subtitle" style="font-size:32px;color:#ffd700;">By ${quiz.author}</div>` : ''}
               </div>
             </div>
             ${subnav}
@@ -5776,10 +5775,9 @@ app.get('/quiz/:id', async (req, res) => {
           <div class="ta-quiz-hero">
             <div class="ta-quiz-hero-top">
               <h1 class="ta-quiz-title">${quiz.title}</h1>
-              ${quiz.author ? `<div class="ta-quiz-subtitle">By ${quiz.author}</div>` : ''}
             </div>
             <div class="ta-quiz-hero-body">
-              ${(quiz.author || quiz.author_blurb) ? `<div class=\"meta-panel\"><h4>About the author</h4><span class=\"author-name\">${quiz.author || ''}</span><div style=\"opacity:.9;\">${quiz.author_blurb || ''}</div></div>` : ''}
+              ${quiz.author_blurb ? `<div class=\"meta-panel\"><h4>About the author</h4><div style=\"opacity:.9;\">${quiz.author_blurb}</div></div>` : ''}
               ${quiz.description ? `<div class=\"desc-panel\"><h4 style=\"margin:0 0 8px 0;color:var(--gold);\">About this quiz</h4>${quiz.description}</div>` : ''}
             </div>
           </div>
