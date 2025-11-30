@@ -597,12 +597,21 @@ async function sendMagicLink(email, token, linkUrl, giftInfo = null) {
     const oAuth2Client = getOAuth2Client();
     const gmail = google.gmail({ version: 'v1', auth: oAuth2Client });
 
-    const subject = giftInfo ? '🎁 You\'ve received a gift: Trivia Advent-ure!' : 'Welcome to Trivia Advent-ure!';
+    // Encode emoji in subject line using RFC 2047 for proper email header encoding
+    const encodeSubject = (text) => {
+      // Check if text contains non-ASCII characters (like emojis)
+      const hasNonAscii = /[^\x00-\x7F]/.test(text);
+      if (!hasNonAscii) return text;
+      // Use RFC 2047 Base64 encoding for non-ASCII characters
+      return '=?UTF-8?B?' + Buffer.from(text, 'utf-8').toString('base64') + '?=';
+    };
+    const subject = giftInfo ? encodeSubject('🎁 You\'ve received a gift: Trivia Advent-ure!') : 'Welcome to Trivia Advent-ure!';
     
     let text;
     if (giftInfo) {
       const donorName = giftInfo.donorName || giftInfo.donorEmail;
-      text = `🎁 You've received a gift!\r\n\r\n${donorName} has gifted you access to Trivia Advent-ure, a festive daily trivia calendar featuring 60 unique quizzes throughout December and January!\r\n\r\nWhat you'll get:\r\n• 48 Advent quizzes (Dec 1-24, AM & PM)\r\n• 12 Days of Quizmas quizzes (Dec 26 - Jan 6)\r\n• Daily challenges with points and leaderboards\r\n• Fun trivia questions from amazing writers\r\n\r\n🎄 Claim your gift:\r\nClick the link below to set up your account and start playing:\r\n${url}\r\n\r\nThis link expires in 30 days and can only be used once.\r\n\r\nThank ${donorName} for this thoughtful gift, and happy trivia-ing! 🎉`;
+      const customMessage = giftInfo.customMessage ? `\r\n\r\nMessage from ${donorName}:\r\n"${giftInfo.customMessage}"\r\n` : '';
+      text = `🎁 You've received a gift!\r\n\r\n${donorName} has gifted you access to Trivia Advent-ure, a festive daily trivia calendar featuring 60 unique quizzes throughout December and January!${customMessage}\r\nWhat you'll get:\r\n• 48 Advent quizzes (Dec 1-24, AM & PM)\r\n• 12 Days of Quizmas quizzes (Dec 26 - Jan 6)\r\n• Daily challenges with points and leaderboards\r\n• Fun trivia questions from amazing writers\r\n\r\n🎄 Claim your gift:\r\nClick the link below to set up your account and start playing:\r\n${url}\r\n\r\nThis link expires in 30 days and can only be used once.\r\n\r\nThank ${donorName} for this thoughtful gift, and happy trivia-ing! 🎉`;
     } else {
       text = `Welcome to Trivia Advent-ure!\r\n\r\nClick the link below to sign in and get started:\r\n${url}\r\n\r\nThis link expires in 30 days and can only be used once.\r\n\r\nIf you didn't request this link, you can safely ignore this email.\r\n\r\nHappy trivia-ing!`;
     }
@@ -1365,6 +1374,9 @@ app.get('/access-choice', requireAuth, async (req, res) => {
             <label style="display:block;margin-bottom:8px;font-weight:600;color:#ffd700;">Recipient Email</label>
             <input type="email" name="gift_recipient_email" placeholder="their@email.com" style="width:100%;max-width:400px;padding:10px;border-radius:6px;border:1px solid #444;background:#2a2a2a;color:#fff;font-size:16px;" />
             <div style="opacity:.8;font-size:.9em;margin-top:4px;">We'll send them a magic link to claim their access</div>
+            <label style="display:block;margin-top:16px;margin-bottom:8px;font-weight:600;color:#ffd700;">Personal Message (Optional)</label>
+            <textarea name="gift_message" placeholder="Add a personal message to include in the gift email..." rows="3" maxlength="500" style="width:100%;max-width:400px;padding:10px;border-radius:6px;border:1px solid #444;background:#2a2a2a;color:#fff;font-size:16px;font-family:inherit;resize:vertical;"></textarea>
+            <div style="opacity:.8;font-size:.9em;margin-top:4px;">This message will be included in the gift email</div>
           </div>
           <div style="background:#1a1a1a;border:2px solid #333;border-radius:8px;padding:20px;cursor:pointer;" onclick="document.getElementById('choice-both').checked=true;document.getElementById('gift-email').style.display='block';document.querySelector('input[name=\\'gift_recipient_email\\']').setAttribute('required','required');">
             <label style="display:flex;align-items:center;gap:12px;cursor:pointer;">
@@ -1410,6 +1422,9 @@ app.post('/access-choice', requireAuth, express.urlencoded({ extended: true }), 
     const giftRecipientEmail = accessChoice === 'gift' || accessChoice === 'both' 
       ? String(req.body.gift_recipient_email || '').trim().toLowerCase() 
       : null;
+    const giftMessage = accessChoice === 'gift' || accessChoice === 'both'
+      ? String(req.body.gift_message || '').trim() || null
+      : null;
     
     if (!accessChoice || !['self', 'gift', 'both'].includes(accessChoice)) {
       return res.status(400).send('Invalid access choice');
@@ -1436,7 +1451,13 @@ app.post('/access-choice', requireAuth, express.urlencoded({ extended: true }), 
       // Get donor information for gift email
       const donorInfo = await pool.query('SELECT email, username FROM players WHERE email=$1', [email]);
       const donor = donorInfo.rows[0] || {};
-      const donorName = donor.username || donor.email || email;
+      // Use username if available, otherwise extract a friendly name from email
+      let donorName = donor.username;
+      if (!donorName) {
+        // Extract a friendly name from email (part before @, capitalize first letter)
+        const emailPart = (donor.email || email).split('@')[0];
+        donorName = emailPart.charAt(0).toUpperCase() + emailPart.slice(1).replace(/[._-]/g, ' ');
+      }
       
       // Create and send magic link to recipient
       await pool.query('DELETE FROM magic_tokens WHERE email = $1 AND used = false', [giftRecipientEmail]);
@@ -1447,7 +1468,8 @@ app.post('/access-choice', requireAuth, express.urlencoded({ extended: true }), 
       try {
         await sendMagicLink(giftRecipientEmail, token, linkUrl, {
           donorEmail: email,
-          donorName: donorName
+          donorName: donorName,
+          customMessage: giftMessage
         });
       } catch (err) {
         console.error('[access-choice] Failed to send gift link:', err);
