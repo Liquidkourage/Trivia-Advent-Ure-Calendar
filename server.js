@@ -3168,7 +3168,19 @@ app.get('/calendar', async (req, res) => {
       }
     }
     
-    const { rows: quizzes } = await pool.query('SELECT * FROM quizzes ORDER BY unlock_at ASC, id ASC');
+    // Exclude Quizmas quizzes from Advent calendar (Dec 1-24 only)
+    const now = new Date();
+    const currentYear = now.getUTCFullYear();
+    const quizmasStart = new Date(Date.UTC(currentYear, 11, 26, 5, 0, 0)); // Dec 26 midnight ET (UTC+5)
+    const quizmasEnd = new Date(Date.UTC(currentYear + 1, 0, 7, 5, 0, 0)); // Jan 7 midnight ET (UTC+5)
+    
+    const { rows: quizzes } = await pool.query(
+      `SELECT * FROM quizzes 
+       WHERE (quiz_type IS NULL OR quiz_type != 'quizmas')
+         AND (unlock_at < $1 OR unlock_at >= $2)
+       ORDER BY unlock_at ASC, id ASC`,
+      [quizmasStart, quizmasEnd]
+    );
     const nowUtc = new Date();
     let completedSet = new Set();
     let needsPassword = false;
@@ -3200,7 +3212,14 @@ app.get('/calendar', async (req, res) => {
       const key = `${baseYear}-12-${String(d).padStart(2,'0')}`;
       if (!byDay.has(key)) byDay.set(key, { day: key, am: null, pm: null });
     }
-    const doors = Array.from(byDay.values()).sort((a,b)=> a.day.localeCompare(b.day));
+    // Filter to only show Dec 1-24 doors (exclude any Quizmas dates that might have slipped through)
+    const doors = Array.from(byDay.values())
+      .filter(d => {
+        const dayNum = Number(d.day.slice(-2));
+        const month = d.day.slice(5, 7);
+        return month === '12' && dayNum >= 1 && dayNum <= 24;
+      })
+      .sort((a,b)=> a.day.localeCompare(b.day));
     const escapeAttr = (value) => String(value ?? '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
     const grid = doors.map(d => {
       const am = d.am, pm = d.pm;
