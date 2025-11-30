@@ -1374,6 +1374,9 @@ app.get('/access-choice', requireAuth, async (req, res) => {
             <label style="display:block;margin-bottom:8px;font-weight:600;color:#ffd700;">Recipient Email</label>
             <input type="email" name="gift_recipient_email" placeholder="their@email.com" style="width:100%;max-width:400px;padding:10px;border-radius:6px;border:1px solid #444;background:#2a2a2a;color:#fff;font-size:16px;" />
             <div style="opacity:.8;font-size:.9em;margin-top:4px;">We'll send them a magic link to claim their access</div>
+            <label style="display:block;margin-top:16px;margin-bottom:8px;font-weight:600;color:#ffd700;">From Name</label>
+            <input type="text" name="gift_from_name" placeholder="Your name (or leave blank to use your account name)" maxlength="100" style="width:100%;max-width:400px;padding:10px;border-radius:6px;border:1px solid #444;background:#2a2a2a;color:#fff;font-size:16px;" />
+            <div style="opacity:.8;font-size:.9em;margin-top:4px;">How you'd like to be identified in the gift email</div>
             <label style="display:block;margin-top:16px;margin-bottom:8px;font-weight:600;color:#ffd700;">Personal Message (Optional)</label>
             <textarea name="gift_message" placeholder="Add a personal message to include in the gift email..." rows="3" maxlength="500" style="width:100%;max-width:400px;padding:10px;border-radius:6px;border:1px solid #444;background:#2a2a2a;color:#fff;font-size:16px;font-family:inherit;resize:vertical;"></textarea>
             <div style="opacity:.8;font-size:.9em;margin-top:4px;">This message will be included in the gift email</div>
@@ -1422,6 +1425,9 @@ app.post('/access-choice', requireAuth, express.urlencoded({ extended: true }), 
     const giftRecipientEmail = accessChoice === 'gift' || accessChoice === 'both' 
       ? String(req.body.gift_recipient_email || '').trim().toLowerCase() 
       : null;
+    const giftFromName = accessChoice === 'gift' || accessChoice === 'both'
+      ? String(req.body.gift_from_name || '').trim() || null
+      : null;
     const giftMessage = accessChoice === 'gift' || accessChoice === 'both'
       ? String(req.body.gift_message || '').trim() || null
       : null;
@@ -1448,19 +1454,23 @@ app.post('/access-choice', requireAuth, express.urlencoded({ extended: true }), 
         [giftRecipientEmail, 'gift-received']
       );
       
-      // Get donor information for gift email
-      const donorInfo = await pool.query('SELECT email, username FROM players WHERE email=$1', [email]);
-      const donor = donorInfo.rows[0] || {};
-      // Use username if available and it's not an email address, otherwise extract a friendly name from email
-      let donorName = donor.username;
-      // Check if username looks like an email address (contains @)
-      if (donorName && donorName.includes('@')) {
-        donorName = null; // Treat email-like usernames as if no username
-      }
+      // Get donor name - use custom "from name" if provided, otherwise use account name
+      let donorName = giftFromName;
       if (!donorName) {
-        // Extract a friendly name from email (part before @, capitalize first letter, replace separators with spaces)
-        const emailPart = (donor.email || email).split('@')[0];
-        donorName = emailPart.charAt(0).toUpperCase() + emailPart.slice(1).replace(/[._-]/g, ' ');
+        // Get donor information for gift email
+        const donorInfo = await pool.query('SELECT email, username FROM players WHERE email=$1', [email]);
+        const donor = donorInfo.rows[0] || {};
+        // Use username if available and it's not an email address, otherwise extract a friendly name from email
+        donorName = donor.username;
+        // Check if username looks like an email address (contains @)
+        if (donorName && donorName.includes('@')) {
+          donorName = null; // Treat email-like usernames as if no username
+        }
+        if (!donorName) {
+          // Extract a friendly name from email (part before @, capitalize first letter, replace separators with spaces)
+          const emailPart = (donor.email || email).split('@')[0];
+          donorName = emailPart.charAt(0).toUpperCase() + emailPart.slice(1).replace(/[._-]/g, ' ');
+        }
       }
       
       // Create and send magic link to recipient
