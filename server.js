@@ -1515,7 +1515,6 @@ app.post('/account/credentials', requireAuth, express.urlencoded({ extended: tru
     const hasExistingPassword = existingCheck.rows.length && !!existingCheck.rows[0].password_set_at;
     
     // Validate password confirmation if password is provided
-    if (or if required for new users)
     if (pw) {
       if (!pwConfirm) {
         const header = await renderHeader(req);
