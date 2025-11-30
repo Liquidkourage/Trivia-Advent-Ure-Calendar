@@ -1334,9 +1334,12 @@ app.get('/account', requireAuth, async (req, res) => {
 app.get('/access-choice', requireAuth, async (req, res) => {
   try {
     const email = (req.session.user.email || '').toLowerCase();
+    const isAdmin = await isAdminUser(req);
+    const isPreview = req.query.preview === '1' && isAdmin; // Allow admins to preview
+    
     const r = await pool.query('SELECT access_choice FROM players WHERE email=$1', [email]);
-    if (r.rows.length && r.rows[0].access_choice) {
-      // Already made choice, redirect to next step
+    if (r.rows.length && r.rows[0].access_choice && !isPreview) {
+      // Already made choice, redirect to next step (unless admin preview)
       const onboardingCheck = await pool.query('SELECT onboarding_complete, username, password_set_at FROM players WHERE email=$1', [email]);
       const onboardingData = onboardingCheck.rows[0] || {};
       if (!onboardingData.onboarding_complete) return res.redirect('/onboarding');
@@ -1349,6 +1352,7 @@ app.get('/access-choice', requireAuth, async (req, res) => {
       <body class="ta-body">
       ${header}
       <main class="ta-main ta-container" style="max-width:720px; margin:0 auto; padding:24px;">
+        ${isPreview ? '<div style="background:#ffd700;color:#000;padding:12px;border-radius:6px;margin-bottom:24px;font-weight:bold;text-align:center;">Admin Preview Mode</div>' : ''}
         <h1 class="ta-page-title">How would you like to use your access?</h1>
         <p style="opacity:0.9;margin-bottom:24px;font-size:16px;">Please let us know how you'd like to use your Trivia Advent-ure access.</p>
         <form method="post" action="/access-choice" style="display:flex;flex-direction:column;gap:16px;">
@@ -1421,6 +1425,9 @@ app.get('/access-choice', requireAuth, async (req, res) => {
 app.post('/access-choice', requireAuth, express.urlencoded({ extended: true }), async (req, res) => {
   try {
     const email = (req.session.user.email || '').toLowerCase();
+    const isAdmin = await isAdminUser(req);
+    const isPreview = req.query.preview === '1' && isAdmin; // Allow admins to preview
+    
     const accessChoice = String(req.body.access_choice || '').trim();
     const giftRecipientEmail = accessChoice === 'gift' || accessChoice === 'both' 
       ? String(req.body.gift_recipient_email || '').trim().toLowerCase() 
@@ -1488,6 +1495,24 @@ app.post('/access-choice', requireAuth, express.urlencoded({ extended: true }), 
       } catch (err) {
         console.error('[access-choice] Failed to send gift link:', err);
       }
+    }
+    
+    // In preview mode, just show success message instead of redirecting
+    if (isPreview) {
+      const header = await renderHeader(req);
+      return res.type('html').send(`
+        ${renderHead('Preview: Access Choice Saved', false)}
+        <body class="ta-body">
+        ${header}
+        <main class="ta-main ta-container" style="max-width:720px; margin:0 auto; padding:24px;">
+          <div style="background:#ffd700;color:#000;padding:12px;border-radius:6px;margin-bottom:24px;font-weight:bold;text-align:center;">Admin Preview Mode</div>
+          <h1 class="ta-page-title">Preview: Choice Saved</h1>
+          <p>In preview mode, the choice was saved but you remain on this page.</p>
+          <p><a href="/access-choice?preview=1" class="ta-btn ta-btn-primary">View Form Again</a></p>
+        </main>
+        ${renderFooter(req)}
+        </body></html>
+      `);
     }
     
     // Redirect to next step
