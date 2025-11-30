@@ -5759,8 +5759,18 @@ app.get('/quiz/:id', async (req, res) => {
       </div>
     ` : '');
     
+    // Format page title as "Date, AM/PM - Author Name"
+    const unlockEt = utcToEtParts(unlockUtc);
+    const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 
+                        'July', 'August', 'September', 'October', 'November', 'December'];
+    const monthName = monthNames[unlockEt.m - 1];
+    const ampm = unlockEt.h === 0 ? 'AM' : 'PM';
+    const dateStr = `${monthName} ${unlockEt.d}, ${ampm}`;
+    const authorName = quiz.author || 'Unknown Author';
+    const pageTitle = `${dateStr} - ${authorName}`;
+    
     res.type('html').send(`
-      ${renderHead(`Quiz ${id}`, false)}
+      ${renderHead(pageTitle, false)}
       <body class="ta-body">
         ${header}
         <main class="ta-main ta-container-wide">
