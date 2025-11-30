@@ -442,14 +442,14 @@ body.ta-modal-open{overflow:hidden}
 .ta-quiz-hero{border:2px solid rgba(255,255,255,.15);background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(0,0,0,.22));border-radius:18px;padding:20px 22px;margin-bottom:16px;box-shadow:0 10px 26px rgba(0,0,0,.28)}
 .ta-quiz-hero-top{margin-bottom:12px}
 .ta-quiz-hero-body{display:grid;grid-template-columns:1fr;gap:18px}
-.meta-panel{border:2px solid rgba(255,167,38,.85);border-radius:16px;background:linear-gradient(180deg, rgba(255,167,38,.28), rgba(0,0,0,.22));padding:18px 20px;font-size:11px;box-shadow:0 10px 26px rgba(0,0,0,.35)}
-.meta-panel h4{margin:0 0 10px 0;font-size:14px;color:var(--gold)}
-.author-name{font-size:14px;font-weight:800;color:var(--gold);display:block;margin-bottom:6px}
-.desc-panel{border:2px solid rgba(255,167,38,.85);border-radius:16px;background:linear-gradient(180deg, rgba(255,167,38,.28), rgba(0,0,0,.22));padding:18px 20px;font-size:11px;box-shadow:0 10px 26px rgba(0,0,0,.35)}
-.desc-panel h4{margin:0 0 10px 0;font-size:14px;color:var(--gold)}
+.meta-panel{border:2px solid rgba(255,167,38,.85);border-radius:16px;background:linear-gradient(180deg, rgba(255,167,38,.28), rgba(0,0,0,.22));padding:18px 20px;font-size:15px;box-shadow:0 10px 26px rgba(0,0,0,.35)}
+.meta-panel h4{margin:0 0 10px 0;font-size:18px;color:var(--gold)}
+.author-name{font-size:18px;font-weight:800;color:var(--gold);display:block;margin-bottom:6px}
+.desc-panel{border:2px solid rgba(255,167,38,.85);border-radius:16px;background:linear-gradient(180deg, rgba(255,167,38,.28), rgba(0,0,0,.22));padding:18px 20px;font-size:15px;box-shadow:0 10px 26px rgba(0,0,0,.35)}
+.desc-panel h4{margin:0 0 10px 0;font-size:18px;color:var(--gold)}
 .rules-panel{border:2px solid rgba(255,255,255,.25);border-radius:14px;background:rgba(0,0,0,.25);padding:16px 18px;margin:12px 0}
-.rules-panel h4{margin:0 0 8px 0;font-size:13px;color:var(--gold)}
-.rules-list{margin:0;padding-left:18px;line-height:1.6;font-size:11px}
+.rules-panel h4{margin:0 0 8px 0;font-size:18px;color:var(--gold)}
+.rules-list{margin:0;padding-left:18px;line-height:1.6;font-size:15px}
 .quiz-card{border:1px solid rgba(255,255,255,.14);border-radius:12px;background:rgba(0,0,0,.25);padding:14px;margin:10px 0}
 .quiz-qhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
 .quiz-left{display:flex;align-items:center;gap:12px}
