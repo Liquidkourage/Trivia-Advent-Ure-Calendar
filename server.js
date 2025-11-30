@@ -597,12 +597,12 @@ async function sendMagicLink(email, token, linkUrl, giftInfo = null) {
     const oAuth2Client = getOAuth2Client();
     const gmail = google.gmail({ version: 'v1', auth: oAuth2Client });
 
-    const subject = giftInfo ? 'You\'ve been gifted Trivia Advent-ure access!' : 'Welcome to Trivia Advent-ure!';
+    const subject = giftInfo ? '🎁 You\'ve received a gift: Trivia Advent-ure!' : 'Welcome to Trivia Advent-ure!';
     
     let text;
     if (giftInfo) {
       const donorName = giftInfo.donorName || giftInfo.donorEmail;
-      text = `You've been gifted access to Trivia Advent-ure!\r\n\r\n${donorName} has gifted you access to play Trivia Advent-ure. Click the link below to claim your access and get started:\r\n${url}\r\n\r\nThis link expires in 30 days and can only be used once.\r\n\r\nHappy trivia-ing!`;
+      text = `🎁 You've received a gift!\r\n\r\n${donorName} has gifted you access to Trivia Advent-ure, a festive daily trivia calendar featuring 60 unique quizzes throughout December and January!\r\n\r\nWhat you'll get:\r\n• 48 Advent quizzes (Dec 1-24, AM & PM)\r\n• 12 Days of Quizmas quizzes (Dec 26 - Jan 6)\r\n• Daily challenges with points and leaderboards\r\n• Fun trivia questions from amazing writers\r\n\r\n🎄 Claim your gift:\r\nClick the link below to set up your account and start playing:\r\n${url}\r\n\r\nThis link expires in 30 days and can only be used once.\r\n\r\nThank ${donorName} for this thoughtful gift, and happy trivia-ing! 🎉`;
     } else {
       text = `Welcome to Trivia Advent-ure!\r\n\r\nClick the link below to sign in and get started:\r\n${url}\r\n\r\nThis link expires in 30 days and can only be used once.\r\n\r\nIf you didn't request this link, you can safely ignore this email.\r\n\r\nHappy trivia-ing!`;
     }
