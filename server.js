@@ -7747,7 +7747,12 @@ app.get('/admin/players', requireAdmin, async (req, res) => {
         p.password_set_at,
         COUNT(DISTINCT r.quiz_id) as quizzes_played,
         MAX(r.created_at) as last_activity,
-        CASE WHEN a.email IS NOT NULL THEN true ELSE false END as is_admin
+        CASE WHEN a.email IS NOT NULL THEN true ELSE false END as is_admin,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM writer_invites wi WHERE wi.email = p.email AND wi.active = true
+        ) OR EXISTS (
+          SELECT 1 FROM quizzes q WHERE q.author_email = p.email
+        ) THEN true ELSE false END as is_writer
       FROM players p
       LEFT JOIN responses r ON r.user_email = p.email
       LEFT JOIN admins a ON a.email = p.email
@@ -7773,7 +7778,7 @@ app.get('/admin/players', requireAdmin, async (req, res) => {
         regStatus = 'password-set';
       }
       
-      return `<tr data-reg-status="${regStatus}">
+      return `<tr data-reg-status="${regStatus}" data-is-writer="${r.is_writer ? 'true' : 'false'}">
         <td><input type="checkbox" class="player-checkbox" value="${r.email}" /></td>
         <td><a href="/admin/players/${encodeURIComponent(r.email)}" class="ta-btn ta-btn-small" style="color:#111;text-decoration:none;">${r.email || ''}</a></td>
         <td><a href="/admin/players/${encodeURIComponent(r.email)}" class="ta-btn ta-btn-small" style="color:#111;text-decoration:none;">${r.username || '<em>Not set</em>'}</a></td>
@@ -7886,6 +7891,10 @@ app.get('/admin/players', requireAdmin, async (req, res) => {
                 <option value="fully-registered">Fully Registered</option>
                 <option value="admin">Admin</option>
               </select>
+              <label style="display:flex;align-items:center;gap:6px;padding:8px 12px;border-radius:6px;border:1px solid #444;background:#2a2a2a;color:#fff;cursor:pointer;">
+                <input type="checkbox" id="writerFilter" style="cursor:pointer;" />
+                <span>Writers only</span>
+              </label>
               <button onclick="clearSearch()" class="ta-btn ta-btn-outline" style="padding:8px 16px;">Clear</button>
             </div>
           </div>
@@ -7939,15 +7948,19 @@ app.get('/admin/players', requireAdmin, async (req, res) => {
               const searchTerm = document.getElementById('player-search').value.toLowerCase().trim();
               const statusFilter = document.getElementById('statusFilter');
               const statusValue = statusFilter ? statusFilter.value : 'all';
+              const writerFilter = document.getElementById('writerFilter');
+              const writersOnly = writerFilter ? writerFilter.checked : false;
               const rows = document.querySelectorAll('tbody tr');
               let visibleCount = 0;
               rows.forEach(row => {
                 const email = row.cells[1]?.textContent?.toLowerCase() || '';
                 const username = row.cells[2]?.textContent?.toLowerCase() || '';
                 const regStatus = row.getAttribute('data-reg-status') || '';
+                const isWriter = row.getAttribute('data-is-writer') === 'true';
                 const matchesSearch = !searchTerm || email.includes(searchTerm) || username.includes(searchTerm);
                 const matchesStatus = statusValue === 'all' || regStatus === statusValue;
-                const matches = matchesSearch && matchesStatus;
+                const matchesWriter = !writersOnly || isWriter;
+                const matches = matchesSearch && matchesStatus && matchesWriter;
                 row.style.display = matches ? '' : 'none';
                 if (matches) visibleCount++;
               });
@@ -7961,12 +7974,18 @@ app.get('/admin/players', requireAdmin, async (req, res) => {
               document.getElementById('player-search').value = '';
               const statusFilter = document.getElementById('statusFilter');
               if (statusFilter) statusFilter.value = 'all';
+              const writerFilter = document.getElementById('writerFilter');
+              if (writerFilter) writerFilter.checked = false;
               filterPlayers();
             }
             document.getElementById('player-search').addEventListener('input', filterPlayers);
             const statusFilter = document.getElementById('statusFilter');
             if (statusFilter) {
               statusFilter.addEventListener('change', filterPlayers);
+            }
+            const writerFilter = document.getElementById('writerFilter');
+            if (writerFilter) {
+              writerFilter.addEventListener('change', filterPlayers);
             }
             // Initial filter count
             filterPlayers();
