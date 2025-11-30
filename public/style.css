@@ -140,7 +140,7 @@ body.ta-body a:hover{color:#ffd27f;text-decoration:underline;}
 .account-card--accent{background:linear-gradient(135deg,rgba(255,167,38,0.25),rgba(0,0,0,0.35));border:1px solid rgba(255,205,112,0.35);}
 .account-summary dl{margin:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:18px 20px;}
 .account-summary dt{margin:0;font-weight:600;opacity:0.75;font-size:13px;letter-spacing:0.2px;text-transform:uppercase;}
-.account-summary dd{margin:4px 0 0 0;font-size:20px;font-weight:700;color:#fff;}
+.account-summary dd{margin:4px 0 0 0;font-size:20px;font-weight:700;color:#fff;word-break:break-word;overflow-wrap:break-word;}
 .account-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;}
 .account-stat{background:rgba(0,0,0,0.45);border:1px solid rgba(255,255,255,0.12);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:6px;}
 .account-stat__label{font-size:13px;opacity:0.7;text-transform:uppercase;letter-spacing:0.3px;}
