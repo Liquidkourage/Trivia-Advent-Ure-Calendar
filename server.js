@@ -4310,12 +4310,12 @@ app.get('/writer/:token', async (req, res) => {
         <p>Author: <strong>${invite.author}</strong></p>
         <form method="post" action="/writer/${invite.token}">
           <div style="margin-top:12px;">
-            <label style="display:block;margin-bottom:6px;font-weight:600;">About the author</label>
-            <textarea name="author_blurb" style="width:100%;min-height:80px;border:1px solid #ccc;border-radius:6px;padding:10px;font-size:16px;">${existing && existing.author_blurb ? esc(existing.author_blurb) : ''}</textarea>
+            <label style="display:block;margin-bottom:6px;font-weight:600;">About the author <span style="color:#d32f2f;">*</span></label>
+            <textarea name="author_blurb" required style="width:100%;min-height:80px;border:1px solid #ccc;border-radius:6px;padding:10px;font-size:16px;">${existing && existing.author_blurb ? esc(existing.author_blurb) : ''}</textarea>
           </div>
           <div style="margin-top:12px;">
-            <label style="display:block;margin-bottom:6px;font-weight:600;">About this quiz</label>
-            <textarea name="description" style="width:100%;min-height:100px;border:1px solid #ccc;border-radius:6px;padding:10px;font-size:16px;">${existing && existing.description ? esc(existing.description) : ''}</textarea>
+            <label style="display:block;margin-bottom:6px;font-weight:600;">About this quiz <span style="color:#d32f2f;">*</span></label>
+            <textarea name="description" required style="width:100%;min-height:100px;border:1px solid #ccc;border-radius:6px;padding:10px;font-size:16px;">${existing && existing.description ? esc(existing.description) : ''}</textarea>
           </div>
           <fieldset style="margin-top:12px;">
             <legend>Questions (10)</legend>
@@ -4342,8 +4342,8 @@ app.get('/writer/:token', async (req, res) => {
                   <input name=\"q${n}_answer\" value=\"${aVal}\" required style=\"width:100%;border:1px solid #ccc;border-radius:6px;padding:10px;font-size:16px;\"/>\n\
                 </div>\n\
                 <div style=\"margin-bottom:6px;\">\n\
-                  <label style=\"display:block;margin-bottom:6px;font-weight:600;\">Ask <span style=\"opacity:.8;font-size:.9em;\">(must appear verbatim in the Text; the key part of the question; used as an in-line highlight)</span></label>\n\
-                  <input name=\"q${n}_ask\" value=\"${kVal}\" style=\"width:100%;border:1px solid #ccc;border-radius:6px;padding:10px;font-size:16px;\"/>\n\
+                  <label style=\"display:block;margin-bottom:6px;font-weight:600;\">Ask <span style=\"color:#d32f2f;\">*</span> <span style=\"opacity:.8;font-size:.9em;\">(must appear verbatim in the Text; the key part of the question; used as an in-line highlight)</span></label>\n\
+                  <input name=\"q${n}_ask\" value=\"${kVal}\" required style=\"width:100%;border:1px solid #ccc;border-radius:6px;padding:10px;font-size:16px;\"/>\n\
                 </div>\n\
               </div>`
             }).join('')}
@@ -4404,14 +4404,27 @@ app.post('/writer/:token', express.urlencoded({ extended: true }), async (req, r
     if (!rows.length) return res.status(404).send('Invalid or expired link');
     const invite = rows[0];
     const questions = [];
-    const description = (String(req.body.description || '').trim() || null);
-    const authorBlurb = (String(req.body.author_blurb || '').trim() || null);
+    const description = String(req.body.description || '').trim();
+    const authorBlurb = String(req.body.author_blurb || '').trim();
+    
+    // Validate required fields
+    if (!description) {
+      return res.status(400).send('"About this quiz" is required');
+    }
+    if (!authorBlurb) {
+      return res.status(400).send('"About the author" is required');
+    }
+    
     for (let i=1;i<=10;i++) {
       const qt = String(req.body['q' + i + '_text'] || '').trim();
       const qa = String(req.body['q' + i + '_answer'] || '').trim();
       const qc = String(req.body['q' + i + '_category'] || 'General').trim();
-      const qk = String(req.body['q' + i + '_ask'] || '').trim() || null;
+      const qk = String(req.body['q' + i + '_ask'] || '').trim();
       if (!qt || !qa) continue;
+      // Validate that ask is provided for each question
+      if (!qk) {
+        return res.status(400).send(`"Ask" is required for Question ${i}`);
+      }
       questions.push({ text: qt, answer: qa, category: qc, ask: qk });
     }
     if (!questions.length) return res.status(400).send('Please provide at least one question');

@@ -41,9 +41,11 @@
     hint.textContent = '';
 
     if (!ask) {
-      // Ask is optional; no error if empty
-      hint.style.color = '#888';
-      return { valid: true };
+      // Ask is required
+      hint.textContent = 'Ask is required.';
+      hint.style.color = '#d32f2f';
+      askEl.style.borderColor = '#d32f2f';
+      return { valid: false };
     }
 
     const occurrences = countOccurrences(text, ask);
@@ -68,12 +70,33 @@
 
   function validateAll(form) {
     let allValid = true;
-    for (let i = 1; i <= 10; i++) {
-      const result = validateOne(form, i);
-      // Only block submission when Ask is present but invalid
-      const askEl = form.querySelector(`[name="q${i}_ask"]`);
-      if (askEl && askEl.value.trim() && !result.valid) allValid = false;
+    
+    // Validate author_blurb
+    const authorBlurbEl = form.querySelector('[name="author_blurb"]');
+    if (authorBlurbEl && !authorBlurbEl.value.trim()) {
+      allValid = false;
     }
+    
+    // Validate description
+    const descriptionEl = form.querySelector('[name="description"]');
+    if (descriptionEl && !descriptionEl.value.trim()) {
+      allValid = false;
+    }
+    
+    // Validate questions and ask fields
+    for (let i = 1; i <= 10; i++) {
+      const textEl = form.querySelector(`[name="q${i}_text"]`);
+      const askEl = form.querySelector(`[name="q${i}_ask"]`);
+      
+      // If question has text, it must have ask
+      if (textEl && textEl.value.trim() && askEl && !askEl.value.trim()) {
+        allValid = false;
+      }
+      
+      const result = validateOne(form, i);
+      if (!result.valid) allValid = false;
+    }
+    
     const submit = form.querySelector('button[type="submit"]');
     if (submit) submit.disabled = !allValid;
   }
@@ -179,6 +202,15 @@
     }
     
     // Existing validation code
+    const authorBlurbEl = form.querySelector('[name="author_blurb"]');
+    const descriptionEl = form.querySelector('[name="description"]');
+    if (authorBlurbEl) {
+      authorBlurbEl.addEventListener('input', () => validateAll(form));
+    }
+    if (descriptionEl) {
+      descriptionEl.addEventListener('input', () => validateAll(form));
+    }
+    
     for (let i = 1; i <= 10; i++) {
       const textEl = form.querySelector(`[name="q${i}_text"]`);
       const askEl = form.querySelector(`[name="q${i}_ask"]`);
