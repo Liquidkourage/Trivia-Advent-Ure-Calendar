@@ -1423,13 +1423,75 @@ app.get('/account/credentials', requireAuth, async (req, res) => {
             <input name="username" value="${(uname || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;')}" placeholder="letters, numbers, underscore" required style="width:100%;max-width:400px;padding:10px;border-radius:6px;border:1px solid #444;background:#2a2a2a;color:#fff;font-size:16px;" />
             <div style="opacity:.8;font-size:.9em;margin-top:4px;">3–20 characters, letters/numbers/underscore only. This will appear on leaderboards.</div>
           </div>
-          <div style="margin-bottom:24px;">
+          <div style="margin-bottom:20px;">
             <label style="display:block;margin-bottom:8px;font-weight:600;color:#ffd700;">Password *</label>
-            <input type="password" name="password" ${havePw ? '' : 'required'} minlength="8" style="width:100%;max-width:400px;padding:10px;border-radius:6px;border:1px solid #444;background:#2a2a2a;color:#fff;font-size:16px;" />
+            <div style="position:relative;width:100%;max-width:400px;">
+              <input type="password" name="password" id="password" ${havePw ? '' : 'required'} minlength="8" style="width:100%;padding:10px;padding-right:45px;border-radius:6px;border:1px solid #444;background:#2a2a2a;color:#fff;font-size:16px;" />
+              <button type="button" onclick="togglePassword('password', this)" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;color:#888;cursor:pointer;font-size:14px;padding:4px 8px;" title="Show password">👁️</button>
+            </div>
             <div style="opacity:.8;font-size:.9em;margin-top:4px;">Minimum 8 characters</div>
+          </div>
+          <div style="margin-bottom:24px;">
+            <label style="display:block;margin-bottom:8px;font-weight:600;color:#ffd700;">Confirm Password *</label>
+            <div style="position:relative;width:100%;max-width:400px;">
+              <input type="password" name="password_confirm" id="password_confirm" ${havePw ? '' : 'required'} minlength="8" style="width:100%;padding:10px;padding-right:45px;border-radius:6px;border:1px solid #444;background:#2a2a2a;color:#fff;font-size:16px;" />
+              <button type="button" onclick="togglePassword('password_confirm', this)" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;color:#888;cursor:pointer;font-size:14px;padding:4px 8px;" title="Show password">👁️</button>
+            </div>
+            <div id="password-match" style="opacity:.8;font-size:.9em;margin-top:4px;display:none;"></div>
           </div>
           <button type="submit" class="ta-btn ta-btn-primary" style="font-size:16px;padding:12px 24px;">Complete Setup</button>
         </form>
+        <script>
+          function togglePassword(inputId, button) {
+            const input = document.getElementById(inputId);
+            if (input.type === 'password') {
+              input.type = 'text';
+              button.textContent = '🙈';
+              button.title = 'Hide password';
+            } else {
+              input.type = 'password';
+              button.textContent = '👁️';
+              button.title = 'Show password';
+            }
+          }
+          document.getElementById('password').addEventListener('input', checkPasswordMatch);
+          document.getElementById('password_confirm').addEventListener('input', checkPasswordMatch);
+          function checkPasswordMatch() {
+            const password = document.getElementById('password').value;
+            const confirm = document.getElementById('password_confirm').value;
+            const matchDiv = document.getElementById('password-match');
+            if (confirm.length === 0) {
+              matchDiv.style.display = 'none';
+              return;
+            }
+            matchDiv.style.display = 'block';
+            if (password === confirm) {
+              matchDiv.textContent = '✓ Passwords match';
+              matchDiv.style.color = '#4caf50';
+            } else {
+              matchDiv.textContent = '✗ Passwords do not match';
+              matchDiv.style.color = '#d32f2f';
+            }
+          }
+          document.querySelector('form').addEventListener('submit', function(e) {
+            const password = document.getElementById('password').value;
+            const confirm = document.getElementById('password_confirm').value;
+            if (password && (!confirm || password !== confirm)) {
+              e.preventDefault();
+              if (!confirm) {
+                alert('Please confirm your password.');
+              } else {
+                alert('Passwords do not match. Please try again.');
+              }
+              return false;
+            }
+            if (!password && confirm) {
+              e.preventDefault();
+              alert('Please enter a password if you want to set/change it.');
+              return false;
+            }
+          });
+        </script>
       </main>
       </body></html>
     `);
@@ -1446,10 +1508,46 @@ app.post('/account/credentials', requireAuth, express.urlencoded({ extended: tru
     const email = (req.session.user.email || '').toLowerCase();
     const username = String(req.body.username || '').trim();
     const pw = String(req.body.password || '');
+    const pwConfirm = String(req.body.password_confirm || '');
     
     // Check if user already has a password
     const existingCheck = await pool.query('SELECT password_set_at FROM players WHERE email=$1', [email]);
     const hasExistingPassword = existingCheck.rows.length && !!existingCheck.rows[0].password_set_at;
+    
+    // Validate password confirmation if password is provided
+    if (or if required for new users)
+    if (pw) {
+      if (!pwConfirm) {
+        const header = await renderHeader(req);
+        return res.status(400).send(`
+          ${renderHead('Setup Error', false)}
+          <body class="ta-body" style="padding:24px;">
+          ${header}
+          <main class="ta-main ta-container" style="max-width:720px; margin:0 auto;">
+            <h1 class="ta-page-title" style="color:#d32f2f;">Password Confirmation Required</h1>
+            <p style="margin-bottom:24px;">Please confirm your password.</p>
+            <a href="/account/credentials" class="ta-btn ta-btn-primary">Try Again</a>
+          </main>
+          ${renderFooter(req)}
+          </body></html>
+        `);
+      }
+      if (pw !== pwConfirm) {
+        const header = await renderHeader(req);
+        return res.status(400).send(`
+          ${renderHead('Setup Error', false)}
+          <body class="ta-body" style="padding:24px;">
+          ${header}
+          <main class="ta-main ta-container" style="max-width:720px; margin:0 auto;">
+            <h1 class="ta-page-title" style="color:#d32f2f;">Passwords Do Not Match</h1>
+            <p style="margin-bottom:24px;">The password and confirmation password do not match. Please try again.</p>
+            <a href="/account/credentials" class="ta-btn ta-btn-primary">Try Again</a>
+          </main>
+          ${renderFooter(req)}
+          </body></html>
+        `);
+      }
+    }
     
     if (!isValidUsername(username)) {
       const header = await renderHeader(req);
