@@ -1116,12 +1116,12 @@ app.get('/account', requireAuth, async (req, res) => {
               <section class="account-card account-summary">
                 <h2>Account Overview</h2>
                 <dl>
-                  <dt>Username</dt><dd>${player.username || '(not set)'}</dd>
-                  <dt>Email</dt><dd>${player.email}</dd>
-                  <dt>Member Since</dt><dd>${player.access_granted_at ? new Date(player.access_granted_at).toLocaleDateString() : 'Unknown'}</dd>
-                  <dt>Quizzes Played</dt><dd>${stats.totalQuizzes}</dd>
-                  <dt>Questions Answered</dt><dd>${stats.totalQuestions}</dd>
-                  <dt>Average Score</dt><dd>${stats.avgScore}%</dd>
+                  <div class="account-summary-item"><dt>Username</dt><dd>${player.username || '(not set)'}</dd></div>
+                  <div class="account-summary-item"><dt>Email</dt><dd>${player.email}</dd></div>
+                  <div class="account-summary-item"><dt>Member Since</dt><dd>${player.access_granted_at ? new Date(player.access_granted_at).toLocaleDateString() : 'Unknown'}</dd></div>
+                  <div class="account-summary-item"><dt>Quizzes Played</dt><dd>${stats.totalQuizzes}</dd></div>
+                  <div class="account-summary-item"><dt>Questions Answered</dt><dd>${stats.totalQuestions}</dd></div>
+                  <div class="account-summary-item"><dt>Average Score</dt><dd>${stats.avgScore}%</dd></div>
                 </dl>
               </section>
               <div class="account-stack">
