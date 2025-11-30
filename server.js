@@ -5759,15 +5759,38 @@ app.get('/quiz/:id', async (req, res) => {
       </div>
     ` : '');
     
-    // Format page title as "Date, AM/PM - Author Name"
+    // Format page title based on quiz type
     const unlockEt = utcToEtParts(unlockUtc);
-    const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 
-                        'July', 'August', 'September', 'October', 'November', 'December'];
-    const monthName = monthNames[unlockEt.m - 1];
-    const ampm = unlockEt.h === 0 ? 'AM' : 'PM';
-    const dateStr = `${monthName} ${unlockEt.d}, ${ampm}`;
     const authorName = quiz.author || 'Unknown Author';
-    const pageTitle = `${dateStr} - ${authorName}`;
+    let pageTitle;
+    
+    // Check if this is a Quizmas quiz (quiz_type = 'quizmas' or falls in Dec 26 - Jan 6 range)
+    const isQuizmas = quiz.quiz_type === 'quizmas' || 
+      (unlockEt.m === 12 && unlockEt.d >= 26) || 
+      (unlockEt.m === 1 && unlockEt.d <= 6);
+    
+    if (isQuizmas) {
+      // Calculate which day of Quizmas (1-12)
+      // Dec 26 = Day 1, Dec 27 = Day 2, ..., Dec 31 = Day 6, Jan 1 = Day 7, ..., Jan 6 = Day 12
+      let quizmasDay;
+      if (unlockEt.m === 12) {
+        quizmasDay = unlockEt.d - 25; // Dec 26 = 1, Dec 27 = 2, etc.
+      } else { // January
+        quizmasDay = unlockEt.d + 6; // Jan 1 = 7, Jan 2 = 8, etc.
+      }
+      
+      // Format ordinal (1st, 2nd, 3rd, 4th, etc.)
+      const ordinals = ['', '1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th', '10th', '11th', '12th'];
+      const dayStr = ordinals[quizmasDay] || `${quizmasDay}th`;
+      pageTitle = `${dayStr} day of Quizmas - ${authorName}`;
+    } else {
+      // Regular quiz: "Month Day AM/PM - Author Name" (no comma)
+      const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 
+                          'July', 'August', 'September', 'October', 'November', 'December'];
+      const monthName = monthNames[unlockEt.m - 1];
+      const ampm = unlockEt.h === 0 ? 'AM' : 'PM';
+      pageTitle = `${monthName} ${unlockEt.d} ${ampm} - ${authorName}`;
+    }
     
     res.type('html').send(`
       ${renderHead(pageTitle, false)}
