@@ -5562,10 +5562,12 @@ app.get('/quiz/:id', async (req, res) => {
     // In preview mode, treat admin as a regular logged-in player (not author)
     const effectiveIsAuthor = previewAsPlayer ? false : isAuthor;
     const effectiveLoggedIn = previewAsPlayer ? true : loggedIn;
+    let hasSubmittedAnswers = false;
     if (effectiveLoggedIn && !effectiveIsAuthor) {
       // In preview mode, don't load actual responses (admin viewing as player)
       if (!previewAsPlayer) {
       const erows = await pool.query('SELECT question_id, response_text, locked FROM responses WHERE quiz_id=$1 AND user_email=$2', [id, email]);
+      hasSubmittedAnswers = erows.rows.length > 0;
       erows.rows.forEach(r => {
         existingMap.set(r.question_id, r.response_text);
         if (r.locked === true) existingLockedId = r.question_id;
@@ -5573,7 +5575,7 @@ app.get('/quiz/:id', async (req, res) => {
       }
     }
     const recap = String(req.query.recap || '') === '1';
-    const allowRecapLink = effectiveLoggedIn && !effectiveIsAuthor;
+    const allowRecapLink = effectiveLoggedIn && !effectiveIsAuthor && hasSubmittedAnswers;
     if (recap && loggedIn && !isAuthor) {
       const { rows: gr } = await pool.query(
         'SELECT q.id AS qid, q.number, q.text, q.answer, r.response_text, r.points, r.locked, COALESCE(r.flagged,false) AS flagged FROM questions q LEFT JOIN responses r ON r.question_id=q.id AND r.user_email=$1 WHERE q.quiz_id=$2 ORDER BY q.number ASC',
