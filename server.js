@@ -8994,22 +8994,34 @@ app.post('/contact', express.urlencoded({ extended: true }), async (req, res) =>
     const fromHeader = process.env.EMAIL_FROM || 'no-reply@example.com';
     const oAuth2Client = getOAuth2Client();
     const gmail = google.gmail({ version: 'v1', auth: oAuth2Client });
-    const rawLines = [
-      `From: ${fromHeader}`,
-      `To: Trivia.Adventure12124@gmail.com`,
-      `Reply-To: ${name} <${email}>`,
-      `Subject: Contact Form: ${subject}`,
-      'MIME-Version: 1.0',
-      'Content-Type: text/html; charset=UTF-8',
-      '',
-      `<pre>${emailContent.replace(/\n/g, '<br>')}</pre>`
-    ];
-    const rawMessage = Buffer.from(rawLines.join('\r\n'))
-      .toString('base64')
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_')
-      .replace(/=+$/, '');
-    await gmail.users.messages.send({ userId: 'me', requestBody: { raw: rawMessage } });
+    
+    // Send to both addresses
+    const recipients = ['Trivia.Adventure12124@gmail.com', 'jay@liquidkourage.com'];
+    
+    for (const recipient of recipients) {
+      const rawLines = [
+        `From: ${fromHeader}`,
+        `To: ${recipient}`,
+        `Reply-To: ${name} <${email}>`,
+        `Subject: Contact Form: ${subject}`,
+        'MIME-Version: 1.0',
+        'Content-Type: text/html; charset=UTF-8',
+        '',
+        `<pre>${emailContent.replace(/\n/g, '<br>')}</pre>`
+      ];
+      const rawMessage = Buffer.from(rawLines.join('\r\n'))
+        .toString('base64')
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/, '');
+      try {
+        await gmail.users.messages.send({ userId: 'me', requestBody: { raw: rawMessage } });
+        console.log(`[contact] Email sent to ${recipient}`);
+      } catch (emailErr) {
+        console.error(`[contact] Failed to send email to ${recipient}:`, emailErr?.message || emailErr);
+        // Continue to try sending to the other recipient even if one fails
+      }
+    }
 
     res.type('html').send(`
       ${renderHead('Message Sent', false)}
