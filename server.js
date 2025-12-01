@@ -8464,7 +8464,93 @@ app.get('/admin/quiz/:id/debug-ungraded', requireAdmin, async (req, res) => {
     const quiz = (await pool.query('SELECT id, title FROM quizzes WHERE id=$1', [id])).rows[0];
     if (!quiz) return res.status(404).send('Quiz not found');
     
-    // Run the same SQL query as the admin dashboard
+    // Get all responses and normalize using JavaScript (same as grading page)
+    // This ensures we see the same grouping as the grading interface
+    const allResponses = await pool.query(`
+      SELECT 
+        r.id,
+        r.question_id,
+        r.response_text,
+        r.override_correct,
+        r.flagged,
+        qu.answer,
+        qu.number as question_number,
+        qu.quiz_id
+      FROM responses r
+      JOIN questions qu ON qu.id = r.question_id
+      WHERE r.submitted_at IS NOT NULL
+        AND TRIM(r.response_text) != ''
+        AND qu.quiz_id = $1
+    `, [id]);
+    
+    // Normalize using JavaScript (same as grading page)
+    const normalizedResponses = allResponses.rows.map(r => ({
+      ...r,
+      norm_response: normalizeAnswer(r.response_text || ''),
+      norm_answer: normalizeAnswer(r.answer || '')
+    }));
+    
+    // Group by normalized text (same logic as grading page)
+    const normGroups = new Map();
+    for (const r of normalizedResponses) {
+      const key = `${r.question_number}|${r.norm_response}`;
+      if (!normGroups.has(key)) {
+        normGroups.set(key, {
+          question_number: r.question_number,
+          norm_response: r.norm_response,
+          norm_answer: r.norm_answer,
+          responses: []
+        });
+      }
+      normGroups.get(key).responses.push(r);
+    }
+    
+    // Calculate group stats
+    const result = {
+      rows: Array.from(normGroups.values()).map(group => {
+        const responses = group.responses;
+        const trueCount = responses.filter(r => r.override_correct === true).length;
+        const falseCount = responses.filter(r => r.override_correct === false).length;
+        const nullCount = responses.filter(r => r.override_correct === null).length;
+        const anyFlagged = responses.some(r => r.flagged === true);
+        const isMixed = trueCount > 0 && falseCount > 0;
+        const hasOverride = trueCount > 0 || falseCount > 0;
+        const hasUngraded = nullCount > 0;
+        const isAutoCorrect = group.norm_response === group.norm_answer;
+        
+        let reason = 'graded';
+        if (anyFlagged) reason = 'flagged';
+        else if (isMixed) reason = 'mixed';
+        else if (hasUngraded && group.norm_response !== '') reason = 'has_ungraded';
+        else if (!isAutoCorrect && !hasOverride) reason = 'not_auto_no_override';
+        
+        // Only include groups that need attention
+        const shouldInclude = anyFlagged || isMixed || (hasUngraded && group.norm_response !== '') || (!isAutoCorrect && !hasOverride);
+        
+        if (!shouldInclude) return null;
+        
+        const sampleTexts = [...new Set(responses.map(r => r.response_text).filter(Boolean))].slice(0, 5);
+        
+        return {
+          question_number: group.question_number,
+          norm_response: group.norm_response,
+          sample_responses: sampleTexts.join(', '),
+          response_count: responses.length,
+          true_count: trueCount,
+          false_count: falseCount,
+          null_count: nullCount,
+          any_flagged: anyFlagged,
+          is_mixed: isMixed,
+          has_override: hasOverride,
+          has_ungraded: hasUngraded,
+          is_auto_correct: isAutoCorrect,
+          reason_ungraded: reason
+        };
+      }).filter(Boolean)
+    };
+    
+    // Old SQL-based query (kept for reference but not used)
+    /*
     const result = await pool.query(`
       WITH normalized_responses AS (
         SELECT 
