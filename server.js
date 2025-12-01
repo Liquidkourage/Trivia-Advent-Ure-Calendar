@@ -9007,15 +9007,18 @@ app.post('/admin/quiz/:id/fix-mixed', requireAdmin, async (req, res) => {
           // Mixed state detected - determine the correct value
           let fixValue;
           
-          // CRITICAL: If this normalized text has been accepted (is in acceptedNorms),
+          // CRITICAL: If this normalized text has been accepted (is in acceptedNorms) OR
+          // if ANY response in this group has override_correct=true (meaning it was accepted),
           // ALL responses should be true, regardless of the count
-          if (acceptedNorms.has(norm)) {
+          if (acceptedNorms.has(norm) || hasTrue) {
             fixValue = true;
+            console.log(`[fix-mixed] Q${question.number}: Mixed group "${norm}" has accepted responses, setting all ${group.length} to TRUE`);
           } else {
             // Otherwise, use the most common value
             const trueCount = overrideValues.filter(v => v === true).length;
             const falseCount = overrideValues.filter(v => v === false).length;
             fixValue = trueCount >= falseCount ? true : false;
+            console.log(`[fix-mixed] Q${question.number}: Mixed group "${norm}" using most common value: ${fixValue} (${trueCount} true, ${falseCount} false)`);
           }
           
           const fixIds = group.map(r => r.id);
@@ -9026,7 +9029,7 @@ app.post('/admin/quiz/:id/fix-mixed', requireAdmin, async (req, res) => {
           );
           
           fixedCount++;
-          console.log(`[fix-mixed] Q${question.number}: Fixed ${fixIds.length} responses with norm "${norm}" to ${fixValue} (accepted: ${acceptedNorms.has(norm)}, ${overrideValues.filter(v => v === true).length} true, ${overrideValues.filter(v => v === false).length} false)`);
+          console.log(`[fix-mixed] Q${question.number}: Fixed ${fixIds.length} responses with norm "${norm}" to ${fixValue} (accepted: ${acceptedNorms.has(norm)}, hasTrue: ${hasTrue}, ${overrideValues.filter(v => v === true).length} true, ${overrideValues.filter(v => v === false).length} false)`);
         }
       }
     }
