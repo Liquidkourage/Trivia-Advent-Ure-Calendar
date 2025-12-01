@@ -3914,25 +3914,33 @@ app.get('/calendar', async (req, res) => {
             function setupDoors(){
               var doors = document.querySelectorAll('.ta-door');
               doors.forEach(function(d){
-                // SIMPLIFIED: Only handle clicks on the door itself, NOT on buttons
-                // Buttons are links - let them work naturally when door is open
-                d.addEventListener('click', function(e){
-                  // If clicking on a button/link, let it work naturally - don't interfere
-                  if (e.target.closest('.slot-btn')) {
-                    var door = e.target.closest('.ta-door');
+                // CRITICAL: Attach handlers directly to buttons FIRST
+                // This ensures button clicks NEVER reach the door handler
+                var slotButtons = d.querySelectorAll('.slot-btn');
+                slotButtons.forEach(function(btn){
+                  btn.addEventListener('click', function(e){
+                    var door = btn.closest('.ta-door');
                     // Only block if door is closed
                     if (!door || !door.classList.contains('is-open')) {
                       e.preventDefault();
                       e.stopPropagation();
+                      e.stopImmediatePropagation();
                       return false;
                     }
-                    // Door is open - let the link navigate naturally
-                    // Don't call handleDoorClick, don't prevent default, don't stop propagation
-                    return;
-                  }
-                  // Not clicking on a button - handle door toggle
+                    // Door is open - allow navigation
+                    // Stop ALL propagation so door handler never sees this click
+                    e.stopPropagation();
+                    e.stopImmediatePropagation();
+                    // Don't prevent default - let link navigate
+                  }, true); // Capture phase - runs BEFORE door handler
+                });
+                
+                // Door handler - only handles clicks NOT on buttons
+                d.addEventListener('click', function(e){
+                  // If this handler runs, button handler didn't stop propagation
+                  // So this is NOT a button click - handle door toggle
                   handleDoorClick(e);
-                }, false); // Bubble phase - let link navigation work first
+                }, false); // Bubble phase
               });
             }
             
