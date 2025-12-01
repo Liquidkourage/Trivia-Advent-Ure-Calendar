@@ -8602,12 +8602,19 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
           // Check if this is a "mixed" answer (some overrides are true, some are false)
           const isMixed = overrides.some(v => v === true) && overrides.some(v => v === false);
           
+          // CRITICAL: Must check BOTH auto-correct AND manually accepted answers (matching counter logic)
+          const questionId = questionIds.get(sec.number);
+          const acceptedNorms = questionId ? acceptedAnswersCache.get(questionId) : new Set();
+          const normText = normalizeAnswer(firstText);
+          const accepted = acceptedNorms.has(normText);
+          
           // CRITICAL: Always show:
           // 1. Flagged answers (need attention)
           // 2. Mixed answers (inconsistent state, needs fixing)
           // 3. Groups with ungraded responses (NULL) - these ALWAYS need review
-          // 4. Truly awaiting review (not auto-correct AND no override)
-          return anyFlagged || isMixed || hasUngraded || (!auto && !hasOverride);
+          // 4. Truly awaiting review (not auto-correct AND not manually accepted AND no override)
+          // This MUST match the counter logic exactly!
+          return anyFlagged || isMixed || hasUngraded || (!auto && !accepted && !hasOverride);
         });
       } else {
         // Even when showing all, prioritize mixed answers by ensuring they're included
