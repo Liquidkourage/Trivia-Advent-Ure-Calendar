@@ -1155,6 +1155,7 @@ async function gradeQuiz(pool, quizId, userEmail) {
         const pts = 0;
         graded.push({ questionId: q.id, number: q.number, locked: true, correct: false, points: pts, given: '', answer: q.answer });
         await pool.query('UPDATE responses SET points = $4, override_correct = FALSE WHERE quiz_id=$1 AND user_email=$2 AND question_id=$3', [quizId, userEmail, q.id, pts]);
+        // streak unchanged - locked blank doesn't affect streak
         continue;
       }
       const auto = isCorrectAnswer(responseText, q.answer);
@@ -1166,7 +1167,8 @@ async function gradeQuiz(pool, quizId, userEmail) {
       graded.push({ questionId: q.id, number: q.number, locked: true, correct: correctLocked, points: pts, given: responseText, answer: q.answer });
       total += pts;
       await pool.query('UPDATE responses SET points = $4 WHERE quiz_id=$1 AND user_email=$2 AND question_id=$3', [quizId, userEmail, q.id, pts]);
-      // streak unchanged
+      // CRITICAL: Locked questions do NOT affect streak - streak continues unchanged
+      // Do NOT increment streak, do NOT reset streak
       continue;
     }
     
