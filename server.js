@@ -8579,6 +8579,10 @@ app.get('/admin/quiz/:id/responses', requireAdmin, async (req, res) => {
             </div>
             <div>
               <a href="/admin/players/${encodeURIComponent(player.user_email)}" class="ta-btn ta-btn-small">View Player</a>
+              <form method="POST" action="/admin/quiz/${quizId}/clear-submission" style="display:inline;margin-left:8px;" onsubmit="return confirm('Are you sure you want to clear this player\\'s submission? They will be able to resubmit the quiz.');">
+                <input type="hidden" name="email" value="${player.user_email}">
+                <button type="submit" class="ta-btn ta-btn-small" style="background:#2a4a1a;border-color:#55cc55;color:#88ff88;">Allow Resubmit</button>
+              </form>
             </div>
           </div>
           <div class="ta-table-wrapper">
@@ -8612,6 +8616,9 @@ app.get('/admin/quiz/:id/responses', requireAdmin, async (req, res) => {
           ${renderBreadcrumb([ADMIN_CRUMB, { label: 'Quizzes', href: '/admin/quizzes' }, { label: quiz.title || `Quiz #${quizId}` }, { label: 'Responses' }])}
           ${renderAdminNav('quizzes')}
           <h1 class="ta-page-title">Player Responses: ${quiz.title || `Quiz #${quizId}`}</h1>
+          ${req.query.updated ? '<div style="background:#efffef;border:1px solid #55cc55;color:#1a5a1a;padding:10px;border-radius:6px;margin-bottom:16px;">✓ Response updated successfully</div>' : ''}
+          ${req.query.deleted ? '<div style="background:#ffefef;border:1px solid #cc5555;color:#5a1a1a;padding:10px;border-radius:6px;margin-bottom:16px;">✓ Response deleted successfully</div>' : ''}
+          ${req.query.cleared ? '<div style="background:#efffef;border:1px solid #55cc55;color:#1a5a1a;padding:10px;border-radius:6px;margin-bottom:16px;">✓ Submission cleared - player can now resubmit</div>' : ''}
           <div style="margin-bottom:24px;">
             <a href="/admin/quiz/${quizId}/grade" class="ta-btn ta-btn-primary" style="margin-right:8px;">Grade Responses</a>
             <a href="/admin/quiz/${quizId}" class="ta-btn ta-btn-outline" style="margin-right:8px;">Edit Quiz</a>
