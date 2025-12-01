@@ -8580,6 +8580,26 @@ app.get('/admin/quiz/:id/debug-ungraded', requireAdmin, async (req, res) => {
           `).join('')}
         </table>
         ${result.rows.length === 0 ? '<p style="color: #4CAF50;">✓ No ungraded groups found by SQL query!</p>' : ''}
+        <hr style="margin: 24px 0; border-color: #333;">
+        <h2>Detailed View for Mixed Groups</h2>
+        ${result.rows.filter(r => r.is_mixed).length > 0 ? result.rows.filter(r => r.is_mixed).map(r => {
+          return `<div style="margin: 16px 0; padding: 16px; background: #222; border: 1px solid #444; border-radius: 4px;">
+            <h3 style="color: #f44336; margin-top: 0;">Q${r.question_number}: "${r.norm_response}" - ${r.response_count} responses (MIXED)</h3>
+            <p><strong>Breakdown:</strong> ${r.true_count || 0} TRUE, ${r.false_count || 0} FALSE, ${r.null_count || 0} NULL</p>
+            <form method="post" action="/admin/quiz/${id}/inspect-group" style="margin-top: 16px;">
+              <input type="hidden" name="question_number" value="${r.question_number}">
+              <input type="hidden" name="norm_response" value="${r.norm_response}">
+              <button type="submit" style="background: #ff9800; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">🔍 Inspect Individual Responses</button>
+            </form>
+            <form method="post" action="/admin/quiz/${id}/fix-group" style="margin-top: 8px; display: inline-block;">
+              <input type="hidden" name="question_number" value="${r.question_number}">
+              <input type="hidden" name="norm_response" value="${r.norm_response}">
+              <button type="submit" name="action" value="accept" style="background: #4CAF50; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; margin-right: 8px; font-size: 14px;">✓ Set All to TRUE</button>
+              <button type="submit" name="action" value="reject" style="background: #f44336; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; margin-right: 8px; font-size: 14px;">✗ Set All to FALSE</button>
+              <button type="submit" name="action" value="clear" style="background: #ff9800; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">Clear All</button>
+            </form>
+          </div>`;
+        }).join('') : '<p>No mixed groups found.</p>'}
       </body></html>
     `);
   } catch (e) {
