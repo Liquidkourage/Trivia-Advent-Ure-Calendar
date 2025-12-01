@@ -3086,7 +3086,18 @@ app.get('/public', async (req, res) => {
 app.get('/admin/calendar', requireAdmin, async (req, res) => {
   try {
     const { rows: quizzes } = await pool.query('SELECT id, title, unlock_at FROM quizzes ORDER BY unlock_at ASC, id ASC');
+    // Fetch unpublished writer submissions (submissions without published_at)
+    const { rows: unpublishedSubmissions } = await pool.query(`
+      SELECT wi.slot_date, wi.slot_half, ws.id as submission_id, ws.author
+      FROM writer_submissions ws
+      JOIN writer_invites wi ON wi.token = ws.token
+      WHERE wi.published_at IS NULL
+        AND wi.slot_date IS NOT NULL
+        AND wi.slot_half IS NOT NULL
+    `);
+    
     const bySlot = new Map(); // key: YYYY-MM-DD|AM|PM → array of quizzes
+    const unpublishedBySlot = new Map(); // key: YYYY-MM-DD|AM|PM → array of submission info
     // Use current year for calendar display (not derived from existing quizzes)
     const currentYear = new Date().getUTCFullYear();
     function slotKey(dParts){
@@ -3094,12 +3105,29 @@ app.get('/admin/calendar', requireAdmin, async (req, res) => {
       const half = dParts.h === 0 ? 'AM' : 'PM';
       return `${day}|${half}`;
     }
+    function slotKeyFromDate(date, half){
+      const d = new Date(date);
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2,'0');
+      const day = String(d.getDate()).padStart(2,'0');
+      return `${year}-${month}-${day}|${half}`;
+    }
     for (const q of quizzes) {
       const p = utcToEtParts(new Date(q.unlock_at));
       const key = slotKey(p);
       if (!bySlot.has(key)) bySlot.set(key, []);
       bySlot.get(key).push(q);
     }
+    // Map unpublished submissions to slots
+    for (const sub of unpublishedSubmissions) {
+      if (sub.slot_date && sub.slot_half) {
+        const half = String(sub.slot_half).trim().toUpperCase();
+        const key = slotKeyFromDate(sub.slot_date, half);
+        if (!unpublishedBySlot.has(key)) unpublishedBySlot.set(key, []);
+        unpublishedBySlot.get(key).push(sub);
+      }
+    }
+    
     const rows = [];
     // Advent calendar: Dec 1-24, AM/PM slots
     for (let d=1; d<=24; d++) {
@@ -3124,43 +3152,48 @@ app.get('/admin/calendar', requireAdmin, async (req, res) => {
       const am = bySlot.get(amKey) || [];
       rows.push({ day, am, pm: [], isQuizmas: true });
     }
-    // Helper function to detect if a quiz title is a default/unpublished title
-    function isDefaultTitle(title) {
-      if (!title) return true;
-      const t = title.trim();
-      // Check for common default title patterns
-      if (t === 'Untitled Quiz') return true;
-      if (/^[A-Za-z\s]+'s Quiz$/.test(t)) return true; // "Author's Quiz"
-      if (/^[A-Za-z\s]+'s Quiz - [A-Za-z]+ \d+ (AM|PM)$/.test(t)) return true; // "Author's Quiz - December 1 AM"
-      if (/^[A-Za-z]+ \d+ (AM|PM) Quiz$/.test(t)) return true; // "December 1 AM Quiz"
-      return false;
-    }
     
     function cellHtml(list, day, half){
+      const key = `${day}|${half}`;
+      const unpublished = unpublishedBySlot.get(key) || [];
+      const hasUnpublished = unpublished.length > 0;
+      
       if (!list.length) {
         const hh = half === 'AM' ? '00:00' : '12:00';
         const unlock = `${day}T${hh}`;
+        if (hasUnpublished) {
+          const submissionLinks = unpublished.map(s => 
+            `<a href="/admin/writer-submissions/${s.submission_id}" class="ta-btn-small" style="margin:2px 0;display:block;">📝 ${s.author || 'Unnamed'}'s Submission</a>`
+          ).join('');
+          return `<div style="color:#ff9800;font-weight:bold;margin-bottom:4px;">⚠️ Unpublished Submission${unpublished.length > 1 ? 's' : ''}</div>${submissionLinks}`;
+        }
         return `<div style=\"color:#999;\">Empty</div><div><a class=\"ta-btn-small\" href=\"/admin/writer-submissions?unlock=${unlock}\">Publish here</a></div>`;
       }
       if (list.length === 1) {
         const q = list[0];
         const title = q.title.replace(/</g,'&lt;');
-        const isUnpublished = isDefaultTitle(q.title);
-        const displayTitle = isUnpublished 
-          ? `<span style="color:#ff9800;font-style:italic;">[Unpublished Quiz]</span>` 
-          : title;
-        return `<div><a href=\"/admin/quiz/${q.id}\" class=\"ta-btn ta-btn-small\">#${q.id} ${displayTitle}</a></div>`;
+        let extraHtml = '';
+        if (hasUnpublished) {
+          const submissionLinks = unpublished.map(s => 
+            `<a href="/admin/writer-submissions/${s.submission_id}" class="ta-btn-small" style="margin:2px 0;display:block;background:#ff9800;color:#000;">📝 ${s.author || 'Unnamed'}'s Submission</a>`
+          ).join('');
+          extraHtml = `<div style="color:#ff9800;font-weight:bold;margin-top:4px;font-size:11px;">⚠️ Unpublished Submission${unpublished.length > 1 ? 's' : ''} also waiting</div>${submissionLinks}`;
+        }
+        return `<div><a href=\"/admin/quiz/${q.id}\" class=\"ta-btn ta-btn-small\">#${q.id} ${title}</a></div>${extraHtml}`;
       }
       // Conflict
       const links = list.map(q => {
         const title = q.title.replace(/</g,'&lt;');
-        const isUnpublished = isDefaultTitle(q.title);
-        const displayTitle = isUnpublished 
-          ? `<span style="color:#ff9800;font-style:italic;">[Unpublished Quiz]</span>` 
-          : title;
-        return `<div><a href=\"/admin/quiz/${q.id}\" class=\"ta-btn ta-btn-small\">#${q.id} ${displayTitle}</a></div>`;
+        return `<div><a href=\"/admin/quiz/${q.id}\" class=\"ta-btn ta-btn-small\">#${q.id} ${title}</a></div>`;
       }).join('');
-      return `<div style=\"color:#c62828;\"><strong>Conflict (${list.length})</strong></div>${links}`;
+      let extraHtml = '';
+      if (hasUnpublished) {
+        const submissionLinks = unpublished.map(s => 
+          `<a href="/admin/writer-submissions/${s.submission_id}" class="ta-btn-small" style="margin:2px 0;display:block;background:#ff9800;color:#000;">📝 ${s.author || 'Unnamed'}'s Submission</a>`
+        ).join('');
+        extraHtml = `<div style="color:#ff9800;font-weight:bold;margin-top:4px;font-size:11px;">⚠️ Unpublished Submission${unpublished.length > 1 ? 's' : ''} also waiting</div>${submissionLinks}`;
+      }
+      return `<div style=\"color:#c62828;\"><strong>Conflict (${list.length})</strong></div>${links}${extraHtml}`;
     }
     const htmlRows = rows.map(r => {
       const dateParts = r.day.split('-');
