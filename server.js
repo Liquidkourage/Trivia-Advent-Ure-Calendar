@@ -7369,13 +7369,23 @@ app.post('/quiz/:id/submit', requireAuthOrAdmin, async (req, res) => {
     }
     const { rows: qs } = await pool.query('SELECT id, number FROM questions WHERE quiz_id = $1 ORDER BY number ASC', [id]);
     const lockedSelected = Number(req.body.locked || 0) || null;
+    
     // Enforce: must have one locked question on submit
     if (!lockedSelected) {
-      const existingLock = await pool.query('SELECT 1 FROM responses WHERE quiz_id=$1 AND user_email=$2 AND locked=true LIMIT 1', [id, email]);
+      const existingLock = await pool.query('SELECT question_id FROM responses WHERE quiz_id=$1 AND user_email=$2 AND locked=true LIMIT 1', [id, email]);
       if (existingLock.rows.length === 0) {
         return res.status(400).send('Please choose one question to lock before submitting.');
       }
+      // Use existing lock if no new one selected
+      lockedSelected = existingLock.rows[0].question_id;
     }
+    
+    // Verify the selected locked question ID is valid
+    const validQuestionIds = qs.map(q => q.id);
+    if (!validQuestionIds.includes(lockedSelected)) {
+      return res.status(400).send('Invalid locked question selected.');
+    }
+    
     const submittedAt = new Date(); // Mark all responses as submitted at this time
     for (const q of qs) {
       const key = `q${q.number}`;
@@ -7402,9 +7412,11 @@ app.post('/quiz/:id/submit', requireAuthOrAdmin, async (req, res) => {
         [id, q.id, email, val, isLocked, submittedAt]
       );
     }
-    if (lockedSelected) {
-      await pool.query('UPDATE responses SET locked = FALSE WHERE quiz_id=$1 AND user_email=$2 AND question_id <> $3', [id, email, lockedSelected]);
-    }
+    
+    // Ensure exactly one question is locked - set all others to false
+    await pool.query('UPDATE responses SET locked = FALSE WHERE quiz_id=$1 AND user_email=$2 AND question_id <> $3', [id, email, lockedSelected]);
+    // Ensure the selected question is locked
+    await pool.query('UPDATE responses SET locked = TRUE WHERE quiz_id=$1 AND user_email=$2 AND question_id=$3', [id, email, lockedSelected]);
     // Mark ALL responses for this quiz/user as submitted (in case some weren't updated above)
     await pool.query('UPDATE responses SET submitted_at = $1 WHERE quiz_id=$2 AND user_email=$3 AND submitted_at IS NULL', [submittedAt, id, email]);
     
