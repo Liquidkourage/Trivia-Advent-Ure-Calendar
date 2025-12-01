@@ -7368,16 +7368,23 @@ app.post('/quiz/:id/submit', requireAuthOrAdmin, async (req, res) => {
       return res.status(403).send('Quiz authors cannot submit this quiz.');
     }
     const { rows: qs } = await pool.query('SELECT id, number FROM questions WHERE quiz_id = $1 ORDER BY number ASC', [id]);
-    const lockedSelected = Number(req.body.locked || 0) || null;
+    let lockedSelected = Number(req.body.locked || 0) || null;
     
     // Enforce: must have one locked question on submit
     if (!lockedSelected) {
       const existingLock = await pool.query('SELECT question_id FROM responses WHERE quiz_id=$1 AND user_email=$2 AND locked=true LIMIT 1', [id, email]);
-      if (existingLock.rows.length === 0) {
-        return res.status(400).send('Please choose one question to lock before submitting.');
+      if (existingLock.rows.length > 0) {
+        // Use existing lock if no new one selected
+        lockedSelected = existingLock.rows[0].question_id;
+      } else {
+        // Default to question 1 if no lock exists
+        const question1 = qs.find(q => q.number === 1);
+        if (question1) {
+          lockedSelected = question1.id;
+        } else {
+          return res.status(400).send('Please choose one question to lock before submitting.');
+        }
       }
-      // Use existing lock if no new one selected
-      lockedSelected = existingLock.rows[0].question_id;
     }
     
     // Verify the selected locked question ID is valid
