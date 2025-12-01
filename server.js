@@ -3556,13 +3556,23 @@ app.get('/admin', requireAdmin, async (req, res) => {
     stats.totalDonated = parseFloat(donationResult.rows[0]?.total || 0);
     
     // Get last 5 opened (unlocked) quizzes - prioritize those that need grading
-    // Count ungraded GROUPS matching the grading page logic EXACTLY
-    // A group is ungraded if: flagged OR mixed OR (hasUngraded AND !blank) OR (!auto && !accepted && !hasOverride)
-    // Since SQL can't perfectly replicate JavaScript normalization or check manually accepted answers,
-    // we approximate by checking: flagged OR mixed OR (hasUngraded AND !blank) OR (!auto && !hasOverride)
-    // Note: We can't check for manually accepted answers in SQL easily, so this is an approximation
-    const recentQuizzes = await pool.query(`
-      WITH normalized_responses AS (
+    // Count ungraded GROUPS using JavaScript normalization (same as grading page and debug query)
+    const recentQuizzesRaw = await pool.query(`
+      SELECT 
+        q.id, 
+        q.title, 
+        q.unlock_at, 
+        q.author
+      FROM quizzes q
+      WHERE q.unlock_at <= NOW()
+      ORDER BY q.unlock_at DESC 
+      LIMIT 5
+    `);
+    
+    // For each quiz, count ungraded groups using JavaScript normalization (same as grading page)
+    stats.recentQuizzes = await Promise.all(recentQuizzesRaw.rows.map(async (q) => {
+      // Get all responses for this quiz
+      const allResponses = await pool.query(`
         SELECT 
           r.id,
           r.question_id,
@@ -3570,60 +3580,79 @@ app.get('/admin', requireAdmin, async (req, res) => {
           r.override_correct,
           r.flagged,
           qu.answer,
-          qu.quiz_id,
-          -- Simple normalization: lowercase, remove punctuation/whitespace (approximation)
-          LOWER(REGEXP_REPLACE(TRIM(r.response_text), '[^a-z0-9]', '', 'g')) as norm_response,
-          LOWER(REGEXP_REPLACE(TRIM(qu.answer), '[^a-z0-9]', '', 'g')) as norm_answer
+          qu.number as question_number,
+          qu.quiz_id
         FROM responses r
         JOIN questions qu ON qu.id = r.question_id
         WHERE r.submitted_at IS NOT NULL
-          AND TRIM(r.response_text) != ''
-      ),
-      response_groups AS (
-        SELECT 
-          nr.quiz_id,
-          nr.question_id,
-          nr.norm_response,
-          -- Check if group has any flagged responses
-          BOOL_OR(nr.flagged = true) as any_flagged,
-          -- Check if group has mixed overrides (some true, some false)
-          CASE 
-            WHEN COUNT(*) FILTER (WHERE nr.override_correct = true) > 0 
-                 AND COUNT(*) FILTER (WHERE nr.override_correct = false) > 0 
-            THEN true 
-            ELSE false 
-          END as is_mixed,
-          -- Check if group has any override
-          BOOL_OR(nr.override_correct IS NOT NULL) as has_override,
-          -- Check if group has any ungraded responses (NULL override_correct)
-          BOOL_OR(nr.override_correct IS NULL) as has_ungraded,
-          -- Check if group is auto-correct (any response matches answer)
-          BOOL_OR(nr.norm_response = nr.norm_answer) as is_auto_correct
-        FROM normalized_responses nr
-        GROUP BY nr.quiz_id, nr.question_id, nr.norm_response
-      )
-      SELECT 
-        q.id, 
-        q.title, 
-        q.unlock_at, 
-        q.author,
-        (SELECT COUNT(DISTINCT r.user_email) FROM responses r WHERE r.quiz_id = q.id AND r.submitted_at IS NOT NULL) as response_count,
-        (SELECT COUNT(DISTINCT rg.question_id || '|' || rg.norm_response)
-         FROM response_groups rg
-         WHERE rg.quiz_id = q.id
-           AND (
-             rg.any_flagged = true
-             OR rg.is_mixed = true
-             OR (rg.has_ungraded = true AND rg.norm_response != '')  -- hasUngraded AND !blank
-             OR (rg.is_auto_correct = false AND rg.has_override = false)  -- !auto && !hasOverride (approximation - can't check accepted in SQL)
-           )
-        ) as ungraded_count
-      FROM quizzes q
-      WHERE q.unlock_at <= NOW()
-      ORDER BY q.unlock_at DESC 
-      LIMIT 5
-    `);
-    stats.recentQuizzes = recentQuizzes.rows;
+          AND qu.quiz_id = $1
+      `, [q.id]);
+      
+      // Get response count
+      const responseCountResult = await pool.query(
+        'SELECT COUNT(DISTINCT user_email) as count FROM responses WHERE quiz_id=$1 AND submitted_at IS NOT NULL',
+        [q.id]
+      );
+      const response_count = parseInt(responseCountResult.rows[0]?.count || 0);
+      
+      // Normalize using JavaScript (same as grading page)
+      const normalizedResponses = allResponses.rows.map(r => ({
+        ...r,
+        norm_response: normalizeAnswer(r.response_text || ''),
+        norm_answer: normalizeAnswer(r.answer || '')
+      }));
+      
+      // Group by normalized text (same logic as grading page)
+      const normGroups = new Map();
+      for (const r of normalizedResponses) {
+        const key = `${r.question_number}|${r.norm_response}`;
+        if (!normGroups.has(key)) {
+          normGroups.set(key, {
+            question_number: r.question_number,
+            norm_response: r.norm_response,
+            norm_answer: r.norm_answer,
+            responses: []
+          });
+        }
+        normGroups.get(key).responses.push(r);
+      }
+      
+      // Count ungraded groups (matching grading page logic)
+      let ungradedCount = 0;
+      for (const group of normGroups.values()) {
+        const responses = group.responses;
+        const trueCount = responses.filter(r => r.override_correct === true).length;
+        const falseCount = responses.filter(r => r.override_correct === false).length;
+        const nullCount = responses.filter(r => r.override_correct === null).length;
+        const anyFlagged = responses.some(r => r.flagged === true);
+        const isMixed = trueCount > 0 && falseCount > 0;
+        const hasOverride = trueCount > 0 || falseCount > 0;
+        const hasUngraded = nullCount > 0;
+        const isAutoCorrect = group.norm_response === group.norm_answer;
+        const isBlank = group.norm_response === '';
+        
+        // Get accepted answers for this question
+        const questionId = responses[0]?.question_id;
+        const acceptedAnswers = questionId ? await pool.query(
+          'SELECT response_text FROM responses WHERE question_id=$1 AND override_correct=true AND submitted_at IS NOT NULL',
+          [questionId]
+        ) : { rows: [] };
+        const acceptedNorms = new Set(acceptedAnswers.rows.map(r => normalizeAnswer(r.response_text || '')));
+        const accepted = acceptedNorms.has(group.norm_response);
+        
+        // Count if ungraded (matching grading page logic)
+        const shouldInclude = anyFlagged || isMixed || (hasUngraded && !isBlank) || (!isAutoCorrect && !accepted && !hasOverride && !isBlank);
+        if (shouldInclude) {
+          ungradedCount++;
+        }
+      }
+      
+      return {
+        ...q,
+        response_count,
+        ungraded_count: ungradedCount
+      };
+    }));
   } catch (e) {
     console.error('Error fetching admin stats:', e);
   }
