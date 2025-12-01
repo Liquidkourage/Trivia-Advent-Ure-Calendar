@@ -8108,12 +8108,61 @@ app.get('/admin/players', requireAdmin, async (req, res) => {
     const perPage = Math.min(100, Math.max(10, parseInt(req.query.perPage) || 50)); // Default 50, max 100, min 10
     const offset = (page - 1) * perPage;
     
-    // Get total count
-    const totalCountResult = await pool.query('SELECT COUNT(*) as count FROM players');
+    // Get filter parameters
+    const searchTerm = String(req.query.search || '').trim().toLowerCase();
+    const statusFilter = String(req.query.status || 'all').trim();
+    const writersOnly = req.query.writers === 'true';
+    
+    // Build WHERE conditions
+    const whereConditions = [];
+    const queryParams = [];
+    let paramIndex = 1;
+    
+    // Search filter
+    if (searchTerm) {
+      whereConditions.push(`(LOWER(p.email) LIKE $${paramIndex} OR LOWER(p.username) LIKE $${paramIndex})`);
+      queryParams.push(`%${searchTerm}%`);
+      paramIndex++;
+    }
+    
+    // Status filter
+    if (statusFilter !== 'all') {
+      if (statusFilter === 'admin') {
+        whereConditions.push(`a.email IS NOT NULL`);
+      } else if (statusFilter === 'pending') {
+        whereConditions.push(`a.email IS NULL AND p.onboarding_complete = FALSE AND p.password_set_at IS NULL`);
+      } else if (statusFilter === 'onboarded') {
+        whereConditions.push(`a.email IS NULL AND p.onboarding_complete = TRUE AND p.password_set_at IS NULL`);
+      } else if (statusFilter === 'password-set') {
+        whereConditions.push(`a.email IS NULL AND p.onboarding_complete = FALSE AND p.password_set_at IS NOT NULL`);
+      } else if (statusFilter === 'fully-registered') {
+        whereConditions.push(`a.email IS NULL AND p.onboarding_complete = TRUE AND p.password_set_at IS NOT NULL`);
+      }
+    }
+    
+    // Writers filter
+    if (writersOnly) {
+      whereConditions.push(`(EXISTS (
+        SELECT 1 FROM writer_invites wi WHERE wi.email = p.email AND wi.active = true
+      ) OR EXISTS (
+        SELECT 1 FROM quizzes q WHERE q.author_email = p.email
+      ))`);
+    }
+    
+    const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
+    
+    // Get total count of filtered players
+    const totalCountQuery = `
+      SELECT COUNT(DISTINCT p.id) as count
+      FROM players p
+      LEFT JOIN admins a ON a.email = p.email
+      ${whereClause}
+    `;
+    const totalCountResult = await pool.query(totalCountQuery, queryParams);
     const totalCount = parseInt(totalCountResult.rows[0].count || 0);
     const totalPages = Math.ceil(totalCount / perPage);
     
-    // Get paginated players
+    // Get paginated players with filters
     const rows = (await pool.query(`
       SELECT 
         p.id,
@@ -8133,10 +8182,11 @@ app.get('/admin/players', requireAdmin, async (req, res) => {
       FROM players p
       LEFT JOIN responses r ON r.user_email = p.email
       LEFT JOIN admins a ON a.email = p.email
+      ${whereClause}
       GROUP BY p.id, p.email, p.username, p.access_granted_at, p.onboarding_complete, p.password_set_at, a.email
       ORDER BY p.access_granted_at DESC
-      LIMIT $1 OFFSET $2
-    `, [perPage, offset])).rows;
+      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
+    `, [...queryParams, perPage, offset])).rows;
     const items = rows.map(r => {
       const status = [];
       if (r.is_admin) status.push('<span style="color:#ffd700;font-weight:bold;">ADMIN</span>');
@@ -8259,22 +8309,25 @@ app.get('/admin/players', requireAdmin, async (req, res) => {
           
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:12px;">
             <p style="margin:0;opacity:0.8;">Showing ${rows.length} of ${totalCount} player${totalCount !== 1 ? 's' : ''} (Page ${page} of ${totalPages})</p>
-            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-              <input type="text" id="player-search" placeholder="Search by email or username..." style="padding:8px 12px;border-radius:6px;border:1px solid #444;background:#1a1a1a;color:#fff;min-width:250px;" />
-              <select id="statusFilter" style="padding:8px;border-radius:6px;border:1px solid #444;background:#2a2a2a;color:#fff;min-width:200px;">
-                <option value="all">All Statuses</option>
-                <option value="pending">Pending Setup</option>
-                <option value="onboarded">Onboarded (No Password)</option>
-                <option value="password-set">Password Set (Not Onboarded)</option>
-                <option value="fully-registered">Fully Registered</option>
-                <option value="admin">Admin</option>
+            <form method="get" action="/admin/players" id="filterForm" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+              <input type="hidden" name="page" value="1" id="filterPage" />
+              <input type="hidden" name="perPage" value="${perPage}" />
+              <input type="text" name="search" id="player-search" placeholder="Search by email or username..." value="${searchTerm ? String(searchTerm).replace(/&/g,'&amp;').replace(/"/g,'&quot;') : ''}" style="padding:8px 12px;border-radius:6px;border:1px solid #444;background:#1a1a1a;color:#fff;min-width:250px;" />
+              <select name="status" id="statusFilter" style="padding:8px;border-radius:6px;border:1px solid #444;background:#2a2a2a;color:#fff;min-width:200px;">
+                <option value="all" ${statusFilter === 'all' ? 'selected' : ''}>All Statuses</option>
+                <option value="pending" ${statusFilter === 'pending' ? 'selected' : ''}>Pending Setup</option>
+                <option value="onboarded" ${statusFilter === 'onboarded' ? 'selected' : ''}>Onboarded (No Password)</option>
+                <option value="password-set" ${statusFilter === 'password-set' ? 'selected' : ''}>Password Set (Not Onboarded)</option>
+                <option value="fully-registered" ${statusFilter === 'fully-registered' ? 'selected' : ''}>Fully Registered</option>
+                <option value="admin" ${statusFilter === 'admin' ? 'selected' : ''}>Admin</option>
               </select>
               <label style="display:flex;align-items:center;gap:6px;padding:8px 12px;border-radius:6px;border:1px solid #444;background:#2a2a2a;color:#fff;cursor:pointer;">
-                <input type="checkbox" id="writerFilter" style="cursor:pointer;" />
+                <input type="checkbox" name="writers" value="true" id="writerFilter" ${writersOnly ? 'checked' : ''} style="cursor:pointer;" />
                 <span>Writers only</span>
               </label>
-              <button onclick="clearSearch()" class="ta-btn ta-btn-outline" style="padding:8px 16px;">Clear</button>
-            </div>
+              <button type="submit" class="ta-btn ta-btn-primary" style="padding:8px 16px;">Apply Filters</button>
+              <a href="/admin/players" class="ta-btn ta-btn-outline" style="padding:8px 16px;text-decoration:none;">Clear</a>
+            </form>
           </div>
           <div style="margin-bottom:16px;">
             <span id="filterCount" style="opacity:0.7;font-size:14px;"></span>
@@ -8357,66 +8410,46 @@ app.get('/admin/players', requireAdmin, async (req, res) => {
               <option value="100" ${perPage === 100 ? 'selected' : ''}>100 per page</option>
             </select>
           </div>
-          ` : ''}
+          ` : totalCount === 0 ? '<p style="text-align:center;margin-top:24px;opacity:0.7;">No players match your filters.</p>' : ''}
           
           <script>
             function goToPage(newPage) {
-              const url = new URL(window.location);
-              url.searchParams.set('page', newPage);
-              window.location = url.toString();
+              const form = document.getElementById('filterForm');
+              if (form) {
+                document.getElementById('filterPage').value = newPage;
+                form.submit();
+              } else {
+                // Fallback: preserve all URL params
+                const url = new URL(window.location);
+                url.searchParams.set('page', newPage);
+                window.location = url.toString();
+              }
             }
             function changePerPage() {
               const perPage = document.getElementById('perPageSelect').value;
-              const url = new URL(window.location);
-              url.searchParams.set('perPage', perPage);
-              url.searchParams.set('page', '1'); // Reset to first page when changing per page
-              window.location = url.toString();
-            }
-            function filterPlayers() {
-              const searchTerm = document.getElementById('player-search').value.toLowerCase().trim();
-              const statusFilter = document.getElementById('statusFilter');
-              const statusValue = statusFilter ? statusFilter.value : 'all';
-              const writerFilter = document.getElementById('writerFilter');
-              const writersOnly = writerFilter ? writerFilter.checked : false;
-              const rows = document.querySelectorAll('tbody tr');
-              let visibleCount = 0;
-              rows.forEach(row => {
-                const email = row.cells[1]?.textContent?.toLowerCase() || '';
-                const username = row.cells[2]?.textContent?.toLowerCase() || '';
-                const regStatus = row.getAttribute('data-reg-status') || '';
-                const isWriter = row.getAttribute('data-is-writer') === 'true';
-                const matchesSearch = !searchTerm || email.includes(searchTerm) || username.includes(searchTerm);
-                const matchesStatus = statusValue === 'all' || regStatus === statusValue;
-                const matchesWriter = !writersOnly || isWriter;
-                const matches = matchesSearch && matchesStatus && matchesWriter;
-                row.style.display = matches ? '' : 'none';
-                if (matches) visibleCount++;
-              });
-              document.getElementById('total-count').textContent = visibleCount;
-              const filterCount = document.getElementById('filterCount');
-              if (filterCount) {
-                filterCount.textContent = 'Showing ' + visibleCount + ' of ' + rows.length;
+              const form = document.getElementById('filterForm');
+              if (form) {
+                form.querySelector('input[name="perPage"]').value = perPage;
+                document.getElementById('filterPage').value = 1;
+                form.submit();
+              } else {
+                // Fallback: preserve all URL params
+                const url = new URL(window.location);
+                url.searchParams.set('perPage', perPage);
+                url.searchParams.set('page', '1');
+                window.location = url.toString();
               }
             }
-            function clearSearch() {
-              document.getElementById('player-search').value = '';
-              const statusFilter = document.getElementById('statusFilter');
-              if (statusFilter) statusFilter.value = 'all';
-              const writerFilter = document.getElementById('writerFilter');
-              if (writerFilter) writerFilter.checked = false;
-              filterPlayers();
+            // Remove old client-side filtering - now handled server-side
+            // Keep filterCount display for current page
+            function updateFilterCount() {
+              const rows = document.querySelectorAll('tbody tr');
+              const filterCountEl = document.getElementById('filterCount');
+              if (filterCountEl) {
+                filterCountEl.textContent = 'Showing ' + rows.length + ' player' + (rows.length !== 1 ? 's' : '') + ' on this page';
+              }
             }
-            document.getElementById('player-search').addEventListener('input', filterPlayers);
-            const statusFilter = document.getElementById('statusFilter');
-            if (statusFilter) {
-              statusFilter.addEventListener('change', filterPlayers);
-            }
-            const writerFilter = document.getElementById('writerFilter');
-            if (writerFilter) {
-              writerFilter.addEventListener('change', filterPlayers);
-            }
-            // Initial filter count
-            filterPlayers();
+            updateFilterCount();
             function toggleAll(checkbox) {
               document.querySelectorAll('.player-checkbox').forEach(cb => cb.checked = checkbox.checked);
               updateBulkActions();
