@@ -6672,6 +6672,7 @@ app.get('/quiz/:id/leaderboard', async (req, res) => {
         SELECT 
           r.id,
           r.user_email,
+          r.question_id,
           r.response_text,
           r.override_correct,
           r.points,
