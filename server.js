@@ -3990,11 +3990,11 @@ app.get('/calendar', async (req, res) => {
                       }
                       // Door is open and not recently opened - let button handle navigation
                       // Don't call handleDoorClick at all - just return without any event manipulation
-                      // The button's own handler will stop immediate propagation to prevent door handler
+                      // This allows the link's default navigation to work naturally
                       return;
                     }
                     handleDoorClick(e);
-                  }, true);
+                  }, false); // Use bubble phase instead of capture - let button clicks work naturally first
                 }
               });
             }
