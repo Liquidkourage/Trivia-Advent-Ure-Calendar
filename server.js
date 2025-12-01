@@ -8381,18 +8381,34 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
     // Build nav and sections
     const qList = Array.from(byQ.values()).sort((a,b)=>a.number-b.number);
     const nav = qList.map(sec => {
-      // count ungraded (override null and auto incorrect)
+      // count ungraded groups (matching the display filter logic)
+      // Count groups that would be shown in "awaiting review" mode
       let ungraded = 0;
-      const all = Array.from(sec.answers.values()).flat();
       let flaggedCount = 0;
-      for (const r of all) {
-        const txt = r.response_text || '';
-        const isBlank = normalizeAnswer(txt) === '';
-        if (isBlank) { if (r.flagged === true) flaggedCount++; continue; }
-        const auto = isCorrectAnswer(txt, sec.answer);
-        if (typeof r.override_correct !== 'boolean' && !auto) ungraded++;
-        if (r.flagged === true) flaggedCount++;
+      const allGroups = Array.from(sec.answers.entries());
+      
+      for (const [ans, arr] of allGroups) {
+        // Skip blank groups (matching display filter)
+        if (arr.length === 0) continue;
+        const firstText = (arr[0].response_text || '').trim();
+        if (!firstText || normalizeAnswer(firstText) === '') continue; // blanks NEVER counted
+        
+        // Check if any response in this group is flagged
+        const anyFlagged = arr.some(r => r.flagged === true);
+        if (anyFlagged) flaggedCount++;
+        
+        // Check if this group would be shown in "awaiting review" mode
+        const auto = isCorrectAnswer(firstText, sec.answer);
+        const overrides = arr.map(r => typeof r.override_correct === 'boolean' ? r.override_correct : null);
+        const hasOverride = overrides.some(v => v !== null);
+        const isMixed = overrides.some(v => v === true) && overrides.some(v => v === false);
+        
+        // Count groups that would be shown: flagged OR mixed OR (!auto && !hasOverride)
+        if (anyFlagged || isMixed || (!auto && !hasOverride)) {
+          ungraded++;
+        }
       }
+      
       const meta = [];
       if (ungraded > 0) meta.push(`${ungraded} awaiting`);
       if (flaggedCount > 0) meta.push(`${flaggedCount} flagged`);
