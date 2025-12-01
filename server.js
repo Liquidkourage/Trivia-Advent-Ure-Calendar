@@ -7981,6 +7981,164 @@ app.post('/admin/quiz/:id/regrade', requireAdmin, async (req, res) => {
     res.status(500).send('Failed to regrade');
   }
 });
+
+// --- Admin: View all player responses for a quiz ---
+app.get('/admin/quiz/:id/responses', requireAdmin, async (req, res) => {
+  try {
+    const quizId = Number(req.params.id);
+    const quiz = (await pool.query('SELECT * FROM quizzes WHERE id=$1', [quizId])).rows[0];
+    if (!quiz) return res.status(404).send('Quiz not found');
+    
+    // Get all questions for this quiz
+    const questions = (await pool.query('SELECT * FROM questions WHERE quiz_id=$1 ORDER BY number ASC', [quizId])).rows;
+    
+    // Get all unique players who have submitted responses
+    const players = (await pool.query(`
+      SELECT DISTINCT 
+        r.user_email,
+        p.username,
+        p.email,
+        MAX(r.created_at) as last_response_at
+      FROM responses r
+      LEFT JOIN players p ON p.email = r.user_email
+      WHERE r.quiz_id = $1
+      GROUP BY r.user_email, p.username, p.email
+      ORDER BY last_response_at DESC
+    `, [quizId])).rows;
+    
+    // Get all responses for this quiz
+    const allResponses = (await pool.query(`
+      SELECT 
+        r.user_email,
+        r.question_id,
+        r.response_text,
+        r.points,
+        r.locked,
+        r.override_correct,
+        r.created_at,
+        qq.number as question_number,
+        qq.text as question_text,
+        qq.answer as correct_answer
+      FROM responses r
+      JOIN questions qq ON qq.id = r.question_id
+      WHERE r.quiz_id = $1
+      ORDER BY r.user_email, qq.number ASC
+    `, [quizId])).rows;
+    
+    // Group responses by player
+    const responsesByPlayer = new Map();
+    for (const player of players) {
+      responsesByPlayer.set(player.user_email, {
+        player: player,
+        responses: [],
+        lockedQuestion: null,
+        totalPoints: 0
+      });
+    }
+    
+    for (const resp of allResponses) {
+      const playerData = responsesByPlayer.get(resp.user_email);
+      if (playerData) {
+        playerData.responses.push(resp);
+        if (resp.locked) {
+          playerData.lockedQuestion = resp.question_number;
+        }
+        playerData.totalPoints += parseFloat(resp.points || 0);
+      }
+    }
+    
+    // Build HTML for each player's submission
+    const playerSubmissions = Array.from(responsesByPlayer.values()).map(playerData => {
+      const { player, responses, lockedQuestion, totalPoints } = playerData;
+      const displayName = player.username || player.email || player.user_email;
+      
+      // Build response rows
+      const responseRows = questions.map(q => {
+        const resp = responses.find(r => r.question_number === q.number);
+        const isLocked = resp && resp.locked;
+        const isCorrect = resp ? (resp.override_correct === true || 
+          (resp.override_correct === null && resp.response_text && 
+           normalizeAnswer(resp.response_text) === normalizeAnswer(q.answer))) : false;
+        
+        return `
+          <tr${isLocked ? ' style="background:rgba(255,215,0,0.1);"' : ''}>
+            <td style="font-weight:bold;">Q${q.number}${isLocked ? ' 🔒' : ''}</td>
+            <td>${q.text.substring(0, 100)}${q.text.length > 100 ? '...' : ''}</td>
+            <td>${resp ? (resp.response_text || '<em>No answer</em>') : '<em>Not answered</em>'}</td>
+            <td>${q.answer}</td>
+            <td style="color:${isCorrect ? '#4caf50' : '#f44336'};">${resp ? (isCorrect ? '✓' : '✗') : '-'}</td>
+            <td>${resp ? (resp.points || 0) : 0}</td>
+          </tr>
+        `;
+      }).join('');
+      
+      return `
+        <div style="margin-bottom:32px;background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:20px;">
+          <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:16px;">
+            <div>
+              <h3 style="margin:0 0 8px 0;color:#ffd700;">${displayName}</h3>
+              <div style="font-size:14px;opacity:0.7;">
+                ${player.email || player.user_email}
+                ${lockedQuestion ? ` • Locked Q${lockedQuestion}` : ''}
+                • Total: ${totalPoints} pts
+              </div>
+            </div>
+            <div>
+              <a href="/admin/players/${encodeURIComponent(player.user_email)}" class="ta-btn ta-btn-small">View Player</a>
+            </div>
+          </div>
+          <div class="ta-table-wrapper">
+            <table class="ta-table" style="font-size:13px;">
+              <thead>
+                <tr>
+                  <th>Q#</th>
+                  <th>Question</th>
+                  <th>Response</th>
+                  <th>Correct Answer</th>
+                  <th>Correct?</th>
+                  <th>Points</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${responseRows}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `;
+    }).join('');
+    
+    const header = await renderHeader(req);
+    res.type('html').send(`
+      ${renderHead(`Responses • ${quiz.title} • Admin`, true)}
+      <body class="ta-body">
+        ${header}
+        <main class="ta-main ta-container" style="max-width:1400px;">
+          ${renderBreadcrumb([ADMIN_CRUMB, { label: 'Quizzes', href: '/admin/quizzes' }, { label: quiz.title || `Quiz #${quizId}` }, { label: 'Responses' }])}
+          ${renderAdminNav('quizzes')}
+          <h1 class="ta-page-title">Player Responses: ${quiz.title || `Quiz #${quizId}`}</h1>
+          <div style="margin-bottom:24px;">
+            <a href="/admin/quiz/${quizId}/grade" class="ta-btn ta-btn-primary" style="margin-right:8px;">Grade Responses</a>
+            <a href="/admin/quiz/${quizId}" class="ta-btn ta-btn-outline" style="margin-right:8px;">Edit Quiz</a>
+            <a href="/admin/quizzes" class="ta-btn ta-btn-outline">Back to Quizzes</a>
+          </div>
+          <div style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:16px;margin-bottom:24px;">
+            <div style="display:flex;gap:24px;flex-wrap:wrap;">
+              <div><strong>Total Submissions:</strong> ${players.length}</div>
+              <div><strong>Total Questions:</strong> ${questions.length}</div>
+            </div>
+          </div>
+          ${playerSubmissions || '<p>No responses yet.</p>'}
+        </main>
+        ${renderFooter(req)}
+      </body></html>
+    `);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to load responses');
+  }
+});
+
 // --- Quiz Analytics Dashboard ---
 app.get('/admin/quiz/:id/analytics', requireAdmin, async (req, res) => {
   try {
