@@ -7561,10 +7561,20 @@ app.post('/quiz/:id/submit', requireAuthOrAdmin, async (req, res) => {
         );
         continue;
       }
+      
+      // CRITICAL: Check if this response text matches an existing accepted/rejected answer
+      // If so, automatically set override_correct to match
+      const existingOverride = await getOverrideForNormalizedText(pool, q.id, val);
+      
       await pool.query(
-        'INSERT INTO responses(quiz_id, question_id, user_email, response_text, locked, submitted_at) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT (user_email, question_id) DO UPDATE SET response_text = EXCLUDED.response_text, locked = EXCLUDED.locked, submitted_at = EXCLUDED.submitted_at',
-        [id, q.id, email, val, isLocked, submittedAt]
+        'INSERT INTO responses(quiz_id, question_id, user_email, response_text, locked, submitted_at, override_correct) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (user_email, question_id) DO UPDATE SET response_text = EXCLUDED.response_text, locked = EXCLUDED.locked, submitted_at = EXCLUDED.submitted_at, override_correct = COALESCE(responses.override_correct, EXCLUDED.override_correct)',
+        [id, q.id, email, val, isLocked, submittedAt, existingOverride]
       );
+      
+      // CRITICAL: If this response matches an existing override, sync ALL matching responses
+      if (existingOverride !== null) {
+        await syncOverrideForNormalizedText(pool, q.id, val, existingOverride);
+      }
     }
     
     // Ensure exactly one question is locked - set all others to false
