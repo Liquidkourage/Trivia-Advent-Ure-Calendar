@@ -9265,10 +9265,15 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
           <h1 class=\"grader-title\">Grading: ${quiz.title}</h1>
           ${isStale ? '<div style="background:#ffefef;border:1px solid #cc5555;color:#5a1a1a;padding:10px;border-radius:6px;margin-bottom:10px;">Another grader changed one or more items you were viewing. Please refresh to see the latest state.</div>' : ''}
           ${req.query.regraded ? `<div style="background:#efffef;border:1px solid #55cc55;color:#1a5a1a;padding:10px;border-radius:6px;margin-bottom:10px;">✓ Regraded ${req.query.regraded} player${req.query.regraded !== '1' ? 's' : ''}${req.query.email ? ` (${req.query.email})` : ''}</div>` : ''}
+          ${req.query.fixed ? `<div style="background:#efffef;border:1px solid #55cc55;color:#1a5a1a;padding:10px;border-radius:6px;margin-bottom:10px;">✓ Fixed ${req.query.fixed} mixed state${req.query.fixed !== '1' ? 's' : ''}</div>` : ''}
           <div class=\"grader-date\">Viewing: <strong>Awaiting review</strong> by default (🚩 flagged and ⚠️ mixed answers always shown and prioritized). Use "Show graded / Hide graded" in each question section to include graded rows for that question.</div>
           <form method=\"post\" action=\"/admin/quiz/${id}/regrade\" class=\"btn-row\">
             <button class=\"btn-save\" type=\"submit\">Regrade All Players</button>
+            <form method=\"post\" action=\"/admin/quiz/${id}/fix-mixed\" style=\"display:inline;margin-left:8px;\">
+              <button class=\"btn-save\" type=\"submit\" style=\"background:#ff9800;\">Fix Mixed States</button>
+            </form>
             <a class=\"ta-btn ta-btn-outline\" href=\"/admin/quiz/${id}\" style=\"margin-left:8px;\">Back</a>
+            <a class=\"ta-btn ta-btn-outline\" href=\"/admin/quiz/${id}/debug-ungraded\" style=\"margin-left:8px;\">Debug</a>
           </form>
           <div class=\"grader-bar\">${nav}</div>
           ${sections}
