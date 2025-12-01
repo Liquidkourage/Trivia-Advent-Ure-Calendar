@@ -1078,6 +1078,28 @@ function isCorrectAnswer(given, correct) {
   return false;
 }
 
+// Check if a normalized answer has been manually accepted for a question
+async function isAcceptedAnswer(pool, questionId, responseText) {
+  if (!responseText) return false;
+  const norm = normalizeAnswer(responseText);
+  if (!norm) return false;
+  
+  // Get all manually accepted responses for this question
+  const { rows } = await pool.query(
+    `SELECT response_text FROM responses 
+     WHERE question_id=$1 AND override_correct=true`,
+    [questionId]
+  );
+  
+  // Check if any accepted response normalizes to the same value
+  for (const row of rows) {
+    if (normalizeAnswer(row.response_text) === norm) {
+      return true;
+    }
+  }
+  return false;
+}
+
 async function gradeQuiz(pool, quizId, userEmail) {
   const { rows: qs } = await pool.query('SELECT id, number, answer FROM questions WHERE quiz_id=$1 ORDER BY number ASC', [quizId]);
   const { rows: rs } = await pool.query('SELECT question_id, response_text, locked, override_correct FROM responses WHERE quiz_id=$1 AND user_email=$2', [quizId, userEmail]);
@@ -1091,7 +1113,9 @@ async function gradeQuiz(pool, quizId, userEmail) {
     const locked = !!(r && r.locked);
     if (locked) {
       const auto = r ? isCorrectAnswer(r.response_text, q.answer) : false;
-      const correctLocked = (r && typeof r.override_correct === 'boolean') ? r.override_correct : auto;
+      // Check if this normalized answer has been manually accepted before
+      const accepted = r ? await isAcceptedAnswer(pool, q.id, r.response_text) : false;
+      const correctLocked = (r && typeof r.override_correct === 'boolean') ? r.override_correct : (auto || accepted);
       const pts = correctLocked ? 5 : 0;
       graded.push({ questionId: q.id, number: q.number, locked: true, correct: correctLocked, points: pts, given: r ? r.response_text : '', answer: q.answer });
       total += pts;
@@ -1100,7 +1124,9 @@ async function gradeQuiz(pool, quizId, userEmail) {
       continue;
     }
     const auto = r ? isCorrectAnswer(r.response_text, q.answer) : false;
-    const correct = (r && typeof r.override_correct === 'boolean') ? r.override_correct : auto;
+    // Check if this normalized answer has been manually accepted before
+    const accepted = r ? await isAcceptedAnswer(pool, q.id, r.response_text) : false;
+    const correct = (r && typeof r.override_correct === 'boolean') ? r.override_correct : (auto || accepted);
     if (correct) {
       streak += 1;
       total += streak;
