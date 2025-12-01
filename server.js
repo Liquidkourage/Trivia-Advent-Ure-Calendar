@@ -1115,9 +1115,10 @@ async function isAcceptedAnswer(pool, questionId, responseText) {
   if (!norm) return false;
   
   // Get all manually accepted responses for this question
+  // CRITICAL: Only check submitted responses to avoid checking draft/unsubmitted responses
   const { rows } = await pool.query(
     `SELECT response_text FROM responses 
-     WHERE question_id=$1 AND override_correct=true`,
+     WHERE question_id=$1 AND override_correct=true AND submitted_at IS NOT NULL`,
     [questionId]
   );
   
@@ -7776,8 +7777,15 @@ app.post('/quiz/:id/submit', requireAuthOrAdmin, async (req, res) => {
         [id, q.id, email, val, isLocked, submittedAt, finalOverride]
       );
       
-      // Final sync to ensure consistency (catches the newly inserted response)
-      if (finalOverride !== null) {
+      // CRITICAL: Always sync after insertion to ensure ALL matching responses are consistent
+      // This catches any edge cases where mixed states weren't fixed before insertion
+      // Priority: 1) If accepted, sync ALL to true; 2) If has override, sync ALL to that value
+      if (isAccepted) {
+        // If accepted, ensure ALL matching responses (including the newly inserted one) are TRUE
+        // This prevents mixed states where some responses are TRUE and others are FALSE or NULL
+        await syncOverrideForNormalizedText(pool, q.id, val, true);
+      } else if (finalOverride !== null) {
+        // If has existing override (but not accepted), sync ALL matching responses to that value
         await syncOverrideForNormalizedText(pool, q.id, val, finalOverride);
       }
     }
