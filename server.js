@@ -8448,11 +8448,23 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
       // Build rows: awaiting only (default) or all (when show=all)
       let list = Array.from(sec.answers.entries());
       const includeAllForThis = showSet.has(sec.number);
-      // ALWAYS filter out blank responses - they should never appear on grading page
-        list = list.filter(([ans, arr]) => {
-          if (arr.length === 0) return false;
+      // Filter out blank responses EXCEPT if they're mixed (mixed responses must always be visible)
+      list = list.filter(([ans, arr]) => {
+        if (arr.length === 0) return false;
         const firstText = (arr[0].response_text || '').trim();
-        if (!firstText || normalizeAnswer(firstText) === '') return false; // blanks NEVER shown
+        const isBlank = !firstText || normalizeAnswer(firstText) === '';
+        
+        // Check for mixed status BEFORE filtering blanks
+        const overrides = arr.map(r => typeof r.override_correct === 'boolean' ? r.override_correct : null);
+        const isMixed = overrides.some(v => v === true) && overrides.some(v => v === false);
+        const anyFlagged = arr.some(r => r.flagged === true);
+        
+        // CRITICAL: Always show mixed and flagged responses, even if blank
+        // Mixed answers indicate inconsistency and must be visible for correction
+        if (isMixed || anyFlagged) return true;
+        
+        // Otherwise, filter out blanks
+        if (isBlank) return false;
         return true;
       });
       
@@ -8467,6 +8479,7 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
           const isMixed = overrides.some(v => v === true) && overrides.some(v => v === false);
           // CRITICAL: Always show mixed answers, flagged answers, and truly awaiting review
           // Mixed answers indicate inconsistency and must be visible for correction
+          // This check is redundant but ensures mixed is never filtered out
           return anyFlagged || isMixed || (!auto && !hasOverride);
         });
       } else {
