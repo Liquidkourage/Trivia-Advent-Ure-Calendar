@@ -9407,11 +9407,12 @@ app.post('/admin/donations/import-csv', requireAdmin, upload.single('csvfile'), 
     const headers = parseCSVLine(headerLine).map(h => h.toLowerCase().trim());
     
     // Find column indices
-    const emailIdx = findColumnIndex(headers, ['email', 'e-mail', 'donor email', 'donor_email']);
-    const amountIdx = findColumnIndex(headers, ['amount', 'donation amount', 'donation_amount', 'value', 'total']);
-    const dateIdx = findColumnIndex(headers, ['date', 'created_at', 'created at', 'timestamp', 'time', 'donation date', 'donation_date']);
+    // Ko-fi CSV columns: DateTime (UTC), From, Message, Item, Received, Given, Currency, TransactionType, TransactionId, Reference, SalesTax, SalesTaxPercentage, SalesTaxIncludesShipping, BuyerCountry, BuyerStateOrProvince, BuyerEmail, PaymentProvider
+    const emailIdx = findColumnIndex(headers, ['buyeremail', 'buyer email', 'email', 'e-mail', 'donor email', 'donor_email', 'from']);
+    const amountIdx = findColumnIndex(headers, ['received', 'amount', 'donation amount', 'donation_amount', 'value', 'total']);
+    const dateIdx = findColumnIndex(headers, ['datetime (utc)', 'datetime(utc)', 'datetime', 'date', 'created_at', 'created at', 'timestamp', 'time', 'donation date', 'donation_date']);
     const currencyIdx = findColumnIndex(headers, ['currency', 'curr', 'currency code']);
-    const kofiIdIdx = findColumnIndex(headers, ['transaction_id', 'transaction id', 'id', 'kofi_id', 'kofi id', 'transaction']);
+    const kofiIdIdx = findColumnIndex(headers, ['transactionid', 'transaction id', 'transaction_id', 'id', 'kofi_id', 'kofi id', 'transaction']);
     
     if (emailIdx === -1 || amountIdx === -1) {
       return res.redirect('/admin/donations?msg=CSV must have email and amount columns');
