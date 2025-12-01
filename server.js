@@ -8619,10 +8619,12 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
           // CRITICAL: Always show:
           // 1. Flagged answers (need attention)
           // 2. Mixed answers (inconsistent state, needs fixing)
-          // 3. Groups with ungraded responses (NULL) - these ALWAYS need review
+          // 3. Groups with ungraded responses (NULL) AND NOT blank - blank ungraded responses are auto-rejected
           // 4. Truly awaiting review (not auto-correct AND not manually accepted AND no override)
           // This MUST match the counter logic exactly!
-          return anyFlagged || isMixed || hasUngraded || (!auto && !accepted && !hasOverride);
+          // Note: Blank groups are already filtered out above, but we check !isBlank here for consistency
+          const isBlank = !firstText || normalizeAnswer(firstText) === '';
+          return anyFlagged || isMixed || (hasUngraded && !isBlank) || (!auto && !accepted && !hasOverride);
         });
       } else {
         // Even when showing all, prioritize mixed answers by ensuring they're included
