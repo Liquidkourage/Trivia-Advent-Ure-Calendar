@@ -2769,7 +2769,7 @@ app.get('/public', async (req, res) => {
         <div style="text-align:center;margin:48px 0;padding:32px;background:rgba(255,167,38,0.1);border-radius:12px;border:2px solid rgba(255,167,38,0.3);">
           <h3 style="color:#ffd700;margin:0 0 16px 0;font-size:22px;">Play Trivia, Fuel Impact</h3>
           <p style="margin:0 0 16px 0;opacity:0.9;font-size:16px;line-height:1.6;">
-            Trivia Advent-ure is a charitable project. 100% of player contributions are donated to mission-driven partners:
+            Trivia Advent-ure is a charitable project. 100% of net proceeds are donated to mission-driven partners:
           </p>
           <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:18px;text-align:left;margin:24px 0;">
             <div style="background:rgba(0,0,0,0.35);border:1px solid rgba(255,255,255,0.15);border-radius:12px;padding:18px;display:flex;flex-direction:column;gap:12px;">
