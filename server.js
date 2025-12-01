@@ -334,6 +334,27 @@ async function initDb() {
     DO $$ BEGIN
       ALTER TABLE responses ADD COLUMN IF NOT EXISTS submitted_at TIMESTAMPTZ;
     EXCEPTION WHEN others THEN NULL; END $$;
+    -- Backfill submitted_at for existing responses that have been submitted
+    -- If a player has a locked question, they've submitted (locking is required for submission)
+    -- Use the most recent created_at from their responses as the submitted_at timestamp
+    DO $$ 
+    BEGIN
+      UPDATE responses r
+      SET submitted_at = (
+        SELECT MAX(created_at) 
+        FROM responses r2 
+        WHERE r2.quiz_id = r.quiz_id 
+          AND r2.user_email = r.user_email
+      )
+      WHERE r.submitted_at IS NULL
+        AND EXISTS (
+          SELECT 1 FROM responses r3
+          WHERE r3.quiz_id = r.quiz_id
+            AND r3.user_email = r.user_email
+            AND r3.locked = true
+        );
+    EXCEPTION WHEN others THEN NULL; 
+    END $$;
 
     -- Donations table to track Ko-fi donations
     CREATE TABLE IF NOT EXISTS donations (
