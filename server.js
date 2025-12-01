@@ -3874,16 +3874,15 @@ app.get('/calendar', async (req, res) => {
               var clickedButton = e.target.closest && e.target.closest('.slot-btn');
               if (clickedButton) {
                 var isOpen = door.classList.contains('is-open');
-                // Only block if door is closed or was just opened
-                if (!isOpen || recentlyOpened.has(door)) {
+                // Only block if door is closed
+                if (!isOpen) {
                   e.preventDefault();
                   e.stopPropagation();
                   e.stopImmediatePropagation();
                   return false;
                 }
-                // Door is open and not recently opened - let the button handle navigation
-                // Don't interfere at all - return immediately without any event manipulation
-                // The button's own handler will stop immediate propagation to prevent this handler
+                // Door is open - let the link navigate naturally
+                // Don't prevent default, don't stop propagation - just return
                 return;
               }
               
@@ -3914,25 +3913,11 @@ app.get('/calendar', async (req, res) => {
             function setupDoors(){
               var doors = document.querySelectorAll('.ta-door');
               doors.forEach(function(d){
-                // Door handler - check if clicking button first
+                // Single handler for door clicks
+                // If clicking button and door is open, let link work naturally
                 d.addEventListener('click', function(e){
-                  // Check if clicking on a button/link
-                  var btn = e.target.closest('.slot-btn');
-                  if (btn) {
-                    var door = btn.closest('.ta-door');
-                    // Only block if door is closed
-                    if (!door || !door.classList.contains('is-open')) {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      return false;
-                    }
-                    // Door is open - let link navigate naturally
-                    // Don't prevent default, don't stop propagation - just return
-                    return;
-                  }
-                  // Not a button click - handle door toggle
                   handleDoorClick(e);
-                }, false); // Bubble phase
+                }, false); // Bubble phase - let link navigation happen first
               });
             }
             
