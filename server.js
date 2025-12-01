@@ -3881,16 +3881,19 @@ app.get('/calendar', async (req, res) => {
               }
               
               if (clickedButton) {
+                // Check if door is open OR if it's unlocked (hover state opens it visually)
                 var isOpen = door.classList.contains('is-open');
-                console.log('[door] Button click detected, door open:', isOpen, 'button:', clickedButton.href);
-                // Only block if door is closed
-                if (!isOpen) {
+                var isUnlocked = door.classList.contains('is-unlocked');
+                console.log('[door] Button click detected, door open:', isOpen, 'unlocked:', isUnlocked, 'button:', clickedButton.href);
+                // Only block if door is closed AND not unlocked
+                // If unlocked, hover opens it visually so allow clicks
+                if (!isOpen && !isUnlocked) {
                   e.preventDefault();
                   e.stopPropagation();
                   e.stopImmediatePropagation();
                   return false;
                 }
-                // Door is open - let the link navigate naturally
+                // Door is open or unlocked - let the link navigate naturally
                 // Don't prevent default, don't stop propagation - just return
                 console.log('[door] Allowing button navigation');
                 return;
