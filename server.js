@@ -8608,6 +8608,14 @@ app.get('/admin/quiz/:id/debug-ungraded', requireAdmin, async (req, res) => {
   }
 });
 
+// SQL normalization function (matches what SQL does)
+function sqlNormalize(s) {
+  return String(s || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
+}
+
 // --- Admin: Inspect individual responses in a mixed group ---
 app.post('/admin/quiz/:id/inspect-group', requireAdmin, async (req, res) => {
   try {
@@ -8618,34 +8626,42 @@ app.post('/admin/quiz/:id/inspect-group', requireAdmin, async (req, res) => {
     const question = (await pool.query('SELECT id FROM questions WHERE quiz_id=$1 AND number=$2', [quizId, questionNumber])).rows[0];
     if (!question) return res.status(404).send('Question not found');
     
-    // Get all responses for this question and normalize them using JavaScript (same as grading page)
+    // Get all responses for this question
     const allResponses = await pool.query(
       'SELECT id, response_text, override_correct, user_email, flagged FROM responses WHERE question_id=$1 AND submitted_at IS NOT NULL',
       [question.id]
     );
     
-    // Group by JavaScript normalization (same as grading page)
-    const normGroups = new Map();
+    // Group by SQL normalization (same as debug query)
+    const sqlNormGroups = new Map();
+    const jsNormGroups = new Map();
     for (const r of allResponses.rows) {
-      const norm = normalizeAnswer(r.response_text || '');
-      if (!normGroups.has(norm)) normGroups.set(norm, []);
-      normGroups.get(norm).push(r);
+      const sqlNorm = sqlNormalize(r.response_text || '');
+      const jsNorm = normalizeAnswer(r.response_text || '');
+      if (!sqlNormGroups.has(sqlNorm)) sqlNormGroups.set(sqlNorm, []);
+      if (!jsNormGroups.has(jsNorm)) jsNormGroups.set(jsNorm, []);
+      sqlNormGroups.get(sqlNorm).push(r);
+      jsNormGroups.get(jsNorm).push(r);
     }
     
     // Find the group matching the SQL-normalized text
-    const matchingGroup = normGroups.get(normResponse);
+    const matchingGroup = sqlNormGroups.get(normResponse);
     
     if (!matchingGroup) {
       return res.type('html').send(`
         <html><head><title>Inspect Group</title></head>
         <body style="font-family: system-ui; padding: 24px; background: #0a0a0a; color: #fff;">
           <h1>Group Not Found</h1>
-          <p>Could not find group with normalized text: "${normResponse}"</p>
+          <p>Could not find group with SQL-normalized text: "${normResponse}"</p>
           <p>This suggests a normalization mismatch between SQL and JavaScript.</p>
           <p><a href="/admin/quiz/${quizId}/debug-ungraded">Back to Debug</a></p>
-          <h2>All normalized groups for Q${questionNumber}:</h2>
+          <h2>All SQL-normalized groups for Q${questionNumber}:</h2>
           <ul>
-            ${Array.from(normGroups.keys()).map(norm => `<li><code>${norm}</code> (${normGroups.get(norm).length} responses)</li>`).join('')}
+            ${Array.from(sqlNormGroups.keys()).sort().map(norm => `<li><code>${norm}</code> (${sqlNormGroups.get(norm).length} responses)</li>`).join('')}
+          </ul>
+          <h2>All JavaScript-normalized groups for Q${questionNumber}:</h2>
+          <ul>
+            ${Array.from(jsNormGroups.keys()).sort().map(norm => `<li><code>${norm}</code> (${jsNormGroups.get(norm).length} responses)</li>`).join('')}
           </ul>
         </body></html>
       `);
@@ -8669,7 +8685,7 @@ app.post('/admin/quiz/:id/inspect-group', requireAdmin, async (req, res) => {
             <tr style="background: #333;"><th>ID</th><th>User</th><th>Response Text</th><th>JS Normalized</th><th>SQL Normalized</th></tr>
             ${trueResponses.map(r => {
               const jsNorm = normalizeAnswer(r.response_text || '');
-              const sqlNorm = (r.response_text || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+              const sqlNorm = sqlNormalize(r.response_text || '');
               return `<tr>
                 <td>${r.id}</td>
                 <td>${r.user_email}</td>
@@ -8687,7 +8703,7 @@ app.post('/admin/quiz/:id/inspect-group', requireAdmin, async (req, res) => {
             <tr style="background: #333;"><th>ID</th><th>User</th><th>Response Text</th><th>JS Normalized</th><th>SQL Normalized</th></tr>
             ${falseResponses.map(r => {
               const jsNorm = normalizeAnswer(r.response_text || '');
-              const sqlNorm = (r.response_text || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+              const sqlNorm = sqlNormalize(r.response_text || '');
               return `<tr>
                 <td>${r.id}</td>
                 <td>${r.user_email}</td>
@@ -8705,7 +8721,7 @@ app.post('/admin/quiz/:id/inspect-group', requireAdmin, async (req, res) => {
             <tr style="background: #333;"><th>ID</th><th>User</th><th>Response Text</th><th>JS Normalized</th><th>SQL Normalized</th></tr>
             ${nullResponses.map(r => {
               const jsNorm = normalizeAnswer(r.response_text || '');
-              const sqlNorm = (r.response_text || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+              const sqlNorm = sqlNormalize(r.response_text || '');
               return `<tr>
                 <td>${r.id}</td>
                 <td>${r.user_email}</td>
@@ -8744,16 +8760,16 @@ app.post('/admin/quiz/:id/fix-group', requireAdmin, async (req, res) => {
     const question = (await pool.query('SELECT id FROM questions WHERE quiz_id=$1 AND number=$2', [quizId, questionNumber])).rows[0];
     if (!question) return res.status(404).send('Question not found');
     
-    // Get all responses and normalize using JavaScript (same as grading page)
+    // Get all responses and normalize using SQL normalization (same as debug query)
     const allResponses = await pool.query(
       'SELECT id, response_text FROM responses WHERE question_id=$1 AND submitted_at IS NOT NULL',
       [question.id]
     );
     
-    // Find matching IDs using JavaScript normalization
+    // Find matching IDs using SQL normalization (same as debug query)
     const matchingIds = [];
     for (const r of allResponses.rows) {
-      const norm = normalizeAnswer(r.response_text || '');
+      const norm = sqlNormalize(r.response_text || '');
       if (norm === normResponse) {
         matchingIds.push(r.id);
       }
