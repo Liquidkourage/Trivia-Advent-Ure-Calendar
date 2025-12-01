@@ -8683,6 +8683,36 @@ app.post('/admin/quiz/:id/override', requireAdmin, async (req, res) => {
       client.release();
     }
     
+    // CRITICAL SAFEGUARD: After updating, verify no mixed states exist for this normalized text
+    // If any responses with this normalized text have different override_correct values, fix them
+    const verifyResp = await pool.query('SELECT id, response_text, override_correct FROM responses WHERE question_id=$1 AND submitted_at IS NOT NULL', [questionId]);
+    const normGroups = new Map();
+    for (const r of verifyResp.rows) {
+      const rNorm = normalizeAnswer(r.response_text || '');
+      if (rNorm === norm) {
+        if (!normGroups.has(rNorm)) normGroups.set(rNorm, []);
+        normGroups.get(rNorm).push(r);
+      }
+    }
+    
+    // Check for mixed states and fix them
+    for (const [normKey, group] of normGroups.entries()) {
+      const overrideValues = group.map(r => r.override_correct).filter(v => v !== null);
+      const hasTrue = overrideValues.some(v => v === true);
+      const hasFalse = overrideValues.some(v => v === false);
+      
+      if (hasTrue && hasFalse) {
+        // Mixed state detected! Fix it by setting all to the action value (or true if accept was the intent)
+        const fixValue = val !== null ? val : true; // Default to true (accept) if clearing
+        const fixIds = group.map(r => r.id);
+        console.warn(`[override] Mixed state detected for normalized text "${normKey}", fixing ${fixIds.length} responses to ${fixValue}`);
+        await pool.query(
+          'UPDATE responses SET override_correct = $1, override_version = override_version + 1, override_updated_at = NOW(), override_updated_by = $3 WHERE id = ANY($2)',
+          [fixValue, fixIds, updatedBy]
+        );
+      }
+    }
+    
     // Regrade all affected users to recalculate points
     const affectedUsers = await pool.query('SELECT DISTINCT user_email FROM responses WHERE id = ANY($1)', [matchingIds]);
     for (const user of affectedUsers.rows) {
