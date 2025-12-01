@@ -8505,12 +8505,14 @@ app.get('/admin/quiz/:id/responses', requireAdmin, async (req, res) => {
     
     // Identify players who submitted but have NO actual answers (all blank responses)
     // These players should be allowed to resubmit
+    // Check: if they have submitted_at set but no non-empty response_text values
     const playersWithAllEmpty = Array.from(responsesByPlayer.values()).filter(playerData => {
       const hasAnyAnswer = playerData.responses.some(r => {
         const text = (r.response_text || '').trim();
         return text && text.length > 0;
       });
-      return !hasAnyAnswer && playerData.responses.length > 0; // Has responses but all empty
+      // Has submitted_at (they're in the players list) but no actual answers
+      return !hasAnyAnswer;
     });
     
     // Automatically clear submission status for players with all empty responses if requested
