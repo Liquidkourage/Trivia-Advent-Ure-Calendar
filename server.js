@@ -1186,10 +1186,18 @@ async function gradeQuiz(pool, quizId, userEmail) {
     if (correct) {
       streak += 1;
       total += streak;
-      await pool.query('UPDATE responses SET points = $4 WHERE quiz_id=$1 AND user_email=$2 AND question_id=$3', [quizId, userEmail, q.id, streak]);
+      const updateResult = await pool.query('UPDATE responses SET points = $4 WHERE quiz_id=$1 AND user_email=$2 AND question_id=$3', [quizId, userEmail, q.id, streak]);
+      if (updateResult.rowCount === 0) {
+        console.warn(`[gradeQuiz] Failed to update points for quiz ${quizId}, user ${userEmail}, question ${q.id} - no rows affected`);
+      }
     } else {
       streak = 0;
-      if (r) await pool.query('UPDATE responses SET points = 0 WHERE quiz_id=$1 AND user_email=$2 AND question_id=$3', [quizId, userEmail, q.id]);
+      if (r) {
+        const updateResult = await pool.query('UPDATE responses SET points = 0 WHERE quiz_id=$1 AND user_email=$2 AND question_id=$3', [quizId, userEmail, q.id]);
+        if (updateResult.rowCount === 0) {
+          console.warn(`[gradeQuiz] Failed to update points to 0 for quiz ${quizId}, user ${userEmail}, question ${q.id} - no rows affected`);
+        }
+      }
     }
     graded.push({ questionId: q.id, number: q.number, locked: false, correct, points: correct ? streak : 0, given: responseText, answer: q.answer });
     }
@@ -7477,8 +7485,18 @@ app.post('/quiz/:id/submit', requireAuthOrAdmin, async (req, res) => {
     }
     // Mark ALL responses for this quiz/user as submitted (in case some weren't updated above)
     await pool.query('UPDATE responses SET submitted_at = $1 WHERE quiz_id=$2 AND user_email=$3 AND submitted_at IS NULL', [submittedAt, id, email]);
+    
+    // Verify responses were saved before grading
+    const verifyResp = await pool.query('SELECT COUNT(*) as count FROM responses WHERE quiz_id=$1 AND user_email=$2 AND submitted_at IS NOT NULL', [id, email]);
+    if (parseInt(verifyResp.rows[0].count) === 0) {
+      console.error(`[submit] No submitted responses found for quiz ${id}, user ${email} after save`);
+      return res.status(500).send('Failed to save responses');
+    }
+    
     // grade and redirect to recap
-    await gradeQuiz(pool, id, email);
+    const gradeResult = await gradeQuiz(pool, id, email);
+    console.log(`[submit] Quiz ${id}, User ${email}: Graded ${gradeResult.graded.length} questions, total points: ${gradeResult.total}`);
+    
     res.redirect(`/quiz/${id}?recap=1`);
   } catch (e) {
     console.error(e);
