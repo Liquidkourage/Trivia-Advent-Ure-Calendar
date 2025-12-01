@@ -8417,20 +8417,24 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
       const allGroups = Array.from(sec.answers.entries());
       
       for (const [ans, arr] of allGroups) {
-        // Skip blank groups (matching display filter)
         if (arr.length === 0) continue;
         const firstText = (arr[0].response_text || '').trim();
-        if (!firstText || normalizeAnswer(firstText) === '') continue; // blanks NEVER counted
+        const isBlank = !firstText || normalizeAnswer(firstText) === '';
         
-        // Check if any response in this group is flagged
+        // Check for mixed/flagged status BEFORE checking blank (matching display filter logic)
+        const overrides = arr.map(r => typeof r.override_correct === 'boolean' ? r.override_correct : null);
+        const isMixed = overrides.some(v => v === true) && overrides.some(v => v === false);
         const anyFlagged = arr.some(r => r.flagged === true);
+        
+        // CRITICAL: Match display filter exactly - mixed/flagged are always shown, even if blank
+        // Otherwise, skip blank groups
+        if (!isMixed && !anyFlagged && isBlank) continue;
+        
         if (anyFlagged) flaggedCount++;
         
         // Check if this group would be shown in "awaiting review" mode
         const auto = isCorrectAnswer(firstText, sec.answer);
-        const overrides = arr.map(r => typeof r.override_correct === 'boolean' ? r.override_correct : null);
         const hasOverride = overrides.some(v => v !== null);
-        const isMixed = overrides.some(v => v === true) && overrides.some(v => v === false);
         
         // Count groups that would be shown: flagged OR mixed OR (!auto && !hasOverride)
         if (anyFlagged || isMixed || (!auto && !hasOverride)) {
