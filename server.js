@@ -8624,34 +8624,67 @@ app.post('/admin/quiz/:id/override', requireAdmin, async (req, res) => {
     const q = await pool.query('SELECT id FROM questions WHERE quiz_id=$1 AND number=$2', [quizId, qNumber]);
     if (q.rows.length === 0) return res.status(404).send('Question not found');
     const questionId = q.rows[0].id;
-    // Find all response ids for this question whose normalized text matches the provided norm key
-    // CRITICAL: Only include SUBMITTED responses (submitted_at IS NOT NULL) to match what's shown in the grader
-    // This ensures we only update responses that are actually visible in the grading interface
+    // CRITICAL: Find ALL responses with this normalized text, not just the ones currently visible
+    // We need to fetch ALL submitted responses and normalize them to find ALL matches
+    // This prevents "Mixed" states where some responses with the same normalized text are updated but others aren't
     const resp = await pool.query('SELECT id, response_text FROM responses WHERE question_id=$1 AND submitted_at IS NOT NULL', [questionId]);
-    const ids = resp.rows.filter(r => normalizeAnswer(r.response_text || '') === norm).map(r => r.id);
-    if (ids.length === 0) { return res.redirect(`/admin/quiz/${quizId}/grade`); }
+    
+    // Find ALL responses that normalize to the same value
+    const matchingIds = [];
+    for (const r of resp.rows) {
+      const rNorm = normalizeAnswer(r.response_text || '');
+      if (rNorm === norm) {
+        matchingIds.push(r.id);
+      }
+    }
+    
+    if (matchingIds.length === 0) { 
+      return res.redirect(`/admin/quiz/${quizId}/grade`); 
+    }
     
     // CRITICAL: Ensure ALL responses with this normalized text are updated together
     // This prevents "Mixed" states where some responses are accepted and others are rejected
     // All responses with the same normalized text should have the same override_correct value
     // Optimistic check: ensure no one has updated these since the version we rendered
-    const ver = await pool.query('SELECT MAX(override_version) AS v FROM responses WHERE id = ANY($1)', [ids]);
+    const ver = await pool.query('SELECT MAX(override_version) AS v FROM responses WHERE id = ANY($1)', [matchingIds]);
     const currentMax = Number(ver.rows[0].v || 0);
     if (currentMax !== expectedVersion) {
       return res.redirect(`/admin/quiz/${quizId}/grade?stale=1`);
     }
+    
     let val = null;
     if (action === 'accept') val = true;
     else if (action === 'reject') val = false;
     const updatedBy = getAdminEmail() || 'admin';
-    if (action === 'accept' || action === 'reject') {
-      await pool.query('UPDATE responses SET override_correct = $1, flagged = FALSE, override_version = override_version + 1, override_updated_at = NOW(), override_updated_by = $3 WHERE id = ANY($2)', [val, ids, updatedBy]);
-    } else {
-      await pool.query('UPDATE responses SET override_correct = $1, override_version = override_version + 1, override_updated_at = NOW(), override_updated_by = $3 WHERE id = ANY($2)', [val, ids, updatedBy]);
+    
+    // CRITICAL: Update ALL matching responses in a single transaction to ensure consistency
+    // Use a transaction to ensure atomicity - either all update or none do
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      
+      if (action === 'accept' || action === 'reject') {
+        await client.query(
+          'UPDATE responses SET override_correct = $1, flagged = FALSE, override_version = override_version + 1, override_updated_at = NOW(), override_updated_by = $3 WHERE id = ANY($2)',
+          [val, matchingIds, updatedBy]
+        );
+      } else {
+        await client.query(
+          'UPDATE responses SET override_correct = $1, override_version = override_version + 1, override_updated_at = NOW(), override_updated_by = $3 WHERE id = ANY($2)',
+          [val, matchingIds, updatedBy]
+        );
+      }
+      
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
     }
     
     // Regrade all affected users to recalculate points
-    const affectedUsers = await pool.query('SELECT DISTINCT user_email FROM responses WHERE id = ANY($1)', [ids]);
+    const affectedUsers = await pool.query('SELECT DISTINCT user_email FROM responses WHERE id = ANY($1)', [matchingIds]);
     for (const user of affectedUsers.rows) {
       await gradeQuiz(pool, quizId, user.user_email);
     }
