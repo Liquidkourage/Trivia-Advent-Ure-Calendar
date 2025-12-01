@@ -8436,8 +8436,16 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
         const auto = isCorrectAnswer(firstText, sec.answer);
         const hasOverride = overrides.some(v => v !== null);
         
-        // Count groups that would be shown: flagged OR mixed OR (!auto && !hasOverride)
-        if (anyFlagged || isMixed || (!auto && !hasOverride)) {
+        // CRITICAL: A group is "ungraded" (needs review) if:
+        // - Flagged (needs attention)
+        // - Mixed (inconsistent state, needs fixing)
+        // - NOT auto-correct AND has NO override (truly awaiting review)
+        // 
+        // Groups with overrides (even if false/rejected) are NOT ungraded - they've been reviewed
+        // Groups that are auto-correct are NOT ungraded - they're automatically correct
+        const isUngraded = anyFlagged || isMixed || (!auto && !hasOverride);
+        
+        if (isUngraded) {
           ungraded++;
         }
       }
