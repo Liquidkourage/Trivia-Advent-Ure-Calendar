@@ -7368,22 +7368,17 @@ app.get('/admin/diagnostics/missing-response-text', requireAdmin, async (req, re
     const incompleteSubmissions = await pool.query(incompleteSubmissionsQuery, incompleteParams);
     
     // Find players who have submitted_at but ALL their responses are empty
+    // We need to check ALL responses, not just empty ones, to correctly identify players with all empty
     let allEmptyQuery = `
-      SELECT 
-        r.quiz_id,
-        r.user_email,
-        r.submitted_at,
-        q.title as quiz_title,
-        COUNT(*) as empty_count,
-        COUNT(DISTINCT qq.id) as total_questions,
-        p.username,
-        p.email
-      FROM responses r
-      JOIN quizzes q ON q.id = r.quiz_id
-      JOIN questions qq ON qq.quiz_id = r.quiz_id
-      LEFT JOIN players p ON p.email = r.user_email
-      WHERE r.submitted_at IS NOT NULL
-        AND (r.response_text IS NULL OR TRIM(r.response_text) = '')
+      WITH player_responses AS (
+        SELECT 
+          r.quiz_id,
+          r.user_email,
+          r.question_id,
+          r.submitted_at,
+          CASE WHEN r.response_text IS NULL OR TRIM(r.response_text) = '' THEN 1 ELSE 0 END as is_empty
+        FROM responses r
+        WHERE r.submitted_at IS NOT NULL
     `;
     const allEmptyParams = [];
     if (searchEmail) {
@@ -7395,9 +7390,35 @@ app.get('/admin/diagnostics/missing-response-text', requireAdmin, async (req, re
       allEmptyParams.push(searchQuizId);
     }
     allEmptyQuery += `
-      GROUP BY r.quiz_id, r.user_email, r.submitted_at, q.title, p.username, p.email
-      HAVING COUNT(*) = COUNT(DISTINCT qq.id)
-      ORDER BY r.submitted_at DESC
+      ),
+      quiz_questions AS (
+        SELECT quiz_id, COUNT(*) as total_questions
+        FROM questions
+    `;
+    if (searchQuizId) {
+      allEmptyQuery += ` WHERE quiz_id = $${allEmptyParams.length + 1}`;
+      allEmptyParams.push(searchQuizId);
+    }
+    allEmptyQuery += `
+        GROUP BY quiz_id
+      )
+      SELECT 
+        pr.quiz_id,
+        pr.user_email,
+        MAX(pr.submitted_at) as submitted_at,
+        q.title as quiz_title,
+        SUM(pr.is_empty) as empty_count,
+        COUNT(*) as response_count,
+        qq.total_questions,
+        p.username,
+        p.email
+      FROM player_responses pr
+      JOIN quizzes q ON q.id = pr.quiz_id
+      JOIN quiz_questions qq ON qq.quiz_id = pr.quiz_id
+      LEFT JOIN players p ON p.email = pr.user_email
+      GROUP BY pr.quiz_id, pr.user_email, q.title, qq.total_questions, p.username, p.email
+      HAVING COUNT(*) = qq.total_questions AND SUM(pr.is_empty) = COUNT(*)
+      ORDER BY submitted_at DESC
       LIMIT 50
     `;
     
