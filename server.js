@@ -9471,10 +9471,18 @@ app.post('/admin/donations/import-csv', requireAdmin, upload.single('csvfile'), 
           }
         }
         
+        // Get cutoff date for this year
+        const cutoffUtcEnv = process.env.KOFI_CUTOFF_UTC || '';
+        const cutoffDate = cutoffUtcEnv ? new Date(cutoffUtcEnv) : new Date('2025-11-01T04:00:00Z');
+        const isHistoric = createdAt < cutoffDate;
+        
         const currency = currencyRaw || 'USD';
         
-        // Ensure player exists
-        await pool.query('INSERT INTO players(email, access_granted_at) VALUES($1, $2) ON CONFLICT (email) DO NOTHING', [emailRaw, createdAt]);
+        // Only create player records for donations after the cutoff date (this year's players)
+        // Historic donations are still imported for record-keeping, but don't create player accounts
+        if (!isHistoric) {
+          await pool.query('INSERT INTO players(email, access_granted_at) VALUES($1, $2) ON CONFLICT (email) DO NOTHING', [emailRaw, createdAt]);
+        }
         
         // Insert donation (skip if duplicate transaction ID exists)
         if (kofiIdRaw) {
@@ -9499,10 +9507,11 @@ app.post('/admin/donations/import-csv', requireAdmin, upload.single('csvfile'), 
     
     let msg = `Imported ${imported} donation${imported !== 1 ? 's' : ''}`;
     if (skipped > 0) msg += `, skipped ${skipped}`;
+    msg += `. Note: Player accounts were only created for donations after ${cutoffDate.toLocaleDateString()}. Historic donations were imported for record-keeping but do not create player accounts.`;
     if (errors.length > 0 && errors.length <= 10) {
-      msg += `. Errors: ${errors.join('; ')}`;
+      msg += ` Errors: ${errors.join('; ')}`;
     } else if (errors.length > 10) {
-      msg += `. ${errors.length} errors (showing first 10): ${errors.slice(0, 10).join('; ')}`;
+      msg += ` ${errors.length} errors (showing first 10): ${errors.slice(0, 10).join('; ')}`;
     }
     
     res.redirect(`/admin/donations?msg=${encodeURIComponent(msg)}`);
