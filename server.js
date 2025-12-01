@@ -8556,10 +8556,16 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
         // Blank groups with NULL override_correct are NOT ungraded - they're auto-rejected by gradeQuiz
         const hasUngraded = overrides.some(v => v === null);
         // Only count hasUngraded if the group is NOT blank (blank ungraded responses are auto-rejected)
+        // CRITICAL: This must match the display filter logic exactly:
+        // - Display filter filters out blanks BEFORE checking ungraded status (unless mixed/flagged)
+        // - So blank groups with hasUngraded=true are filtered out and never shown
+        // - Therefore, we should NOT count blank groups with hasUngraded=true
         const isUngraded = anyFlagged || isMixed || (hasUngraded && !isBlank) || (!auto && !accepted && !hasOverride);
         
         if (isUngraded) {
           ungraded++;
+          // Debug: log what's being counted (remove after debugging)
+          console.log(`[GRADER DEBUG] Q${sec.number}: Counting ungraded group - blank:${isBlank}, flagged:${anyFlagged}, mixed:${isMixed}, hasUngraded:${hasUngraded}, auto:${auto}, accepted:${accepted}, hasOverride:${hasOverride}, firstText:"${firstText.substring(0, 20)}"`);
         }
       }
       
