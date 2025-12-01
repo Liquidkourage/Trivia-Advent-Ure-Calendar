@@ -8559,6 +8559,9 @@ app.get('/admin/quiz/:id/responses', requireAdmin, async (req, res) => {
             <td>${escapeHtml(q.answer)}</td>
             <td>${correctnessDisplay}</td>
             <td>${resp ? (resp.points || 0) : 0}</td>
+            <td>
+              ${hasResponse ? `<a href="/admin/quiz/${quizId}/edit-response?email=${encodeURIComponent(player.user_email)}&question=${q.number}" class="ta-btn ta-btn-small">Edit</a>` : `<a href="/admin/quiz/${quizId}/edit-response?email=${encodeURIComponent(player.user_email)}&question=${q.number}" class="ta-btn ta-btn-small">Add</a>`}
+            </td>
           </tr>
         `;
       }).join('');
@@ -8588,6 +8591,7 @@ app.get('/admin/quiz/:id/responses', requireAdmin, async (req, res) => {
                   <th>Correct Answer</th>
                   <th>Correct?</th>
                   <th>Points</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -8637,6 +8641,179 @@ app.get('/admin/quiz/:id/responses', requireAdmin, async (req, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).send('Failed to load responses');
+  }
+});
+
+// --- Admin: Edit individual response ---
+app.get('/admin/quiz/:id/edit-response', requireAdmin, async (req, res) => {
+  try {
+    const quizId = Number(req.params.id);
+    const userEmail = String(req.query.email || '').toLowerCase().trim();
+    const questionNumber = Number(req.query.question || 0);
+    
+    if (!userEmail || !questionNumber) {
+      return res.status(400).send('Email and question number required');
+    }
+    
+    // Helper function to escape HTML
+    const escapeHtml = (text) => {
+      return String(text || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+    };
+    
+    const quiz = (await pool.query('SELECT * FROM quizzes WHERE id=$1', [quizId])).rows[0];
+    if (!quiz) return res.status(404).send('Quiz not found');
+    
+    const question = (await pool.query('SELECT * FROM questions WHERE quiz_id=$1 AND number=$2', [quizId, questionNumber])).rows[0];
+    if (!question) return res.status(404).send('Question not found');
+    
+    const player = (await pool.query('SELECT * FROM players WHERE email=$1', [userEmail])).rows[0];
+    const displayName = player?.username || player?.email || userEmail;
+    
+    const response = (await pool.query(
+      'SELECT * FROM responses WHERE quiz_id=$1 AND question_id=$2 AND user_email=$3',
+      [quizId, question.id, userEmail]
+    )).rows[0];
+    
+    const header = await renderHeader(req);
+    res.type('html').send(`
+      ${renderHead(`Edit Response • Admin`, true)}
+      <body class="ta-body">
+        ${header}
+        <main class="ta-main ta-container" style="max-width:800px;">
+          ${renderBreadcrumb([ADMIN_CRUMB, { label: 'Quizzes', href: '/admin/quizzes' }, { label: quiz.title || `Quiz #${quizId}` }, { label: 'Responses', href: `/admin/quiz/${quizId}/responses` }, { label: 'Edit Response' }])}
+          ${renderAdminNav('quizzes')}
+          <h1 class="ta-page-title">Edit Response</h1>
+          
+          <div style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:16px;margin-bottom:24px;">
+            <div><strong>Player:</strong> ${displayName} (${userEmail})</div>
+            <div><strong>Quiz:</strong> ${quiz.title || `Quiz #${quizId}`}</div>
+            <div><strong>Question:</strong> Q${questionNumber}</div>
+          </div>
+          
+          <form method="POST" action="/admin/quiz/${quizId}/edit-response" style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:24px;">
+            <input type="hidden" name="email" value="${userEmail}">
+            <input type="hidden" name="question_id" value="${question.id}">
+            
+            <div style="margin-bottom:20px;">
+              <label style="display:block;margin-bottom:8px;font-weight:600;">Question Text:</label>
+              <div style="background:#0a0a0a;padding:12px;border-radius:6px;border:1px solid #333;">${escapeHtml(question.text)}</div>
+            </div>
+            
+            <div style="margin-bottom:20px;">
+              <label style="display:block;margin-bottom:8px;font-weight:600;">Correct Answer:</label>
+              <div style="background:#0a0a0a;padding:12px;border-radius:6px;border:1px solid #333;">${escapeHtml(question.answer)}</div>
+            </div>
+            
+            <div style="margin-bottom:20px;">
+              <label for="response_text" style="display:block;margin-bottom:8px;font-weight:600;">Response Text:</label>
+              <textarea id="response_text" name="response_text" rows="3" style="width:100%;padding:12px;background:#0a0a0a;border:1px solid #333;border-radius:6px;color:#fff;font-family:inherit;font-size:14px;">${response ? escapeHtml(response.response_text || '') : ''}</textarea>
+              <div style="margin-top:4px;font-size:12px;opacity:0.7;">Leave empty to mark as "Not answered"</div>
+            </div>
+            
+            <div style="margin-bottom:20px;">
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                <input type="checkbox" name="locked" value="1" ${response && response.locked ? 'checked' : ''} style="width:18px;height:18px;">
+                <span style="font-weight:600;">Lock this question</span>
+              </label>
+              <div style="margin-top:4px;font-size:12px;opacity:0.7;">If checked, this question will be locked (worth 5 points if correct). Only one question per quiz can be locked.</div>
+            </div>
+            
+            ${response ? `
+            <div style="margin-bottom:20px;padding:12px;background:#2a1a0a;border:1px solid #664400;border-radius:6px;">
+              <div><strong>Current Status:</strong></div>
+              <div>Points: ${response.points || 0}</div>
+              <div>Submitted: ${response.submitted_at ? new Date(response.submitted_at).toLocaleString() : 'Not submitted'}</div>
+              <div>Created: ${response.created_at ? new Date(response.created_at).toLocaleString() : 'N/A'}</div>
+            </div>
+            ` : ''}
+            
+            <div style="display:flex;gap:12px;">
+              <button type="submit" class="ta-btn ta-btn-primary">Save Changes</button>
+              <a href="/admin/quiz/${quizId}/responses?email=${encodeURIComponent(userEmail)}" class="ta-btn ta-btn-outline">Cancel</a>
+              ${response ? `<button type="submit" name="action" value="delete" class="ta-btn" style="background:#5a1a1a;border-color:#cc4444;color:#ff8888;margin-left:auto;" onclick="return confirm('Are you sure you want to delete this response? This cannot be undone.');">Delete Response</button>` : ''}
+            </div>
+          </form>
+        </main>
+        ${renderFooter(req)}
+      </body></html>
+    `);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to load edit page');
+  }
+});
+
+app.post('/admin/quiz/:id/edit-response', requireAdmin, async (req, res) => {
+  try {
+    const quizId = Number(req.params.id);
+    const userEmail = String(req.body.email || '').toLowerCase().trim();
+    const questionId = Number(req.body.question_id);
+    const action = String(req.body.action || '').toLowerCase();
+    
+    if (!userEmail || !questionId) {
+      return res.status(400).send('Email and question ID required');
+    }
+    
+    // Verify quiz and question exist
+    const quiz = (await pool.query('SELECT * FROM quizzes WHERE id=$1', [quizId])).rows[0];
+    if (!quiz) return res.status(404).send('Quiz not found');
+    
+    const question = (await pool.query('SELECT * FROM questions WHERE id=$1 AND quiz_id=$2', [questionId, quizId])).rows[0];
+    if (!question) return res.status(404).send('Question not found');
+    
+    if (action === 'delete') {
+      // Delete the response
+      await pool.query(
+        'DELETE FROM responses WHERE quiz_id=$1 AND question_id=$2 AND user_email=$3',
+        [quizId, questionId, userEmail]
+      );
+      return res.redirect(`/admin/quiz/${quizId}/responses?email=${encodeURIComponent(userEmail)}&deleted=1`);
+    }
+    
+    const responseText = String(req.body.response_text || '').trim();
+    const isLocked = req.body.locked === '1';
+    
+    // Get existing response to check if it was submitted
+    const existing = (await pool.query(
+      'SELECT * FROM responses WHERE quiz_id=$1 AND question_id=$2 AND user_email=$3',
+      [quizId, questionId, userEmail]
+    )).rows[0];
+    
+    const wasSubmitted = existing && existing.submitted_at;
+    const submittedAt = wasSubmitted ? existing.submitted_at : (responseText ? new Date() : null);
+    
+    if (existing) {
+      // Update existing response
+      await pool.query(
+        `UPDATE responses 
+         SET response_text=$1, locked=$2, submitted_at=$3
+         WHERE quiz_id=$4 AND question_id=$5 AND user_email=$6`,
+        [responseText, isLocked, submittedAt, quizId, questionId, userEmail]
+      );
+    } else {
+      // Create new response
+      await pool.query(
+        `INSERT INTO responses (quiz_id, question_id, user_email, response_text, locked, submitted_at)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [quizId, questionId, userEmail, responseText, isLocked, submittedAt]
+      );
+    }
+    
+    // If locking this question, unlock all other questions for this user/quiz
+    if (isLocked) {
+      await pool.query(
+        'UPDATE responses SET locked=false WHERE quiz_id=$1 AND user_email=$2 AND question_id <> $3',
+        [quizId, userEmail, questionId]
+      );
+    }
+    
+    // Regrade this user to recalculate points
+    await gradeQuiz(pool, quizId, userEmail);
+    
+    return res.redirect(`/admin/quiz/${quizId}/responses?email=${encodeURIComponent(userEmail)}&updated=1`);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to save response');
   }
 });
 
