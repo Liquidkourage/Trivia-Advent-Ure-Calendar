@@ -8104,6 +8104,16 @@ app.post('/admin/test-kofi', requireAdmin, express.urlencoded({ extended: true }
 // --- Players management ---
 app.get('/admin/players', requireAdmin, async (req, res) => {
   try {
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const perPage = Math.min(100, Math.max(10, parseInt(req.query.perPage) || 50)); // Default 50, max 100, min 10
+    const offset = (page - 1) * perPage;
+    
+    // Get total count
+    const totalCountResult = await pool.query('SELECT COUNT(*) as count FROM players');
+    const totalCount = parseInt(totalCountResult.rows[0].count || 0);
+    const totalPages = Math.ceil(totalCount / perPage);
+    
+    // Get paginated players
     const rows = (await pool.query(`
       SELECT 
         p.id,
@@ -8125,7 +8135,8 @@ app.get('/admin/players', requireAdmin, async (req, res) => {
       LEFT JOIN admins a ON a.email = p.email
       GROUP BY p.id, p.email, p.username, p.access_granted_at, p.onboarding_complete, p.password_set_at, a.email
       ORDER BY p.access_granted_at DESC
-    `)).rows;
+      LIMIT $1 OFFSET $2
+    `, [perPage, offset])).rows;
     const items = rows.map(r => {
       const status = [];
       if (r.is_admin) status.push('<span style="color:#ffd700;font-weight:bold;">ADMIN</span>');
@@ -8247,7 +8258,7 @@ app.get('/admin/players', requireAdmin, async (req, res) => {
           </div>
           
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:12px;">
-            <p style="margin:0;opacity:0.8;">Total: <span id="total-count">${rows.length}</span> player${rows.length !== 1 ? 's' : ''}</p>
+            <p style="margin:0;opacity:0.8;">Showing ${rows.length} of ${totalCount} player${totalCount !== 1 ? 's' : ''} (Page ${page} of ${totalPages})</p>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
               <input type="text" id="player-search" placeholder="Search by email or username..." style="padding:8px 12px;border-radius:6px;border:1px solid #444;background:#1a1a1a;color:#fff;min-width:250px;" />
               <select id="statusFilter" style="padding:8px;border-radius:6px;border:1px solid #444;background:#2a2a2a;color:#fff;min-width:200px;">
@@ -8321,7 +8332,46 @@ app.get('/admin/players', requireAdmin, async (req, res) => {
               </tbody>
             </table>
           </div>
+          
+          ${totalPages > 1 ? `
+          <div style="display:flex;justify-content:center;align-items:center;gap:8px;margin-top:24px;flex-wrap:wrap;">
+            <button onclick="goToPage(${page - 1})" ${page === 1 ? 'disabled' : ''} class="ta-btn ta-btn-outline" style="padding:8px 16px;${page === 1 ? 'opacity:0.5;cursor:not-allowed;' : ''}">Previous</button>
+            ${Array.from({length: Math.min(7, totalPages)}, (_, i) => {
+              let pageNum;
+              if (totalPages <= 7) {
+                pageNum = i + 1;
+              } else if (page <= 4) {
+                pageNum = i + 1;
+              } else if (page >= totalPages - 3) {
+                pageNum = totalPages - 6 + i;
+              } else {
+                pageNum = page - 3 + i;
+              }
+              const isCurrent = pageNum === page;
+              return `<button onclick="goToPage(${pageNum})" ${isCurrent ? 'disabled' : ''} class="ta-btn ${isCurrent ? 'ta-btn-primary' : 'ta-btn-outline'}" style="padding:8px 12px;min-width:40px;${isCurrent ? 'cursor:default;' : ''}">${pageNum}</button>`;
+            }).join('')}
+            <button onclick="goToPage(${page + 1})" ${page === totalPages ? 'disabled' : ''} class="ta-btn ta-btn-outline" style="padding:8px 16px;${page === totalPages ? 'opacity:0.5;cursor:not-allowed;' : ''}">Next</button>
+            <select id="perPageSelect" onchange="changePerPage()" style="padding:8px;border-radius:6px;border:1px solid #444;background:#2a2a2a;color:#fff;margin-left:16px;">
+              <option value="25" ${perPage === 25 ? 'selected' : ''}>25 per page</option>
+              <option value="50" ${perPage === 50 ? 'selected' : ''}>50 per page</option>
+              <option value="100" ${perPage === 100 ? 'selected' : ''}>100 per page</option>
+            </select>
+          </div>
+          ` : ''}
+          
           <script>
+            function goToPage(newPage) {
+              const url = new URL(window.location);
+              url.searchParams.set('page', newPage);
+              window.location = url.toString();
+            }
+            function changePerPage() {
+              const perPage = document.getElementById('perPageSelect').value;
+              const url = new URL(window.location);
+              url.searchParams.set('perPage', perPage);
+              url.searchParams.set('page', '1'); // Reset to first page when changing per page
+              window.location = url.toString();
+            }
             function filterPlayers() {
               const searchTerm = document.getElementById('player-search').value.toLowerCase().trim();
               const statusFilter = document.getElementById('statusFilter');
