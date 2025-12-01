@@ -6695,7 +6695,7 @@ app.get('/quiz/:id/leaderboard', async (req, res) => {
       )
         SELECT 
         nr.user_email,
-        COUNT(CASE 
+        SUM(CASE 
           WHEN nr.points > 0 THEN 1
           WHEN nr.response_text IS NULL OR TRIM(nr.response_text) = '' THEN 0
           WHEN nr.override_correct = true AND nr.response_text IS NOT NULL AND TRIM(nr.response_text) != '' THEN 1
@@ -6962,7 +6962,7 @@ app.get('/quizmas/leaderboard', async (req, res) => {
         )
         SELECT 
           COUNT(DISTINCT nr.quiz_id) as quizzes_submitted,
-          COUNT(CASE 
+          SUM(CASE 
             WHEN nr.points > 0 THEN 1
             WHEN nr.response_text IS NULL OR TRIM(nr.response_text) = '' THEN 0
             WHEN nr.override_correct = true AND nr.response_text IS NOT NULL AND TRIM(nr.response_text) != '' THEN 1
@@ -7221,7 +7221,7 @@ app.get('/leaderboard', async (req, res) => {
         )
         SELECT 
           COUNT(DISTINCT nr.quiz_id) as quizzes_submitted,
-          COUNT(CASE 
+          SUM(CASE 
             WHEN nr.points > 0 THEN 1
             WHEN nr.response_text IS NULL OR TRIM(nr.response_text) = '' THEN 0
             WHEN nr.override_correct = true AND nr.response_text IS NOT NULL AND TRIM(nr.response_text) != '' THEN 1
