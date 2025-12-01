@@ -331,6 +331,9 @@ async function initDb() {
     DO $$ BEGIN
       ALTER TABLE responses ADD COLUMN IF NOT EXISTS override_updated_by TEXT;
     EXCEPTION WHEN others THEN NULL; END $$;
+    DO $$ BEGIN
+      ALTER TABLE responses ADD COLUMN IF NOT EXISTS submitted_at TIMESTAMPTZ;
+    EXCEPTION WHEN others THEN NULL; END $$;
 
     -- Donations table to track Ko-fi donations
     CREATE TABLE IF NOT EXISTS donations (
@@ -6095,22 +6098,24 @@ app.post('/quiz/:id/autosave', requireAuth, express.json(), async (req, res) => 
         );
         
         // Only create/update if there's content OR if a response already exists (to allow clearing)
+        // IMPORTANT: Autosave should NEVER overwrite submitted_at - once submitted, autosave is just for display
         if (trimmedText || existing.length > 0) {
         await pool.query(
-            'INSERT INTO responses (quiz_id, question_id, user_email, response_text, locked) VALUES ($1, $2, $3, $4, false) ON CONFLICT (user_email, question_id) DO UPDATE SET response_text=$4, created_at=CASE WHEN $4 != \'\' THEN NOW() ELSE responses.created_at END',
+            'INSERT INTO responses (quiz_id, question_id, user_email, response_text, locked) VALUES ($1, $2, $3, $4, false) ON CONFLICT (user_email, question_id) DO UPDATE SET response_text=$4, created_at=CASE WHEN $4 != \'\' THEN NOW() ELSE responses.created_at END, submitted_at=COALESCE(responses.submitted_at, NULL)',
             [id, questionId, email, trimmedText]
         );
         }
       }
     }
     
-    // Update locked question
+    // Update locked question (only if not already submitted)
+    // Once submitted, lock status shouldn't change via autosave
     if (locked) {
       const lockedId = Number(locked);
-      // Unlock all questions for this user/quiz
-      await pool.query('UPDATE responses SET locked=false WHERE quiz_id=$1 AND user_email=$2', [id, email]);
-      // Lock the selected question
-      await pool.query('UPDATE responses SET locked=true WHERE quiz_id=$1 AND question_id=$2 AND user_email=$3', [id, lockedId, email]);
+      // Unlock all questions for this user/quiz (only if not submitted)
+      await pool.query('UPDATE responses SET locked=false WHERE quiz_id=$1 AND user_email=$2 AND submitted_at IS NULL', [id, email]);
+      // Lock the selected question (only if not submitted)
+      await pool.query('UPDATE responses SET locked=true WHERE quiz_id=$1 AND question_id=$2 AND user_email=$3 AND submitted_at IS NULL', [id, lockedId, email]);
     }
     
     res.json({ success: true });
@@ -7178,6 +7183,7 @@ app.post('/quiz/:id/submit', requireAuthOrAdmin, async (req, res) => {
         return res.status(400).send('Please choose one question to lock before submitting.');
       }
     }
+    const submittedAt = new Date(); // Mark all responses as submitted at this time
     for (const q of qs) {
       const key = `q${q.number}`;
       const val = String(req.body[key] || '').trim();
@@ -7185,19 +7191,21 @@ app.post('/quiz/:id/submit', requireAuthOrAdmin, async (req, res) => {
       if (!val) {
         // still persist lock choice even without new text if row exists
         await pool.query(
-          'INSERT INTO responses(quiz_id, question_id, user_email, response_text, locked, override_correct) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT (user_email, question_id) DO UPDATE SET locked = EXCLUDED.locked, response_text = EXCLUDED.response_text, override_correct = COALESCE(responses.override_correct, FALSE)',
-          [id, q.id, email, '', isLocked, false]
+          'INSERT INTO responses(quiz_id, question_id, user_email, response_text, locked, override_correct, submitted_at) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (user_email, question_id) DO UPDATE SET locked = EXCLUDED.locked, response_text = EXCLUDED.response_text, override_correct = COALESCE(responses.override_correct, FALSE), submitted_at = EXCLUDED.submitted_at',
+          [id, q.id, email, '', isLocked, false, submittedAt]
         );
         continue;
       }
       await pool.query(
-        'INSERT INTO responses(quiz_id, question_id, user_email, response_text, locked) VALUES($1,$2,$3,$4,$5) ON CONFLICT (user_email, question_id) DO UPDATE SET response_text = EXCLUDED.response_text, locked = EXCLUDED.locked',
-        [id, q.id, email, val, isLocked]
+        'INSERT INTO responses(quiz_id, question_id, user_email, response_text, locked, submitted_at) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT (user_email, question_id) DO UPDATE SET response_text = EXCLUDED.response_text, locked = EXCLUDED.locked, submitted_at = EXCLUDED.submitted_at',
+        [id, q.id, email, val, isLocked, submittedAt]
       );
     }
     if (lockedSelected) {
       await pool.query('UPDATE responses SET locked = FALSE WHERE quiz_id=$1 AND user_email=$2 AND question_id <> $3', [id, email, lockedSelected]);
     }
+    // Mark ALL responses for this quiz/user as submitted (in case some weren't updated above)
+    await pool.query('UPDATE responses SET submitted_at = $1 WHERE quiz_id=$2 AND user_email=$3 AND submitted_at IS NULL', [submittedAt, id, email]);
     // grade and redirect to recap
     await gradeQuiz(pool, id, email);
     res.redirect(`/quiz/${id}?recap=1`);
@@ -7766,11 +7774,13 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
       showQStr.split(',').map(s => parseInt(s, 10)).filter(n => !isNaN(n))
     );
     // Load responses joined with questions
+    // IMPORTANT: Only show SUBMITTED responses (submitted_at IS NOT NULL)
+    // Autosave-only responses (submitted_at IS NULL) should NOT appear on the grading page
     const rows = (await pool.query(
       `SELECT q.id AS qid, q.number, q.text, q.answer, r.user_email, r.response_text, r.locked, r.override_correct, COALESCE(r.flagged,false) AS flagged,
               COALESCE(r.override_version,0) AS override_version, r.override_updated_at, r.override_updated_by
        FROM questions q
-       LEFT JOIN responses r ON r.question_id = q.id
+       LEFT JOIN responses r ON r.question_id = q.id AND r.submitted_at IS NOT NULL
        WHERE q.quiz_id=$1
        ORDER BY q.number ASC, r.user_email ASC`,
       [id]
@@ -8035,21 +8045,21 @@ app.get('/admin/quiz/:id/responses', requireAdmin, async (req, res) => {
     // Get all questions for this quiz
     const questions = (await pool.query('SELECT * FROM questions WHERE quiz_id=$1 ORDER BY number ASC', [quizId])).rows;
     
-    // Get all unique players who have submitted responses
+    // Get all unique players who have SUBMITTED responses (exclude autosave-only)
     const players = (await pool.query(`
       SELECT DISTINCT 
         r.user_email,
         p.username,
         p.email,
-        MAX(r.created_at) as last_response_at
+        MAX(r.submitted_at) as last_submitted_at
       FROM responses r
       LEFT JOIN players p ON p.email = r.user_email
-      WHERE r.quiz_id = $1
+      WHERE r.quiz_id = $1 AND r.submitted_at IS NOT NULL
       GROUP BY r.user_email, p.username, p.email
-      ORDER BY last_response_at DESC
+      ORDER BY last_submitted_at DESC
     `, [quizId])).rows;
     
-    // Get all responses for this quiz
+    // Get all SUBMITTED responses for this quiz (exclude autosave-only)
     const allResponses = (await pool.query(`
       SELECT 
         r.user_email,
@@ -8059,14 +8069,20 @@ app.get('/admin/quiz/:id/responses', requireAdmin, async (req, res) => {
         r.locked,
         r.override_correct,
         r.created_at,
+        r.submitted_at,
         qq.number as question_number,
         qq.text as question_text,
         qq.answer as correct_answer
       FROM responses r
       JOIN questions qq ON qq.id = r.question_id
-      WHERE r.quiz_id = $1
+      WHERE r.quiz_id = $1 AND r.submitted_at IS NOT NULL
       ORDER BY r.user_email, qq.number ASC
     `, [quizId])).rows;
+    
+    // Debug: Check for players with responses but no locked question
+    const playersWithResponses = new Set(allResponses.map(r => r.user_email));
+    const playersWithLocks = new Set(allResponses.filter(r => r.locked === true).map(r => r.user_email));
+    const playersWithoutLocks = Array.from(playersWithResponses).filter(email => !playersWithLocks.has(email));
     
     // Group responses by player
     const responsesByPlayer = new Map();
@@ -8202,9 +8218,19 @@ app.get('/admin/quiz/:id/responses', requireAdmin, async (req, res) => {
           </div>
           <div style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:16px;margin-bottom:24px;">
             <div style="display:flex;gap:24px;flex-wrap:wrap;">
-              <div><strong>Total Submissions:</strong> ${players.length}</div>
+              <div><strong>Players with Answers:</strong> ${playersWithAnswers.length}</div>
+              <div><strong>Total Response Records:</strong> ${players.length}</div>
               <div><strong>Total Questions:</strong> ${questions.length}</div>
+              ${playersWithoutLocks.length > 0 ? `<div style="color:#ff9800;"><strong>⚠️ Players without locks:</strong> ${playersWithoutLocks.length}</div>` : ''}
             </div>
+            ${playersWithoutLocks.length > 0 ? `<div style="margin-top:12px;padding:12px;background:#2a1a0a;border:1px solid #664400;border-radius:6px;color:#ff9800;">
+              <strong>Note:</strong> Some players have responses but no locked question. This may indicate:
+              <ul style="margin:8px 0 0 20px;padding:0;">
+                <li>Submissions from before locking was required</li>
+                <li>Autosave-only responses (not yet submitted)</li>
+                <li>Data inconsistencies</li>
+              </ul>
+            </div>` : ''}
           </div>
           ${playerSubmissions || '<p>No responses yet.</p>'}
         </main>
