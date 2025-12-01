@@ -8674,6 +8674,79 @@ app.get('/admin/quiz/:id/responses', requireAdmin, async (req, res) => {
             </div>` : ''}
           </div>
           ${playerSubmissions || '<p>No responses yet.</p>'}
+          
+          ${playersWithAllEmpty.length > 0 ? `
+          <section style="margin-top:48px;">
+            <h2 style="color:#ff9800;margin-bottom:16px;">⚠️ Players with All Empty Responses (${playersWithAllEmpty.length})</h2>
+            <p style="color:#888;margin-bottom:20px;">These players submitted but have no actual answers saved. They should be allowed to resubmit.</p>
+            ${playersWithAllEmpty.map(playerData => {
+              const { player, responses, lockedQuestion, totalPoints } = playerData;
+              const displayName = player.username || player.email || player.user_email;
+              
+              const responseRows = questions.map(q => {
+                const resp = responses.find(r => r.question_number === q.number);
+                const hasResponse = !!resp;
+                const responseText = resp ? (resp.response_text || '').trim() : '';
+                const isEmpty = hasResponse && !responseText;
+                const isLocked = resp && resp.locked;
+                
+                return `
+                  <tr${isLocked ? ' style="background:rgba(255,215,0,0.15);border-left:3px solid #ffd700;"' : ''}>
+                    <td style="font-weight:bold;">Q${q.number}${isLocked ? ' 🔒' : ''}</td>
+                    <td>${escapeHtml(q.text.substring(0, 100))}${q.text.length > 100 ? '...' : ''}</td>
+                    <td><em style="color:#888;">${hasResponse && isEmpty ? '(empty)' : 'Not answered'}</em></td>
+                    <td>${escapeHtml(q.answer)}</td>
+                    <td>-</td>
+                    <td>${resp ? (resp.points || 0) : 0}</td>
+                    <td>
+                      ${hasResponse ? `<a href="/admin/quiz/${quizId}/edit-response?email=${encodeURIComponent(player.user_email)}&question=${q.number}" class="ta-btn ta-btn-small">Edit</a>` : `<a href="/admin/quiz/${quizId}/edit-response?email=${encodeURIComponent(player.user_email)}&question=${q.number}" class="ta-btn ta-btn-small">Add</a>`}
+                    </td>
+                  </tr>
+                `;
+              }).join('');
+              
+              return `
+                <div style="margin-bottom:32px;background:#2a1a0a;border:2px solid #ff9800;border-radius:8px;padding:20px;">
+                  <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:16px;">
+                    <div>
+                      <h3 style="margin:0 0 8px 0;color:#ff9800;">${displayName}</h3>
+                      <div style="font-size:14px;opacity:0.7;">
+                        ${player.email || player.user_email}
+                        ${lockedQuestion ? ` • <strong style="color:#ff9800;">🔒 Locked Q${lockedQuestion}</strong>` : ' • <strong style="color:#ff9800;">No lock selected</strong>'}
+                        • Total: ${totalPoints} pts • Submitted: ${player.last_submitted_at ? new Date(player.last_submitted_at).toLocaleString() : 'N/A'}
+                      </div>
+                    </div>
+                    <div>
+                      <a href="/admin/players/${encodeURIComponent(player.user_email)}" class="ta-btn ta-btn-small">View Player</a>
+                      <form method="POST" action="/admin/quiz/${quizId}/clear-submission" style="display:inline;margin-left:8px;" onsubmit="return confirm('Clear submission status for ${displayName}? They will be able to resubmit.');">
+                        <input type="hidden" name="email" value="${player.user_email}">
+                        <button type="submit" class="ta-btn ta-btn-small" style="background:#2a4a1a;border-color:#55cc55;color:#88ff88;">Allow Resubmit</button>
+                      </form>
+                    </div>
+                  </div>
+                  <div class="ta-table-wrapper">
+                    <table class="ta-table" style="font-size:13px;">
+                      <thead>
+                        <tr>
+                          <th>Q#</th>
+                          <th>Question</th>
+                          <th>Response</th>
+                          <th>Correct Answer</th>
+                          <th>Correct?</th>
+                          <th>Points</th>
+                          <th>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        ${responseRows}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </section>
+          ` : ''}
         </main>
         ${renderFooter(req)}
       </body></html>
