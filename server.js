@@ -331,6 +331,19 @@ async function initDb() {
       ALTER TABLE responses ADD COLUMN IF NOT EXISTS override_updated_by TEXT;
     EXCEPTION WHEN others THEN NULL; END $$;
 
+    -- Donations table to track Ko-fi donations
+    CREATE TABLE IF NOT EXISTS donations (
+      id SERIAL PRIMARY KEY,
+      email CITEXT NOT NULL,
+      amount NUMERIC NOT NULL,
+      currency TEXT NOT NULL DEFAULT 'USD',
+      kofi_id TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      processed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_donations_email ON donations(email);
+    CREATE INDEX IF NOT EXISTS idx_donations_created_at ON donations(created_at);
+
     -- Admins table for multiple admin accounts
     CREATE TABLE IF NOT EXISTS admins (
       email CITEXT PRIMARY KEY,
@@ -2495,13 +2508,16 @@ async function processKofiDonation(body, skipSecretCheck = false) {
   }
   
   // Support multiple payload shapes
-  // Ko-fi format: data.type, data.email, data.timestamp
+  // Ko-fi format: data.type, data.email, data.timestamp, data.amount
   // Also support direct body.type, body.email, etc.
   const type = (parsedData?.type || body.type || body.data?.type || '').toLowerCase();
   const emailRaw = (parsedData?.email || body.email || body.data?.email || '').trim();
   const createdAtStr = parsedData?.timestamp || body.created_at || body.timestamp || body.data?.created_at || body.data?.timestamp;
+  const amount = parseFloat(parsedData?.amount || body.amount || body.data?.amount || 0);
+  const currency = (parsedData?.currency || body.currency || body.data?.currency || 'USD').toUpperCase();
+  const kofiId = parsedData?.kofi_transaction_id || body.kofi_transaction_id || body.data?.kofi_transaction_id || null;
   
-  console.log('[Ko-fi] Parsed data - type:', type, 'email:', emailRaw, 'timestamp:', createdAtStr);
+  console.log('[Ko-fi] Parsed data - type:', type, 'email:', emailRaw, 'timestamp:', createdAtStr, 'amount:', amount, 'currency:', currency);
   
   if (!emailRaw) {
     return { success: false, error: 'No email' };
@@ -2528,6 +2544,20 @@ async function processKofiDonation(body, skipSecretCheck = false) {
 
   await pool.query('INSERT INTO players(email, access_granted_at) VALUES($1, NOW()) ON CONFLICT (email) DO NOTHING', [email]);
   console.log('[Ko-fi] Player record created/updated for:', email);
+  
+  // Store donation record if amount is provided
+  if (amount > 0) {
+    try {
+      await pool.query(
+        'INSERT INTO donations(email, amount, currency, kofi_id, created_at, processed_at) VALUES($1, $2, $3, $4, $5, NOW())',
+        [email, amount, currency, kofiId, createdAt]
+      );
+      console.log('[Ko-fi] Donation recorded:', amount, currency, 'for', email);
+    } catch (err) {
+      console.error('[Ko-fi] Failed to record donation:', err);
+      // Don't fail the whole process if donation recording fails
+    }
+  }
 
   // Optionally auto-send magic link
   // Delete any existing unused tokens for this email to prevent conflicts
@@ -2636,10 +2666,19 @@ app.get('/', (req, res) => {
 // Public landing (logged-out)
 app.get('/public', async (req, res) => {
   // Get some stats to make it more enticing
-  let stats = { totalQuizzes: 60, totalPlayers: 0 }; // Total available: 48 Advent + 12 Quizmas = 60
+  let stats = { totalQuizzes: 60, totalPlayers: 0, totalDonated: 0 }; // Total available: 48 Advent + 12 Quizmas = 60
   try {
     const playerCount = await pool.query('SELECT COUNT(*) as count FROM players');
     stats.totalPlayers = parseInt(playerCount.rows[0]?.count || 0);
+    
+    // Get total donations for this year (since cutoff date)
+    const cutoffUtcEnv = process.env.KOFI_CUTOFF_UTC || '';
+    const cutoffDate = cutoffUtcEnv ? new Date(cutoffUtcEnv) : new Date('2025-11-01T04:00:00Z');
+    const donationResult = await pool.query(
+      'SELECT COALESCE(SUM(amount), 0) as total FROM donations WHERE created_at >= $1',
+      [cutoffDate]
+    );
+    stats.totalDonated = parseFloat(donationResult.rows[0]?.total || 0);
   } catch (e) {
     console.error('Error fetching stats:', e);
   }
@@ -2666,6 +2705,12 @@ app.get('/public', async (req, res) => {
               <div style="font-size:32px;font-weight:bold;color:#ffd700;">${stats.totalPlayers}</div>
               <div style="font-size:14px;opacity:0.7;">Players</div>
             </div>
+            ${stats.totalDonated > 0 ? `
+            <div style="text-align:center;">
+              <div style="font-size:32px;font-weight:bold;color:#ffd700;">$${stats.totalDonated.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</div>
+              <div style="font-size:14px;opacity:0.7;">Raised This Year</div>
+            </div>
+            ` : ''}
           </div>
           ` : ''}
         </div>
@@ -3201,6 +3246,7 @@ app.get('/admin', requireAdmin, async (req, res) => {
     totalPlayers: 0,
     totalSubmissions: 0,
     activeInvites: 0,
+    totalDonated: 0,
     recentQuizzes: []
   };
   
@@ -3216,6 +3262,15 @@ app.get('/admin', requireAdmin, async (req, res) => {
     
     const activeInvitesCount = await pool.query('SELECT COUNT(*) as count FROM writer_invites WHERE active=true AND (expires_at IS NULL OR expires_at > NOW())');
     stats.activeInvites = parseInt(activeInvitesCount.rows[0]?.count || 0);
+    
+    // Get total donations for this year (since cutoff date)
+    const cutoffUtcEnv = process.env.KOFI_CUTOFF_UTC || '';
+    const cutoffDate = cutoffUtcEnv ? new Date(cutoffUtcEnv) : new Date('2025-11-01T04:00:00Z');
+    const donationResult = await pool.query(
+      'SELECT COALESCE(SUM(amount), 0) as total FROM donations WHERE created_at >= $1',
+      [cutoffDate]
+    );
+    stats.totalDonated = parseFloat(donationResult.rows[0]?.total || 0);
     
     const recentQuizzes = await pool.query(`
       SELECT id, title, unlock_at, author, 
@@ -3243,6 +3298,12 @@ app.get('/admin', requireAdmin, async (req, res) => {
             <div style="font-size:14px;opacity:0.7;margin-bottom:4px;">Total Quizzes</div>
             <div style="font-size:32px;font-weight:bold;color:#ffd700;">${stats.totalQuizzes}</div>
           </div>
+          ${stats.totalDonated > 0 ? `
+          <div style="background:#1a1a1a;padding:16px;border-radius:8px;border:1px solid #333;">
+            <div style="font-size:14px;opacity:0.7;margin-bottom:4px;">Total Donated</div>
+            <div style="font-size:32px;font-weight:bold;color:#ffd700;">$${stats.totalDonated.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</div>
+          </div>
+          ` : ''}
           <div style="background:#1a1a1a;padding:16px;border-radius:8px;border:1px solid #333;">
             <div style="font-size:14px;opacity:0.7;margin-bottom:4px;">Total Players</div>
             <div style="font-size:32px;font-weight:bold;color:#ffd700;">${stats.totalPlayers}</div>
