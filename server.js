@@ -2670,12 +2670,18 @@ app.get('/public', async (req, res) => {
   // Get some stats to make it more enticing
   let stats = { totalQuizzes: 60, totalPlayers: 0, totalDonated: 0 }; // Total available: 48 Advent + 12 Quizmas = 60
   try {
-    const playerCount = await pool.query('SELECT COUNT(*) as count FROM players');
+    // Get cutoff date for this year
+    const cutoffUtcEnv = process.env.KOFI_CUTOFF_UTC || '';
+    const cutoffDate = cutoffUtcEnv ? new Date(cutoffUtcEnv) : new Date('2025-11-01T04:00:00Z');
+    
+    // Get player count for this year (since cutoff date)
+    const playerCount = await pool.query(
+      'SELECT COUNT(*) as count FROM players WHERE access_granted_at >= $1',
+      [cutoffDate]
+    );
     stats.totalPlayers = parseInt(playerCount.rows[0]?.count || 0);
     
     // Get total donations for this year (since cutoff date)
-    const cutoffUtcEnv = process.env.KOFI_CUTOFF_UTC || '';
-    const cutoffDate = cutoffUtcEnv ? new Date(cutoffUtcEnv) : new Date('2025-11-01T04:00:00Z');
     const donationResult = await pool.query(
       'SELECT COALESCE(SUM(amount), 0) as total FROM donations WHERE created_at >= $1',
       [cutoffDate]
