@@ -3103,10 +3103,19 @@ app.get('/admin/calendar', requireAdmin, async (req, res) => {
         AND wi.slot_date IS NOT NULL
         AND wi.slot_half IS NOT NULL
     `);
+    // Fetch writer invites to get assigned authors for each slot
+    const { rows: writerInvites } = await pool.query(`
+      SELECT slot_date, slot_half, author
+      FROM writer_invites
+      WHERE slot_date IS NOT NULL
+        AND slot_half IS NOT NULL
+        AND active = true
+    `);
     
     const bySlot = new Map(); // key: YYYY-MM-DD|AM|PM → array of quizzes
     const unpublishedBySlot = new Map(); // key: YYYY-MM-DD|AM|PM → array of submission info
     const publishedSlots = new Set(); // key: YYYY-MM-DD|AM|PM → has published submission
+    const assignedAuthorsBySlot = new Map(); // key: YYYY-MM-DD|AM|PM → author name
     // Use current year for calendar display (not derived from existing quizzes)
     const currentYear = new Date().getUTCFullYear();
     function slotKey(dParts){
@@ -3142,6 +3151,17 @@ app.get('/admin/calendar', requireAdmin, async (req, res) => {
         const half = String(pub.slot_half).trim().toUpperCase();
         const key = slotKeyFromDate(pub.slot_date, half);
         publishedSlots.add(key);
+      }
+    }
+    // Map assigned authors to slots
+    for (const invite of writerInvites) {
+      if (invite.slot_date && invite.slot_half && invite.author) {
+        const half = String(invite.slot_half).trim().toUpperCase();
+        const key = slotKeyFromDate(invite.slot_date, half);
+        // Use the first author if multiple invites exist for the same slot
+        if (!assignedAuthorsBySlot.has(key)) {
+          assignedAuthorsBySlot.set(key, invite.author);
+        }
       }
     }
     
@@ -3199,8 +3219,9 @@ app.get('/admin/calendar', requireAdmin, async (req, res) => {
         }
         
         if (isMissingSubmission) {
-          // Show author name as title, or fallback to quiz title if no author
-          const displayTitle = (q.author || q.title || 'Unnamed').replace(/</g,'&lt;');
+          // Show author name from quiz, assigned author from writer_invites, or fallback to quiz title
+          const assignedAuthor = assignedAuthorsBySlot.get(key);
+          const displayTitle = (q.author || assignedAuthor || q.title || 'Unnamed').replace(/</g,'&lt;');
           return `<div><a href=\"/admin/quiz/${q.id}\" class=\"ta-btn ta-btn-small\" style="color:#ff4444;">#${q.id} ${displayTitle}</a></div><div style="color:#ff4444;font-size:11px;margin-top:2px;">Missing submission</div>`;
         }
         
