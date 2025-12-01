@@ -3062,7 +3062,8 @@ app.get('/admin/author-slots', requireAdmin, async (req, res) => {
     
     // Build slot map similar to calendar page
     const bySlot = new Map(); // key: YYYY-MM-DD|AM|PM → quiz object
-    let baseYear = quizzes.length ? utcToEtParts(new Date(quizzes[0].unlock_at)).y : new Date().getUTCFullYear();
+    // Use current year for calendar display (not derived from existing quizzes)
+    const currentYear = new Date().getUTCFullYear();
     function slotKey(dParts){
       const day = `${dParts.y}-${String(dParts.m).padStart(2,'0')}-${String(dParts.d).padStart(2,'0')}`;
       const half = dParts.h === 0 ? 'AM' : 'PM';
@@ -3070,7 +3071,6 @@ app.get('/admin/author-slots', requireAdmin, async (req, res) => {
     }
     for (const q of quizzes) {
       const p = utcToEtParts(new Date(q.unlock_at));
-      baseYear = p.y;
       const key = slotKey(p);
       bySlot.set(key, q);
     }
@@ -3079,7 +3079,7 @@ app.get('/admin/author-slots', requireAdmin, async (req, res) => {
     const rows = [];
     // Advent calendar: Dec 1-24, AM/PM slots
     for (let d = 1; d <= 24; d++) {
-      const day = `${baseYear}-12-${String(d).padStart(2,'0')}`;
+      const day = `${currentYear}-12-${String(d).padStart(2,'0')}`;
       const amKey = `${day}|AM`;
       const pmKey = `${day}|PM`;
       const amQuiz = bySlot.get(amKey) || null;
@@ -3088,14 +3088,14 @@ app.get('/admin/author-slots', requireAdmin, async (req, res) => {
     }
     // Quizmas: Dec 26-31, AM only
     for (let d = 26; d <= 31; d++) {
-      const day = `${baseYear}-12-${String(d).padStart(2,'0')}`;
+      const day = `${currentYear}-12-${String(d).padStart(2,'0')}`;
       const amKey = `${day}|AM`;
       const amQuiz = bySlot.get(amKey) || null;
       rows.push({ day, am: amQuiz, pm: null, isQuizmas: true });
     }
     // Quizmas: Jan 1-6, AM only
     for (let d = 1; d <= 6; d++) {
-      const day = `${baseYear + 1}-01-${String(d).padStart(2,'0')}`;
+      const day = `${currentYear + 1}-01-${String(d).padStart(2,'0')}`;
       const amKey = `${day}|AM`;
       const amQuiz = bySlot.get(amKey) || null;
       rows.push({ day, am: amQuiz, pm: null, isQuizmas: true });
