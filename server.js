@@ -8479,7 +8479,6 @@ app.get('/admin/quiz/:id/debug-ungraded', requireAdmin, async (req, res) => {
       FROM responses r
       JOIN questions qu ON qu.id = r.question_id
       WHERE r.submitted_at IS NOT NULL
-        AND TRIM(r.response_text) != ''
         AND qu.quiz_id = $1
     `, [id]);
     
@@ -8525,7 +8524,9 @@ app.get('/admin/quiz/:id/debug-ungraded', requireAdmin, async (req, res) => {
         else if (!isAutoCorrect && !hasOverride) reason = 'not_auto_no_override';
         
         // Only include groups that need attention
-        const shouldInclude = anyFlagged || isMixed || (hasUngraded && group.norm_response !== '') || (!isAutoCorrect && !hasOverride);
+        // Blank groups are auto-rejected, so they don't need grading unless flagged or mixed
+        const isBlank = group.norm_response === '';
+        const shouldInclude = anyFlagged || isMixed || (hasUngraded && !isBlank) || (!isAutoCorrect && !hasOverride && !isBlank);
         
         if (!shouldInclude) return null;
         
