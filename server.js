@@ -7291,8 +7291,11 @@ app.post('/quiz/:id/submit', requireAuthOrAdmin, async (req, res) => {
 // --- Admin: Diagnostic page for responses with missing text ---
 app.get('/admin/diagnostics/missing-response-text', requireAdmin, async (req, res) => {
   try {
+    const searchEmail = (req.query.email || '').toLowerCase().trim();
+    const searchQuizId = req.query.quiz_id ? Number(req.query.quiz_id) : null;
+    
     // Find responses that have submitted_at but empty or NULL response_text
-    const problematic = await pool.query(`
+    let problematicQuery = `
       SELECT 
         r.id,
         r.quiz_id,
@@ -7302,6 +7305,7 @@ app.get('/admin/diagnostics/missing-response-text', requireAdmin, async (req, re
         r.submitted_at,
         r.locked,
         r.points,
+        r.created_at,
         q.title as quiz_title,
         qq.number as question_number,
         qq.text as question_text,
@@ -7314,59 +7318,238 @@ app.get('/admin/diagnostics/missing-response-text', requireAdmin, async (req, re
       LEFT JOIN players p ON p.email = r.user_email
       WHERE r.submitted_at IS NOT NULL
         AND (r.response_text IS NULL OR TRIM(r.response_text) = '')
+    `;
+    const params = [];
+    if (searchEmail) {
+      problematicQuery += ` AND LOWER(r.user_email) = $${params.length + 1}`;
+      params.push(searchEmail);
+    }
+    if (searchQuizId) {
+      problematicQuery += ` AND r.quiz_id = $${params.length + 1}`;
+      params.push(searchQuizId);
+    }
+    problematicQuery += ` ORDER BY r.submitted_at DESC LIMIT 200`;
+    
+    const problematic = await pool.query(problematicQuery, params);
+    
+    // Also find players who submitted but are missing responses for some questions
+    let incompleteSubmissionsQuery = `
+      SELECT DISTINCT
+        r.quiz_id,
+        r.user_email,
+        r.submitted_at,
+        q.title as quiz_title,
+        COUNT(DISTINCT r.question_id) as response_count,
+        COUNT(DISTINCT qq.id) as total_questions,
+        p.username,
+        p.email
+      FROM responses r
+      JOIN quizzes q ON q.id = r.quiz_id
+      JOIN questions qq ON qq.quiz_id = r.quiz_id
+      LEFT JOIN players p ON p.email = r.user_email
+      WHERE r.submitted_at IS NOT NULL
+    `;
+    const incompleteParams = [];
+    if (searchEmail) {
+      incompleteSubmissionsQuery += ` AND LOWER(r.user_email) = $${incompleteParams.length + 1}`;
+      incompleteParams.push(searchEmail);
+    }
+    if (searchQuizId) {
+      incompleteSubmissionsQuery += ` AND r.quiz_id = $${incompleteParams.length + 1}`;
+      incompleteParams.push(searchQuizId);
+    }
+    incompleteSubmissionsQuery += `
+      GROUP BY r.quiz_id, r.user_email, r.submitted_at, q.title, p.username, p.email
+      HAVING COUNT(DISTINCT r.question_id) < COUNT(DISTINCT qq.id)
       ORDER BY r.submitted_at DESC
-      LIMIT 100
-    `);
+      LIMIT 50
+    `;
+    
+    const incompleteSubmissions = await pool.query(incompleteSubmissionsQuery, incompleteParams);
+    
+    // Find players who have submitted_at but ALL their responses are empty
+    let allEmptyQuery = `
+      SELECT 
+        r.quiz_id,
+        r.user_email,
+        r.submitted_at,
+        q.title as quiz_title,
+        COUNT(*) as empty_count,
+        COUNT(DISTINCT qq.id) as total_questions,
+        p.username,
+        p.email
+      FROM responses r
+      JOIN quizzes q ON q.id = r.quiz_id
+      JOIN questions qq ON qq.quiz_id = r.quiz_id
+      LEFT JOIN players p ON p.email = r.user_email
+      WHERE r.submitted_at IS NOT NULL
+        AND (r.response_text IS NULL OR TRIM(r.response_text) = '')
+    `;
+    const allEmptyParams = [];
+    if (searchEmail) {
+      allEmptyQuery += ` AND LOWER(r.user_email) = $${allEmptyParams.length + 1}`;
+      allEmptyParams.push(searchEmail);
+    }
+    if (searchQuizId) {
+      allEmptyQuery += ` AND r.quiz_id = $${allEmptyParams.length + 1}`;
+      allEmptyParams.push(searchQuizId);
+    }
+    allEmptyQuery += `
+      GROUP BY r.quiz_id, r.user_email, r.submitted_at, q.title, p.username, p.email
+      HAVING COUNT(*) = COUNT(DISTINCT qq.id)
+      ORDER BY r.submitted_at DESC
+      LIMIT 50
+    `;
+    
+    const allEmpty = await pool.query(allEmptyQuery, allEmptyParams);
     
     const header = await renderHeader(req);
     res.type('html').send(`
       ${renderHead('Diagnostics: Missing Response Text', true)}
       <body class="ta-body">
         ${header}
-        <main class="ta-main ta-container" style="max-width:1200px;">
+        <main class="ta-main ta-container" style="max-width:1400px;">
           ${renderBreadcrumb([ADMIN_CRUMB, { label: 'Diagnostics', href: '#' }, { label: 'Missing Response Text' }])}
           ${renderAdminNav('dashboard')}
           <h1 class="ta-page-title">Responses with Missing Text</h1>
+          
+          <div style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:16px;margin-bottom:24px;">
+            <h3 style="margin-top:0;">Search</h3>
+            <form method="GET" style="display:flex;gap:12px;flex-wrap:wrap;align-items:end;">
+              <div>
+                <label style="display:block;margin-bottom:4px;font-size:14px;">Player Email:</label>
+                <input type="email" name="email" value="${searchEmail || ''}" placeholder="player@example.com" style="padding:8px;width:250px;">
+              </div>
+              <div>
+                <label style="display:block;margin-bottom:4px;font-size:14px;">Quiz ID:</label>
+                <input type="number" name="quiz_id" value="${searchQuizId || ''}" placeholder="1" style="padding:8px;width:100px;">
+              </div>
+              <div>
+                <button type="submit" class="ta-btn">Search</button>
+                <a href="/admin/diagnostics/missing-response-text" class="ta-btn ta-btn-outline" style="margin-left:8px;">Clear</a>
+              </div>
+            </form>
+          </div>
+          
           <div style="background:#2a1a0a;border:1px solid #664400;border-radius:8px;padding:16px;margin-bottom:24px;color:#ff9800;">
             <strong>Issue:</strong> These responses have <code>submitted_at</code> set (indicating submission) but empty or NULL <code>response_text</code>.
             This may indicate a bug where form submissions overwrote existing answers with empty strings.
           </div>
-          <div style="margin-bottom:16px;">
-            <strong>Total Found:</strong> ${problematic.rows.length} ${problematic.rows.length === 100 ? '(showing first 100)' : ''}
-          </div>
-          ${problematic.rows.length > 0 ? `
-          <div class="ta-table-wrapper">
-            <table class="ta-table">
-              <thead>
-                <tr>
-                  <th>Player</th>
-                  <th>Quiz</th>
-                  <th>Question</th>
-                  <th>Submitted</th>
-                  <th>Locked?</th>
-                  <th>Points</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${problematic.rows.map(r => `
+          
+          ${allEmpty.rows.length > 0 ? `
+          <section style="margin-bottom:32px;">
+            <h2 style="color:#ff4444;">⚠️ Players with ALL Empty Responses (${allEmpty.rows.length})</h2>
+            <p style="color:#888;margin-bottom:16px;">These players submitted but ALL their responses are empty - most likely to have "lost" their answers.</p>
+            <div class="ta-table-wrapper">
+              <table class="ta-table">
+                <thead>
                   <tr>
-                    <td>${r.username || r.email || r.user_email}</td>
-                    <td><a href="/admin/quiz/${r.quiz_id}">${r.quiz_title || `Quiz #${r.quiz_id}`}</a></td>
-                    <td>Q${r.question_number}: ${(r.question_text || '').substring(0, 50)}...</td>
-                    <td>${r.submitted_at ? new Date(r.submitted_at).toLocaleString() : 'N/A'}</td>
-                    <td>${r.locked ? '🔒 Yes' : 'No'}</td>
-                    <td>${r.points || 0}</td>
-                    <td>
-                      <a href="/admin/quiz/${r.quiz_id}/responses" class="ta-btn ta-btn-small">View All Responses</a>
-                      <a href="/admin/quiz/${r.quiz_id}/grade" class="ta-btn ta-btn-small">Grade</a>
-                    </td>
+                    <th>Player</th>
+                    <th>Quiz</th>
+                    <th>Submitted</th>
+                    <th>Empty Responses</th>
+                    <th>Total Questions</th>
+                    <th>Actions</th>
                   </tr>
-                `).join('')}
-              </tbody>
-            </table>
-          </div>
-          ` : '<p>No problematic responses found.</p>'}
+                </thead>
+                <tbody>
+                  ${allEmpty.rows.map(r => `
+                    <tr>
+                      <td><strong>${r.username || r.email || r.user_email}</strong></td>
+                      <td><a href="/admin/quiz/${r.quiz_id}">${r.quiz_title || `Quiz #${r.quiz_id}`}</a></td>
+                      <td>${r.submitted_at ? new Date(r.submitted_at).toLocaleString() : 'N/A'}</td>
+                      <td><strong style="color:#ff4444;">${r.empty_count}</strong></td>
+                      <td>${r.total_questions}</td>
+                      <td>
+                        <a href="/admin/quiz/${r.quiz_id}/responses?email=${encodeURIComponent(r.user_email)}" class="ta-btn ta-btn-small">View Responses</a>
+                        <a href="/admin/quiz/${r.quiz_id}/grade?email=${encodeURIComponent(r.user_email)}" class="ta-btn ta-btn-small">Grade</a>
+                      </td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          </section>
+          ` : ''}
+          
+          ${incompleteSubmissions.rows.length > 0 ? `
+          <section style="margin-bottom:32px;">
+            <h2>Incomplete Submissions (${incompleteSubmissions.rows.length})</h2>
+            <p style="color:#888;margin-bottom:16px;">Players who submitted but are missing responses for some questions.</p>
+            <div class="ta-table-wrapper">
+              <table class="ta-table">
+                <thead>
+                  <tr>
+                    <th>Player</th>
+                    <th>Quiz</th>
+                    <th>Submitted</th>
+                    <th>Responses</th>
+                    <th>Total Questions</th>
+                    <th>Missing</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${incompleteSubmissions.rows.map(r => `
+                    <tr>
+                      <td>${r.username || r.email || r.user_email}</td>
+                      <td><a href="/admin/quiz/${r.quiz_id}">${r.quiz_title || `Quiz #${r.quiz_id}`}</a></td>
+                      <td>${r.submitted_at ? new Date(r.submitted_at).toLocaleString() : 'N/A'}</td>
+                      <td>${r.response_count}</td>
+                      <td>${r.total_questions}</td>
+                      <td><strong style="color:#ff9800;">${r.total_questions - r.response_count}</strong></td>
+                      <td>
+                        <a href="/admin/quiz/${r.quiz_id}/responses?email=${encodeURIComponent(r.user_email)}" class="ta-btn ta-btn-small">View Responses</a>
+                        <a href="/admin/quiz/${r.quiz_id}/grade?email=${encodeURIComponent(r.user_email)}" class="ta-btn ta-btn-small">Grade</a>
+                      </td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          </section>
+          ` : ''}
+          
+          <section>
+            <h2>Individual Empty Responses (${problematic.rows.length}${problematic.rows.length === 200 ? '+ (showing first 200)' : ''})</h2>
+            <p style="color:#888;margin-bottom:16px;">Responses that have <code>submitted_at</code> but empty <code>response_text</code>.</p>
+            ${problematic.rows.length > 0 ? `
+            <div class="ta-table-wrapper">
+              <table class="ta-table">
+                <thead>
+                  <tr>
+                    <th>Player</th>
+                    <th>Quiz</th>
+                    <th>Question</th>
+                    <th>Created</th>
+                    <th>Submitted</th>
+                    <th>Locked?</th>
+                    <th>Points</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${problematic.rows.map(r => `
+                    <tr>
+                      <td>${r.username || r.email || r.user_email}</td>
+                      <td><a href="/admin/quiz/${r.quiz_id}">${r.quiz_title || `Quiz #${r.quiz_id}`}</a></td>
+                      <td>Q${r.question_number}: ${(r.question_text || '').substring(0, 50)}...</td>
+                      <td style="font-size:12px;color:#888;">${r.created_at ? new Date(r.created_at).toLocaleString() : 'N/A'}</td>
+                      <td>${r.submitted_at ? new Date(r.submitted_at).toLocaleString() : 'N/A'}</td>
+                      <td>${r.locked ? '🔒 Yes' : 'No'}</td>
+                      <td>${r.points || 0}</td>
+                      <td>
+                        <a href="/admin/quiz/${r.quiz_id}/responses?email=${encodeURIComponent(r.user_email)}" class="ta-btn ta-btn-small">View All</a>
+                        <a href="/admin/quiz/${r.quiz_id}/grade?email=${encodeURIComponent(r.user_email)}" class="ta-btn ta-btn-small">Grade</a>
+                      </td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+            ` : '<p>No problematic responses found.</p>'}
+          </section>
+          
           <div style="margin-top:24px;padding:16px;background:#1a1a1a;border:1px solid #333;border-radius:8px;">
             <h3 style="margin-top:0;">Possible Causes:</h3>
             <ul>
