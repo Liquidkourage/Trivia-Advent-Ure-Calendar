@@ -8610,7 +8610,12 @@ app.post('/admin/quiz/:id/regrade-user', requireAdmin, async (req, res) => {
       return res.status(400).send('Email required');
     }
     await gradeQuiz(pool, quizId, userEmail);
-    res.redirect(`/admin/quiz/${quizId}/grade?regraded=1&email=${encodeURIComponent(userEmail)}`);
+    const redirectTo = req.body.redirect_to || 'responses';
+    if (redirectTo === 'responses') {
+      res.redirect(`/admin/quiz/${quizId}/responses?email=${encodeURIComponent(userEmail)}&regraded=1`);
+    } else {
+      res.redirect(`/admin/quiz/${quizId}/grade?regraded=1&email=${encodeURIComponent(userEmail)}`);
+    }
   } catch (e) {
     console.error(e);
     res.status(500).send('Failed to regrade user');
@@ -8819,6 +8824,11 @@ app.get('/admin/quiz/:id/responses', requireAdmin, async (req, res) => {
             </div>
             <div>
               <a href="/admin/players/${encodeURIComponent(player.user_email)}" class="ta-btn ta-btn-small">View Player</a>
+              <form method="POST" action="/admin/quiz/${quizId}/regrade-user" style="display:inline;margin-left:8px;">
+                <input type="hidden" name="email" value="${player.user_email}">
+                <input type="hidden" name="redirect_to" value="responses">
+                <button type="submit" class="ta-btn ta-btn-small" style="background:#1a3a2a;border-color:#55cc55;color:#88ff88;">Regrade</button>
+              </form>
               <form method="POST" action="/admin/quiz/${quizId}/clear-submission" style="display:inline;margin-left:8px;" onsubmit="return confirm('Are you sure you want to clear this player\\'s submission? They will be able to resubmit the quiz.');">
                 <input type="hidden" name="email" value="${player.user_email}">
                 <button type="submit" class="ta-btn ta-btn-small" style="background:#2a4a1a;border-color:#55cc55;color:#88ff88;">Allow Resubmit</button>
@@ -8858,6 +8868,7 @@ app.get('/admin/quiz/:id/responses', requireAdmin, async (req, res) => {
           <h1 class="ta-page-title">Player Responses: ${quiz.title || `Quiz #${quizId}`}</h1>
           ${req.query.updated ? '<div style="background:#efffef;border:1px solid #55cc55;color:#1a5a1a;padding:10px;border-radius:6px;margin-bottom:16px;">✓ Response updated successfully</div>' : ''}
           ${req.query.deleted ? '<div style="background:#ffefef;border:1px solid #cc5555;color:#5a1a1a;padding:10px;border-radius:6px;margin-bottom:16px;">✓ Response deleted successfully</div>' : ''}
+          ${req.query.regraded ? '<div style="background:#efffef;border:1px solid #55cc55;color:#1a5a1a;padding:10px;border-radius:6px;margin-bottom:16px;">✓ Player regraded successfully. Points have been recalculated.</div>' : ''}
           ${req.query.cleared ? '<div style="background:#efffef;border:1px solid #55cc55;color:#1a5a1a;padding:10px;border-radius:6px;margin-bottom:16px;">✓ Submission cleared - player can now resubmit</div>' : ''}
           ${req.query.auto_fix === 'true' && playersWithAllEmpty.length > 0 ? `<div style="background:#efffef;border:1px solid #55cc55;color:#1a5a1a;padding:10px;border-radius:6px;margin-bottom:16px;">✓ Cleared submission status for ${playersWithAllEmpty.length} player${playersWithAllEmpty.length !== 1 ? 's' : ''} with all empty responses - they can now resubmit</div>` : ''}
           ${playersWithAllEmpty.length > 0 && req.query.auto_fix !== 'true' ? `<div style="background:#ffefef;border:2px solid #ff9800;color:#5a1a1a;padding:16px;border-radius:8px;margin-bottom:16px;">
