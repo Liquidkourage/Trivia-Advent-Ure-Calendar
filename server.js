@@ -1140,6 +1140,16 @@ async function gradeQuiz(pool, quizId, userEmail) {
     const { rows: rs } = await pool.query('SELECT question_id, response_text, locked, override_correct FROM responses WHERE quiz_id=$1 AND user_email=$2', [quizId, userEmail]);
     const qIdToResp = new Map();
     rs.forEach(r => qIdToResp.set(Number(r.question_id), r));
+    
+    // Check if any question is locked - if not, default to question 1 being locked
+    const hasLocked = rs.some(r => r.locked === true);
+    let defaultLockedQuestionId = null;
+    if (!hasLocked && qs.length > 0) {
+      // Default to question 1 if no locked question exists
+      defaultLockedQuestionId = qs.find(q => q.number === 1)?.id || qs[0].id;
+      console.log(`[gradeQuiz] No locked question found, defaulting to Q1 (id=${defaultLockedQuestionId})`);
+    }
+    
     let streak = 0;
     let total = 0;
     const graded = [];
@@ -1147,7 +1157,8 @@ async function gradeQuiz(pool, quizId, userEmail) {
     const r = qIdToResp.get(q.id);
     const responseText = r ? (r.response_text || '').trim() : '';
     const isBlank = !responseText;
-    const locked = !!(r && r.locked);
+    // Check if this question is locked, or if it should be the default locked question
+    const locked = !!(r && r.locked) || (defaultLockedQuestionId === q.id);
     
     if (locked) {
       // Blank locked responses are NEVER correct, even with manual override
