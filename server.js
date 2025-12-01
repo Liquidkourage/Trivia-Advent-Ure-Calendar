@@ -9356,7 +9356,7 @@ app.post('/admin/donations/add', requireAdmin, async (req, res) => {
   }
 });
 
-app.post('/admin/donations/import-csv', requireAdmin, express.urlencoded({ extended: true }), async (req, res) => {
+app.post('/admin/donations/import-csv', requireAdmin, express.urlencoded({ extended: true, limit: '10mb' }), async (req, res) => {
   try {
     const csvContent = String(req.body.csv || '').trim();
     if (!csvContent) {
