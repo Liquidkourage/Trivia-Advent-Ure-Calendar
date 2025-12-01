@@ -3759,8 +3759,8 @@ app.get('/calendar', async (req, res) => {
                     return false;
                   }
                   // Don't prevent navigation - let the link work
-                  e.stopPropagation(); // Stop bubbling to door handler
-                  return; // Allow normal button navigation
+                  // Don't stop propagation here - let the event reach the link naturally
+                  return; // Allow normal button navigation, don't handle door toggle
                 }
               }
               
