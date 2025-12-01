@@ -7651,14 +7651,20 @@ app.post('/quiz/:id/submit', requireAuthOrAdmin, async (req, res) => {
       }
       
       // Insert/update the new response with the correct override value
+      // CRITICAL: If overrideToSync is set, use it; otherwise preserve existing override
+      // But if isAccepted is true, we MUST set it to true even if overrideToSync wasn't set above
+      const finalOverride = (isAccepted || overrideToSync !== null) ? (isAccepted ? true : overrideToSync) : null;
+      
       await pool.query(
-        'INSERT INTO responses(quiz_id, question_id, user_email, response_text, locked, submitted_at, override_correct) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (user_email, question_id) DO UPDATE SET response_text = EXCLUDED.response_text, locked = EXCLUDED.locked, submitted_at = EXCLUDED.submitted_at, override_correct = COALESCE($7, responses.override_correct)',
-        [id, q.id, email, val, isLocked, submittedAt, overrideToSync]
+        'INSERT INTO responses(quiz_id, question_id, user_email, response_text, locked, submitted_at, override_correct) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (user_email, question_id) DO UPDATE SET response_text = EXCLUDED.response_text, locked = EXCLUDED.locked, submitted_at = EXCLUDED.submitted_at, override_correct = CASE WHEN $7 IS NOT NULL THEN $7 ELSE responses.override_correct END',
+        [id, q.id, email, val, isLocked, submittedAt, finalOverride]
       );
       
       // Sync ALL matching responses to ensure consistency (including the one we just inserted)
-      if (overrideToSync !== null) {
-        await syncOverrideForNormalizedText(pool, q.id, val, overrideToSync);
+      // If accepted, sync all to true; otherwise sync to overrideToSync if set
+      if (isAccepted || overrideToSync !== null) {
+        const syncValue = isAccepted ? true : overrideToSync;
+        await syncOverrideForNormalizedText(pool, q.id, val, syncValue);
       }
     }
     
