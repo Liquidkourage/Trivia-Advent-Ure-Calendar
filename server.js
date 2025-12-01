@@ -9416,6 +9416,14 @@ app.post('/admin/quiz/:id/override', requireAdmin, async (req, res) => {
     // CRITICAL SAFEGUARD: After updating, verify no mixed states exist for ALL normalized texts
     // Check ALL normalized texts, not just the one that was updated, to catch any inconsistencies
     const verifyResp = await pool.query('SELECT id, response_text, override_correct FROM responses WHERE question_id=$1 AND submitted_at IS NOT NULL', [questionId]);
+    
+    // Get all accepted answers for this question
+    const acceptedAnswers = await pool.query(
+      'SELECT response_text FROM responses WHERE question_id=$1 AND override_correct=true AND submitted_at IS NOT NULL',
+      [questionId]
+    );
+    const acceptedNorms = new Set(acceptedAnswers.rows.map(r => normalizeAnswer(r.response_text || '')));
+    
     const normGroups = new Map();
     for (const r of verifyResp.rows) {
       const rNorm = normalizeAnswer(r.response_text || '');
@@ -9430,13 +9438,22 @@ app.post('/admin/quiz/:id/override', requireAdmin, async (req, res) => {
       const hasFalse = overrideValues.some(v => v === false);
       
       if (hasTrue && hasFalse) {
-        // Mixed state detected! Fix it by setting all to the most common value, or true if tied
-        // Count occurrences
-        const trueCount = overrideValues.filter(v => v === true).length;
-        const falseCount = overrideValues.filter(v => v === false).length;
-        const fixValue = trueCount >= falseCount ? true : false; // Prefer true if tied
+        // Mixed state detected! Determine the correct value
+        let fixValue;
+        
+        // CRITICAL: If this normalized text has been accepted (is in acceptedNorms),
+        // ALL responses should be true, regardless of the count
+        if (acceptedNorms.has(normKey)) {
+          fixValue = true;
+        } else {
+          // Otherwise, use the most common value
+          const trueCount = overrideValues.filter(v => v === true).length;
+          const falseCount = overrideValues.filter(v => v === false).length;
+          fixValue = trueCount >= falseCount ? true : false; // Prefer true if tied
+        }
+        
         const fixIds = group.map(r => r.id);
-        console.warn(`[override] Mixed state detected for normalized text "${normKey}", fixing ${fixIds.length} responses to ${fixValue} (${trueCount} true, ${falseCount} false)`);
+        console.warn(`[override] Mixed state detected for normalized text "${normKey}", fixing ${fixIds.length} responses to ${fixValue} (accepted: ${acceptedNorms.has(normKey)}, ${overrideValues.filter(v => v === true).length} true, ${overrideValues.filter(v => v === false).length} false)`);
         await pool.query(
           'UPDATE responses SET override_correct = $1, override_version = override_version + 1, override_updated_at = NOW(), override_updated_by = $3 WHERE id = ANY($2)',
           [fixValue, fixIds, updatedBy]
