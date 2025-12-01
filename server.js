@@ -8152,3 +8152,3048 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
       showQStr.split(',').map(s => parseInt(s, 10)).filter(n => !isNaN(n))
     );
     // Load responses joined with questions
+    // IMPORTANT: Only show SUBMITTED responses (submitted_at IS NOT NULL)
+    // Autosave-only responses (submitted_at IS NULL) should NOT appear on the grading page
+    const rows = (await pool.query(
+      `SELECT q.id AS qid, q.number, q.text, q.answer, r.user_email, r.response_text, r.locked, r.override_correct, COALESCE(r.flagged,false) AS flagged,
+              COALESCE(r.override_version,0) AS override_version, r.override_updated_at, r.override_updated_by
+       FROM questions q
+       LEFT JOIN responses r ON r.question_id = q.id AND r.submitted_at IS NOT NULL
+       WHERE q.quiz_id=$1
+       ORDER BY q.number ASC, r.user_email ASC`,
+      [id]
+    )).rows;
+    // Group by question, then by normalized response_text
+    const byQ = new Map();
+    for (const r of rows) {
+      // Skip non-responses created by LEFT JOIN (no user_email)
+      if (!r.user_email) continue;
+      if (!byQ.has(r.qid)) byQ.set(r.qid, { number: r.number, text: r.text, answer: r.answer, answers: new Map() });
+      const key = normalizeAnswer(r.response_text || '');
+      if (!byQ.get(r.qid).answers.has(key)) byQ.get(r.qid).answers.set(key, []);
+      byQ.get(r.qid).answers.get(key).push(r);
+    }
+    // Build nav and sections
+    const qList = Array.from(byQ.values()).sort((a,b)=>a.number-b.number);
+    const nav = qList.map(sec => {
+      // count ungraded (override null and auto incorrect)
+      let ungraded = 0;
+      const all = Array.from(sec.answers.values()).flat();
+      let flaggedCount = 0;
+      for (const r of all) {
+        const txt = r.response_text || '';
+        const isBlank = normalizeAnswer(txt) === '';
+        if (isBlank) { if (r.flagged === true) flaggedCount++; continue; }
+        const auto = isCorrectAnswer(txt, sec.answer);
+        if (typeof r.override_correct !== 'boolean' && !auto) ungraded++;
+        if (r.flagged === true) flaggedCount++;
+      }
+      const meta = [];
+      if (ungraded > 0) meta.push(`${ungraded} awaiting`);
+      if (flaggedCount > 0) meta.push(`${flaggedCount} flagged`);
+      const label = meta.length ? `Q${sec.number} (${meta.join(', ')})` : `Q${sec.number}`;
+      return `<a class=\"grader-tab\" href=\"#q${sec.number}\">${label}</a>`;
+    }).join('');
+    const sections = qList.map(sec => {
+      // Build rows: awaiting only (default) or all (when show=all)
+      let list = Array.from(sec.answers.entries());
+      const includeAllForThis = showSet.has(sec.number);
+      // ALWAYS filter out blank responses - they should never appear on grading page
+        list = list.filter(([ans, arr]) => {
+          if (arr.length === 0) return false;
+        const firstText = (arr[0].response_text || '').trim();
+        if (!firstText || normalizeAnswer(firstText) === '') return false; // blanks NEVER shown
+        return true;
+      });
+      
+      if (!includeAllForThis) {
+        list = list.filter(([ans, arr]) => {
+          const firstText = arr[0].response_text || '';
+          const auto = isCorrectAnswer(firstText, sec.answer);
+          const hasOverride = arr.some(r => typeof r.override_correct === 'boolean');
+          const anyFlagged = arr.some(r => r.flagged === true);
+          // Show if flagged OR truly awaiting review
+          return anyFlagged || (!auto && !hasOverride);
+        });
+      }
+      // Sort so flagged groups appear first
+      list.sort((a, b) => {
+        const aFlag = a[1].some(r => r.flagged === true) ? 1 : 0;
+        const bFlag = b[1].some(r => r.flagged === true) ? 1 : 0;
+        return bFlag - aFlag;
+      });
+      const items = list.map(([ans, arr]) => {
+        const auto = arr.length && isCorrectAnswer(arr[0].response_text || '', sec.answer);
+        const groupVersion = Math.max(0, ...arr.map(r => Number(r.override_version || 0)));
+        // Determine accepted state using override when set; if mixed, show '-'
+        let accepted;
+        const overrides = arr.map(r => typeof r.override_correct === 'boolean' ? r.override_correct : null);
+        if (overrides.every(v => v === true)) accepted = 'accepted';
+        else if (overrides.every(v => v === false)) accepted = 'rejected';
+        else if (overrides.some(v => v !== null)) accepted = 'mixed';
+        else accepted = auto ? 'accepted' : 'rejected';
+        const badgeClass = accepted === 'accepted' ? 'status-accepted' : (accepted === 'mixed' ? 'status-mixed' : 'status-rejected');
+        const firstText = (arr[0] && (arr[0].response_text || '').trim()) || '';
+        const shownAnswer = firstText ? firstText : '<em>blank</em>';
+        const flagged = arr.some(r => r.flagged === true);
+        return `<tr${flagged ? ' class="is-flagged"' : ''}>
+          <td>${shownAnswer}</td>
+          <td><span class="status-badge ${badgeClass}">${accepted}${flagged ? ' • 🚩' : ''} • ${arr.length}</span></td>
+          <td>
+            <div class="seg">
+            <form method="post" action="/admin/quiz/${id}/override" style="display:inline;" data-skip-confirm="true">
+              <input type="hidden" name="question_id" value="${sec.number}"/>
+              <input type="hidden" name="norm" value="${ans}"/>
+              <input type="hidden" name="expected_version" value="${groupVersion}"/>
+              <button name="action" value="accept">Accept</button>
+              <button name="action" value="reject">Reject</button>
+              <button name="action" value="clear">Clear</button>
+            </form>
+            </div>
+          </td>
+        </tr>`;
+      }).join('');
+      // stats (align with quick-nav: 'ungraded' == awaiting review)
+      let right = 0, wrong = 0, ungraded = 0;
+      const flat = Array.from(sec.answers.values()).flat();
+      for (const r of flat) {
+        const txt = r.response_text || '';
+        const isBlank = normalizeAnswer(txt) === '';
+        if (isBlank) { wrong++; continue; } // blanks are auto-rejected
+        const auto = isCorrectAnswer(txt, sec.answer);
+        const hasOverride = (typeof r.override_correct === 'boolean');
+        const state = hasOverride ? r.override_correct : auto;
+        if (!hasOverride && !auto) {
+          // truly awaiting review
+          ungraded++;
+        } else if (state) {
+          right++;
+        } else {
+          wrong++;
+        }
+      }
+      // Build per-question toggle URL
+      const nextSet = new Set(showSet);
+      if (includeAllForThis) nextSet.delete(sec.number); else nextSet.add(sec.number);
+      const param = Array.from(nextSet).sort((a,b)=>a-b).join(',');
+      const toggleUrl = `/admin/quiz/${id}/grade${param ? `?showq=${param}` : ''}#q${sec.number}`;
+
+      return `<div class=\"grader-section\" id=\"q${sec.number}\">
+        <div class=\"grader-qtitle\">Q${sec.number}</div>
+        <div class=\"grader-qtext\">${sec.text}</div>
+        <div class=\"grader-correct\"><strong>Correct Answer:</strong> ${sec.answer}</div>
+        <div class=\"grader-stats\">Right: ${right} | Wrong: ${wrong} | Ungraded: ${ungraded} • <a class=\"btn-chip\" href=\"${toggleUrl}\">${includeAllForThis ? 'Hide graded' : 'Show graded'}</a></div>
+        <div class="btn-row" style="margin-bottom:8px;">
+          <form method="post" action="/admin/quiz/${id}/override-all" style="display:inline;">
+            <input type="hidden" name="question_id" value="${sec.number}"/>
+            <button name="action" value="accept" class="btn-save" type="submit">Accept all shown</button>
+          </form>
+          <form method="post" action="/admin/quiz/${id}/override-all" style="display:inline;margin-left:6px;">
+            <input type="hidden" name="question_id" value="${sec.number}"/>
+            <button name="action" value="reject" class="btn-save" type="submit">Reject all shown</button>
+          </form>
+          <form method="post" action="/admin/quiz/${id}/override-all" style="display:inline;margin-left:6px;">
+            <input type="hidden" name="question_id" value="${sec.number}"/>
+            <button name="action" value="clear" class="btn-save" type="submit">Clear all</button>
+          </form>
+        </div>
+        <table class=\"grader-table\">
+          <tr><th>Submitted answer</th><th>Result</th><th>Override</th></tr>
+          ${items || '<tr><td colspan=\"3\">(no submissions)</td></tr>'}
+        </table>
+      </div>`;
+    }).join('');
+    const isStale = String(req.query.stale || '') === '1';
+    const header = await renderHeader(req);
+    res.type('html').send(`
+      ${renderHead(`Grade • ${quiz.title}`, false)}
+      <body class=\"ta-body\">
+      ${header}
+        <main class=\"grader-container\">
+          <h1 class=\"grader-title\">Grading: ${quiz.title}</h1>
+          ${isStale ? '<div style="background:#ffefef;border:1px solid #cc5555;color:#5a1a1a;padding:10px;border-radius:6px;margin-bottom:10px;">Another grader changed one or more items you were viewing. Please refresh to see the latest state.</div>' : ''}
+          ${req.query.regraded ? `<div style="background:#efffef;border:1px solid #55cc55;color:#1a5a1a;padding:10px;border-radius:6px;margin-bottom:10px;">✓ Regraded ${req.query.regraded} player${req.query.regraded !== '1' ? 's' : ''}${req.query.email ? ` (${req.query.email})` : ''}</div>` : ''}
+          <div class=\"grader-date\">Viewing: <strong>Awaiting review</strong> by default (🚩 flagged always shown and prioritized). Use "Show graded / Hide graded" in each question section to include graded rows for that question.</div>
+          <form method=\"post\" action=\"/admin/quiz/${id}/regrade\" class=\"btn-row\">
+            <button class=\"btn-save\" type=\"submit\">Regrade All Players</button>
+            <a class=\"ta-btn ta-btn-outline\" href=\"/admin/quiz/${id}\" style=\"margin-left:8px;\">Back</a>
+          </form>
+          <div class=\"grader-bar\">${nav}</div>
+          ${sections}
+        </main>
+      </body></html>
+    `);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to load grader');
+  }
+});
+
+// Override all responses matching a specific answer for a question
+app.post('/admin/quiz/:id/override', requireAdmin, async (req, res) => {
+  try {
+    const quizId = Number(req.params.id);
+    const qNumber = Number(req.body.question_id);
+    const action = String(req.body.action || '').toLowerCase(); // accept|reject|clear
+    const norm = String(req.body.norm || '');
+    const expectedVersion = Number(req.body.expected_version || '0');
+    const q = await pool.query('SELECT id FROM questions WHERE quiz_id=$1 AND number=$2', [quizId, qNumber]);
+    if (q.rows.length === 0) return res.status(404).send('Question not found');
+    const questionId = q.rows[0].id;
+    // Find all response ids for this question whose normalized text matches the provided norm key
+    const resp = await pool.query('SELECT id, response_text FROM responses WHERE question_id=$1', [questionId]);
+    const ids = resp.rows.filter(r => normalizeAnswer(r.response_text || '') === norm).map(r => r.id);
+    if (ids.length === 0) { return res.redirect(`/admin/quiz/${quizId}/grade`); }
+    // Optimistic check: ensure no one has updated these since the version we rendered
+    const ver = await pool.query('SELECT MAX(override_version) AS v FROM responses WHERE id = ANY($1)', [ids]);
+    const currentMax = Number(ver.rows[0].v || 0);
+    if (currentMax !== expectedVersion) {
+      return res.redirect(`/admin/quiz/${quizId}/grade?stale=1`);
+    }
+    let val = null;
+    if (action === 'accept') val = true;
+    else if (action === 'reject') val = false;
+    const updatedBy = getAdminEmail() || 'admin';
+    if (action === 'accept' || action === 'reject') {
+      await pool.query('UPDATE responses SET override_correct = $1, flagged = FALSE, override_version = override_version + 1, override_updated_at = NOW(), override_updated_by = $3 WHERE id = ANY($2)', [val, ids, updatedBy]);
+    } else {
+      await pool.query('UPDATE responses SET override_correct = $1, override_version = override_version + 1, override_updated_at = NOW(), override_updated_by = $3 WHERE id = ANY($2)', [val, ids, updatedBy]);
+    }
+    res.redirect(`/admin/quiz/${quizId}/grade`);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to override');
+  }
+});
+
+app.post('/admin/quiz/:id/override-all', requireAdmin, async (req, res) => {
+  try {
+    const quizId = Number(req.params.id);
+    const qNumber = Number(req.body.question_id);
+    const action = String(req.body.action || '').toLowerCase();
+    const q = await pool.query('SELECT id FROM questions WHERE quiz_id=$1 AND number=$2', [quizId, qNumber]);
+    if (q.rows.length === 0) return res.status(404).send('Question not found');
+    const questionId = q.rows[0].id;
+    let val = null;
+    if (action === 'accept') {
+      val = true;
+      // When accepting all, exclude blank responses - they can NEVER be correct
+      await pool.query(`UPDATE responses SET override_correct = $1, flagged = FALSE, override_version = override_version + 1, override_updated_at = NOW(), override_updated_by = $3 
+        WHERE question_id=$2 AND response_text IS NOT NULL AND TRIM(response_text) != ''`, [val, questionId, getAdminEmail() || 'admin']);
+    } else if (action === 'reject') {
+      val = false;
+      await pool.query('UPDATE responses SET override_correct = $1, flagged = FALSE, override_version = override_version + 1, override_updated_at = NOW(), override_updated_by = $3 WHERE question_id=$2', [val, questionId, getAdminEmail() || 'admin']);
+    } else {
+      const updatedBy = getAdminEmail() || 'admin';
+      await pool.query('UPDATE responses SET override_correct = $1, override_version = override_version + 1, override_updated_at = NOW(), override_updated_by = $3 WHERE question_id=$2', [val, questionId, updatedBy]);
+    }
+    res.redirect(`/admin/quiz/${quizId}/grade`);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to override all');
+  }
+});
+// Regrade all users for the quiz
+app.post('/admin/quiz/:id/regrade', requireAdmin, async (req, res) => {
+  try {
+    const quizId = Number(req.params.id);
+    const users = await pool.query('SELECT DISTINCT user_email FROM responses WHERE quiz_id=$1 AND submitted_at IS NOT NULL', [quizId]);
+    let regraded = 0;
+    for (const u of users.rows) {
+      await gradeQuiz(pool, quizId, u.user_email);
+      regraded++;
+    }
+    res.redirect(`/admin/quiz/${quizId}/grade?regraded=${regraded}`);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to regrade');
+  }
+});
+
+// Regrade a specific user for a quiz
+app.post('/admin/quiz/:id/regrade-user', requireAdmin, async (req, res) => {
+  try {
+    const quizId = Number(req.params.id);
+    const userEmail = String(req.body.email || '').toLowerCase().trim();
+    if (!userEmail) {
+      return res.status(400).send('Email required');
+    }
+    await gradeQuiz(pool, quizId, userEmail);
+    res.redirect(`/admin/quiz/${quizId}/grade?regraded=1&email=${encodeURIComponent(userEmail)}`);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to regrade user');
+  }
+});
+
+// --- Admin: View all player responses for a quiz ---
+app.get('/admin/quiz/:id/responses', requireAdmin, async (req, res) => {
+  try {
+    const quizId = Number(req.params.id);
+    
+    // Helper function to escape HTML
+    const escapeHtml = (text) => {
+      return String(text || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+    };
+    
+    const quiz = (await pool.query('SELECT * FROM quizzes WHERE id=$1', [quizId])).rows[0];
+    if (!quiz) return res.status(404).send('Quiz not found');
+    
+    // Get all questions for this quiz
+    const questions = (await pool.query('SELECT * FROM questions WHERE quiz_id=$1 ORDER BY number ASC', [quizId])).rows;
+    
+    // Get all unique players who have responses for this quiz
+    // Include both submitted (submitted_at IS NOT NULL) and unsubmitted (submitted_at IS NULL) players
+    // This helps catch players who appear on leaderboard but don't have submitted_at set
+    const showAll = req.query.show_all === 'true';
+    const players = (await pool.query(`
+      SELECT DISTINCT 
+        r.user_email,
+        p.username,
+        p.email,
+        MAX(r.submitted_at) as last_submitted_at,
+        COUNT(CASE WHEN r.submitted_at IS NOT NULL THEN 1 END) as submitted_count,
+        COUNT(*) as total_response_count
+      FROM responses r
+      LEFT JOIN players p ON p.email = r.user_email
+      WHERE r.quiz_id = $1 ${showAll ? '' : 'AND r.submitted_at IS NOT NULL'}
+      GROUP BY r.user_email, p.username, p.email
+      ORDER BY last_submitted_at DESC NULLS LAST
+    `, [quizId])).rows;
+    
+    // Get all SUBMITTED responses for this quiz (exclude autosave-only)
+    const allResponses = (await pool.query(`
+      SELECT 
+        r.user_email,
+        r.question_id,
+        r.response_text,
+        r.points,
+        r.locked,
+        r.override_correct,
+        r.created_at,
+        r.submitted_at,
+        qq.number as question_number,
+        qq.text as question_text,
+        qq.answer as correct_answer
+      FROM responses r
+      JOIN questions qq ON qq.id = r.question_id
+      WHERE r.quiz_id = $1 AND r.submitted_at IS NOT NULL
+      ORDER BY r.user_email, qq.number ASC
+    `, [quizId])).rows;
+    
+    // Debug: Check for players with responses but no locked question
+    const playersWithResponses = new Set(allResponses.map(r => r.user_email));
+    const playersWithLocks = new Set(allResponses.filter(r => r.locked === true).map(r => r.user_email));
+    const playersWithoutLocks = Array.from(playersWithResponses).filter(email => !playersWithLocks.has(email));
+    
+    // Group responses by player
+    const responsesByPlayer = new Map();
+    for (const player of players) {
+      responsesByPlayer.set(player.user_email, {
+        player: player,
+        responses: [],
+        lockedQuestion: null,
+        totalPoints: 0
+      });
+    }
+    
+    for (const resp of allResponses) {
+      const playerData = responsesByPlayer.get(resp.user_email);
+      if (playerData) {
+        playerData.responses.push(resp);
+        if (resp.locked) {
+          playerData.lockedQuestion = resp.question_number;
+        }
+        playerData.totalPoints += parseFloat(resp.points || 0);
+      }
+    }
+    
+    // Identify players who submitted but have NO actual answers (all blank responses)
+    // These players should be allowed to resubmit
+    // Check: if they have submitted_at set but no non-empty response_text values
+    const playersWithAllEmpty = Array.from(responsesByPlayer.values()).filter(playerData => {
+      const hasAnyAnswer = playerData.responses.some(r => {
+        const text = (r.response_text || '').trim();
+        return text && text.length > 0;
+      });
+      // Has submitted_at (they're in the players list) but no actual answers
+      return !hasAnyAnswer;
+    });
+    
+    // Automatically clear submission status for players with all empty responses if requested
+    if (req.query.auto_fix === 'true' && playersWithAllEmpty.length > 0) {
+      for (const playerData of playersWithAllEmpty) {
+        await pool.query(
+          'UPDATE responses SET submitted_at = NULL WHERE quiz_id=$1 AND user_email=$2',
+          [quizId, playerData.player.user_email]
+        );
+      }
+    }
+    
+    // Filter out players who have NO actual answers (only blank responses) for display
+    const playersWithAnswers = Array.from(responsesByPlayer.values()).filter(playerData => {
+      const hasAnyAnswer = playerData.responses.some(r => {
+        const text = (r.response_text || '').trim();
+        return text && text.length > 0;
+      });
+      return hasAnyAnswer;
+    });
+    
+    // Build HTML for each player's submission
+    const playerSubmissions = playersWithAnswers.map(playerData => {
+      const { player, responses, lockedQuestion, totalPoints } = playerData;
+      const displayName = player.username || player.email || player.user_email;
+      
+      // Build response rows
+      const responseRows = questions.map(q => {
+        const resp = responses.find(r => r.question_number === q.number);
+        const hasResponse = !!resp;
+        const responseText = resp ? (resp.response_text || '').trim() : '';
+        const isEmpty = hasResponse && !responseText;
+        const isLocked = resp && resp.locked;
+        // Blank responses are NEVER correct, even with manual override
+        const isCorrect = isEmpty ? false : (resp ? (resp.override_correct === true || 
+          (resp.override_correct === null && responseText && 
+           normalizeAnswer(responseText) === normalizeAnswer(q.answer))) : false);
+        const isManuallyOverridden = resp && typeof resp.override_correct === 'boolean' && !isEmpty;
+        
+        // Determine response display
+        // Both "no record" and "empty record" are treated the same - player didn't answer
+        let responseDisplay = '';
+        if (!hasResponse || isEmpty) {
+          responseDisplay = '<em style="color:#888;">Not answered</em>';
+        } else {
+          responseDisplay = escapeHtml(responseText);
+        }
+        
+        // Determine correctness display with override indicator
+        let correctnessDisplay = '-';
+        if (hasResponse) {
+          const symbol = isCorrect ? '✓' : '✗';
+          const color = isCorrect ? '#4caf50' : '#f44336';
+          if (isManuallyOverridden) {
+            correctnessDisplay = `<span style="color:${color};">${symbol}</span> <span style="font-size:10px;color:#888;">(manual)</span>`;
+          } else {
+            correctnessDisplay = `<span style="color:${color};">${symbol}</span>`;
+          }
+        }
+        
+        return `
+          <tr${isLocked ? ' style="background:rgba(255,215,0,0.15);border-left:3px solid #ffd700;"' : ''}>
+            <td style="font-weight:bold;">Q${q.number}${isLocked ? ' 🔒' : ''}</td>
+            <td>${escapeHtml(q.text.substring(0, 100))}${q.text.length > 100 ? '...' : ''}</td>
+            <td>${responseDisplay}</td>
+            <td>${escapeHtml(q.answer)}</td>
+            <td>${correctnessDisplay}</td>
+            <td>${resp ? (resp.points || 0) : 0}</td>
+            <td>
+              ${hasResponse ? `<a href="/admin/quiz/${quizId}/edit-response?email=${encodeURIComponent(player.user_email)}&question=${q.number}" class="ta-btn ta-btn-small">Edit</a>` : `<a href="/admin/quiz/${quizId}/edit-response?email=${encodeURIComponent(player.user_email)}&question=${q.number}" class="ta-btn ta-btn-small">Add</a>`}
+            </td>
+          </tr>
+        `;
+      }).join('');
+      
+      return `
+        <div style="margin-bottom:32px;background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:20px;">
+          <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:16px;">
+            <div>
+              <h3 style="margin:0 0 8px 0;color:#ffd700;">${displayName}</h3>
+              <div style="font-size:14px;opacity:0.7;">
+                ${player.email || player.user_email}
+                ${lockedQuestion ? ` • <strong style="color:#ffd700;">🔒 Locked Q${lockedQuestion}</strong>` : ''}
+                • Total: ${totalPoints} pts
+              </div>
+            </div>
+            <div>
+              <a href="/admin/players/${encodeURIComponent(player.user_email)}" class="ta-btn ta-btn-small">View Player</a>
+              <form method="POST" action="/admin/quiz/${quizId}/clear-submission" style="display:inline;margin-left:8px;" onsubmit="return confirm('Are you sure you want to clear this player\\'s submission? They will be able to resubmit the quiz.');">
+                <input type="hidden" name="email" value="${player.user_email}">
+                <button type="submit" class="ta-btn ta-btn-small" style="background:#2a4a1a;border-color:#55cc55;color:#88ff88;">Allow Resubmit</button>
+              </form>
+            </div>
+          </div>
+          <div class="ta-table-wrapper">
+            <table class="ta-table" style="font-size:13px;">
+              <thead>
+                <tr>
+                  <th>Q#</th>
+                  <th>Question</th>
+                  <th>Response</th>
+                  <th>Correct Answer</th>
+                  <th>Correct?</th>
+                  <th>Points</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${responseRows}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `;
+    }).join('');
+    
+    const header = await renderHeader(req);
+    res.type('html').send(`
+      ${renderHead(`Responses • ${quiz.title} • Admin`, true)}
+      <body class="ta-body">
+        ${header}
+        <main class="ta-main ta-container" style="max-width:1400px;">
+          ${renderBreadcrumb([ADMIN_CRUMB, { label: 'Quizzes', href: '/admin/quizzes' }, { label: quiz.title || `Quiz #${quizId}` }, { label: 'Responses' }])}
+          ${renderAdminNav('quizzes')}
+          <h1 class="ta-page-title">Player Responses: ${quiz.title || `Quiz #${quizId}`}</h1>
+          ${req.query.updated ? '<div style="background:#efffef;border:1px solid #55cc55;color:#1a5a1a;padding:10px;border-radius:6px;margin-bottom:16px;">✓ Response updated successfully</div>' : ''}
+          ${req.query.deleted ? '<div style="background:#ffefef;border:1px solid #cc5555;color:#5a1a1a;padding:10px;border-radius:6px;margin-bottom:16px;">✓ Response deleted successfully</div>' : ''}
+          ${req.query.cleared ? '<div style="background:#efffef;border:1px solid #55cc55;color:#1a5a1a;padding:10px;border-radius:6px;margin-bottom:16px;">✓ Submission cleared - player can now resubmit</div>' : ''}
+          ${req.query.auto_fix === 'true' && playersWithAllEmpty.length > 0 ? `<div style="background:#efffef;border:1px solid #55cc55;color:#1a5a1a;padding:10px;border-radius:6px;margin-bottom:16px;">✓ Cleared submission status for ${playersWithAllEmpty.length} player${playersWithAllEmpty.length !== 1 ? 's' : ''} with all empty responses - they can now resubmit</div>` : ''}
+          ${playersWithAllEmpty.length > 0 && req.query.auto_fix !== 'true' ? `<div style="background:#ffefef;border:2px solid #ff9800;color:#5a1a1a;padding:16px;border-radius:8px;margin-bottom:16px;">
+            <strong style="font-size:16px;">⚠️ Found ${playersWithAllEmpty.length} player${playersWithAllEmpty.length !== 1 ? 's' : ''} who submitted but have ALL empty responses:</strong>
+            <ul style="margin:12px 0 0 24px;padding:0;line-height:1.8;">
+              ${playersWithAllEmpty.map(p => `<li><strong>${p.player.username || p.player.email || p.player.user_email}</strong> - Submitted but no answers saved</li>`).join('')}
+            </ul>
+            <div style="margin-top:16px;padding-top:16px;border-top:1px solid rgba(255,152,0,0.3);">
+              <form method="POST" action="/admin/quiz/${quizId}/clear-all-empty-submissions" style="display:inline;">
+                <button type="submit" class="ta-btn ta-btn-primary" style="font-size:15px;padding:10px 20px;">Clear Submission Status for All (Allow Resubmit)</button>
+              </form>
+              <div style="margin-top:8px;font-size:13px;opacity:0.8;">This will clear their submission status so they can resubmit with their actual answers.</div>
+            </div>
+          </div>` : ''}
+          <div style="margin-bottom:24px;">
+            <a href="/admin/quiz/${quizId}/grade" class="ta-btn ta-btn-primary" style="margin-right:8px;">Grade Responses</a>
+            <a href="/admin/quiz/${quizId}" class="ta-btn ta-btn-outline" style="margin-right:8px;">Edit Quiz</a>
+            <a href="/admin/quizzes" class="ta-btn ta-btn-outline">Back to Quizzes</a>
+          </div>
+          <div style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:16px;margin-bottom:24px;">
+            <div style="display:flex;gap:24px;flex-wrap:wrap;">
+              <div><strong>Players with Answers:</strong> ${playersWithAnswers.length}</div>
+              <div><strong>Total Response Records:</strong> ${players.length}</div>
+              <div><strong>Total Questions:</strong> ${questions.length}</div>
+              ${playersWithoutLocks.length > 0 ? `<div style="color:#ff9800;"><strong>⚠️ Players without locks:</strong> ${playersWithoutLocks.length}</div>` : ''}
+            </div>
+            ${playersWithoutLocks.length > 0 ? `<div style="margin-top:12px;padding:12px;background:#2a1a0a;border:1px solid #664400;border-radius:6px;color:#ff9800;">
+              <strong>Note:</strong> Some players have responses but no locked question. This may indicate:
+              <ul style="margin:8px 0 0 20px;padding:0;">
+                <li>Submissions from before locking was required</li>
+                <li>Autosave-only responses (not yet submitted)</li>
+                <li>Data inconsistencies</li>
+              </ul>
+            </div>` : ''}
+          </div>
+          ${playerSubmissions || '<p>No responses yet.</p>'}
+          
+          ${playersWithAllEmpty.length > 0 ? `
+          <section style="margin-top:48px;">
+            <h2 style="color:#ff9800;margin-bottom:16px;">⚠️ Players with All Empty Responses (${playersWithAllEmpty.length})</h2>
+            <p style="color:#888;margin-bottom:20px;">These players submitted but have no actual answers saved. They should be allowed to resubmit.</p>
+            ${playersWithAllEmpty.map(playerData => {
+              const { player, responses, lockedQuestion, totalPoints } = playerData;
+              const displayName = player.username || player.email || player.user_email;
+              
+              const responseRows = questions.map(q => {
+                const resp = responses.find(r => r.question_number === q.number);
+                const hasResponse = !!resp;
+                const responseText = resp ? (resp.response_text || '').trim() : '';
+                const isEmpty = hasResponse && !responseText;
+                const isLocked = resp && resp.locked;
+                
+                return `
+                  <tr${isLocked ? ' style="background:rgba(255,215,0,0.15);border-left:3px solid #ffd700;"' : ''}>
+                    <td style="font-weight:bold;">Q${q.number}${isLocked ? ' 🔒' : ''}</td>
+                    <td>${escapeHtml(q.text.substring(0, 100))}${q.text.length > 100 ? '...' : ''}</td>
+                    <td><em style="color:#888;">${hasResponse && isEmpty ? '(empty)' : 'Not answered'}</em></td>
+                    <td>${escapeHtml(q.answer)}</td>
+                    <td>-</td>
+                    <td>${resp ? (resp.points || 0) : 0}</td>
+                    <td>
+                      ${hasResponse ? `<a href="/admin/quiz/${quizId}/edit-response?email=${encodeURIComponent(player.user_email)}&question=${q.number}" class="ta-btn ta-btn-small">Edit</a>` : `<a href="/admin/quiz/${quizId}/edit-response?email=${encodeURIComponent(player.user_email)}&question=${q.number}" class="ta-btn ta-btn-small">Add</a>`}
+                    </td>
+                  </tr>
+                `;
+              }).join('');
+              
+              return `
+                <div style="margin-bottom:32px;background:#2a1a0a;border:2px solid #ff9800;border-radius:8px;padding:20px;">
+                  <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:16px;">
+                    <div>
+                      <h3 style="margin:0 0 8px 0;color:#ff9800;">${displayName}</h3>
+                      <div style="font-size:14px;opacity:0.7;">
+                        ${player.email || player.user_email}
+                        ${lockedQuestion ? ` • <strong style="color:#ff9800;">🔒 Locked Q${lockedQuestion}</strong>` : ' • <strong style="color:#ff9800;">No lock selected</strong>'}
+                        • Total: ${totalPoints} pts • Submitted: ${player.last_submitted_at ? new Date(player.last_submitted_at).toLocaleString() : 'N/A'}
+                      </div>
+                    </div>
+                    <div>
+                      <a href="/admin/players/${encodeURIComponent(player.user_email)}" class="ta-btn ta-btn-small">View Player</a>
+                      <form method="POST" action="/admin/quiz/${quizId}/clear-submission" style="display:inline;margin-left:8px;" onsubmit="return confirm('Clear submission status for ${displayName}? They will be able to resubmit.');">
+                        <input type="hidden" name="email" value="${player.user_email}">
+                        <button type="submit" class="ta-btn ta-btn-small" style="background:#2a4a1a;border-color:#55cc55;color:#88ff88;">Allow Resubmit</button>
+                      </form>
+                    </div>
+                  </div>
+                  <div class="ta-table-wrapper">
+                    <table class="ta-table" style="font-size:13px;">
+                      <thead>
+                        <tr>
+                          <th>Q#</th>
+                          <th>Question</th>
+                          <th>Response</th>
+                          <th>Correct Answer</th>
+                          <th>Correct?</th>
+                          <th>Points</th>
+                          <th>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        ${responseRows}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </section>
+          ` : ''}
+        </main>
+        ${renderFooter(req)}
+      </body></html>
+    `);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to load responses');
+  }
+});
+
+// --- Admin: Edit individual response ---
+app.get('/admin/quiz/:id/edit-response', requireAdmin, async (req, res) => {
+  try {
+    const quizId = Number(req.params.id);
+    const userEmail = String(req.query.email || '').toLowerCase().trim();
+    const questionNumber = Number(req.query.question || 0);
+    
+    if (!userEmail || !questionNumber) {
+      return res.status(400).send('Email and question number required');
+    }
+    
+    // Helper function to escape HTML
+    const escapeHtml = (text) => {
+      return String(text || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+    };
+    
+    const quiz = (await pool.query('SELECT * FROM quizzes WHERE id=$1', [quizId])).rows[0];
+    if (!quiz) return res.status(404).send('Quiz not found');
+    
+    const question = (await pool.query('SELECT * FROM questions WHERE quiz_id=$1 AND number=$2', [quizId, questionNumber])).rows[0];
+    if (!question) return res.status(404).send('Question not found');
+    
+    const player = (await pool.query('SELECT * FROM players WHERE email=$1', [userEmail])).rows[0];
+    const displayName = player?.username || player?.email || userEmail;
+    
+    const response = (await pool.query(
+      'SELECT * FROM responses WHERE quiz_id=$1 AND question_id=$2 AND user_email=$3',
+      [quizId, question.id, userEmail]
+    )).rows[0];
+    
+    const header = await renderHeader(req);
+    res.type('html').send(`
+      ${renderHead(`Edit Response • Admin`, true)}
+      <body class="ta-body">
+        ${header}
+        <main class="ta-main ta-container" style="max-width:800px;">
+          ${renderBreadcrumb([ADMIN_CRUMB, { label: 'Quizzes', href: '/admin/quizzes' }, { label: quiz.title || `Quiz #${quizId}` }, { label: 'Responses', href: `/admin/quiz/${quizId}/responses` }, { label: 'Edit Response' }])}
+          ${renderAdminNav('quizzes')}
+          <h1 class="ta-page-title">Edit Response</h1>
+          
+          <div style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:16px;margin-bottom:24px;">
+            <div><strong>Player:</strong> ${displayName} (${userEmail})</div>
+            <div><strong>Quiz:</strong> ${quiz.title || `Quiz #${quizId}`}</div>
+            <div><strong>Question:</strong> Q${questionNumber}</div>
+          </div>
+          
+          <form method="POST" action="/admin/quiz/${quizId}/edit-response" style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:24px;">
+            <input type="hidden" name="email" value="${userEmail}">
+            <input type="hidden" name="question_id" value="${question.id}">
+            
+            <div style="margin-bottom:20px;">
+              <label style="display:block;margin-bottom:8px;font-weight:600;">Question Text:</label>
+              <div style="background:#0a0a0a;padding:12px;border-radius:6px;border:1px solid #333;">${escapeHtml(question.text)}</div>
+            </div>
+            
+            <div style="margin-bottom:20px;">
+              <label style="display:block;margin-bottom:8px;font-weight:600;">Correct Answer:</label>
+              <div style="background:#0a0a0a;padding:12px;border-radius:6px;border:1px solid #333;">${escapeHtml(question.answer)}</div>
+            </div>
+            
+            <div style="margin-bottom:20px;">
+              <label for="response_text" style="display:block;margin-bottom:8px;font-weight:600;">Response Text:</label>
+              <textarea id="response_text" name="response_text" rows="3" style="width:100%;padding:12px;background:#0a0a0a;border:1px solid #333;border-radius:6px;color:#fff;font-family:inherit;font-size:14px;">${response ? escapeHtml(response.response_text || '') : ''}</textarea>
+              <div style="margin-top:4px;font-size:12px;opacity:0.7;">Leave empty to mark as "Not answered"</div>
+            </div>
+            
+            <div style="margin-bottom:20px;">
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                <input type="checkbox" name="locked" value="1" ${response && response.locked ? 'checked' : ''} style="width:18px;height:18px;">
+                <span style="font-weight:600;">Lock this question</span>
+              </label>
+              <div style="margin-top:4px;font-size:12px;opacity:0.7;">If checked, this question will be locked (worth 5 points if correct). Only one question per quiz can be locked.</div>
+            </div>
+            
+            ${response ? `
+            <div style="margin-bottom:20px;padding:12px;background:#2a1a0a;border:1px solid #664400;border-radius:6px;">
+              <div><strong>Current Status:</strong></div>
+              <div>Points: ${response.points || 0}</div>
+              <div>Submitted: ${response.submitted_at ? new Date(response.submitted_at).toLocaleString() : 'Not submitted'}</div>
+              <div>Created: ${response.created_at ? new Date(response.created_at).toLocaleString() : 'N/A'}</div>
+            </div>
+            ` : ''}
+            
+            <div style="display:flex;gap:12px;">
+              <button type="submit" class="ta-btn ta-btn-primary">Save Changes</button>
+              <a href="/admin/quiz/${quizId}/responses?email=${encodeURIComponent(userEmail)}" class="ta-btn ta-btn-outline">Cancel</a>
+              ${response ? `<button type="submit" name="action" value="delete" class="ta-btn" style="background:#5a1a1a;border-color:#cc4444;color:#ff8888;margin-left:auto;" onclick="return confirm('Are you sure you want to delete this response? This cannot be undone.');">Delete Response</button>` : ''}
+            </div>
+          </form>
+        </main>
+        ${renderFooter(req)}
+      </body></html>
+    `);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to load edit page');
+  }
+});
+
+app.post('/admin/quiz/:id/edit-response', requireAdmin, async (req, res) => {
+  try {
+    const quizId = Number(req.params.id);
+    const userEmail = String(req.body.email || '').toLowerCase().trim();
+    const questionId = Number(req.body.question_id);
+    const action = String(req.body.action || '').toLowerCase();
+    
+    if (!userEmail || !questionId) {
+      return res.status(400).send('Email and question ID required');
+    }
+    
+    // Verify quiz and question exist
+    const quiz = (await pool.query('SELECT * FROM quizzes WHERE id=$1', [quizId])).rows[0];
+    if (!quiz) return res.status(404).send('Quiz not found');
+    
+    const question = (await pool.query('SELECT * FROM questions WHERE id=$1 AND quiz_id=$2', [questionId, quizId])).rows[0];
+    if (!question) return res.status(404).send('Question not found');
+    
+    if (action === 'delete') {
+      // Delete the response
+      await pool.query(
+        'DELETE FROM responses WHERE quiz_id=$1 AND question_id=$2 AND user_email=$3',
+        [quizId, questionId, userEmail]
+      );
+      return res.redirect(`/admin/quiz/${quizId}/responses?email=${encodeURIComponent(userEmail)}&deleted=1`);
+    }
+    
+    const responseText = String(req.body.response_text || '').trim();
+    const isLocked = req.body.locked === '1';
+    
+    // Get existing response to check if it was submitted
+    const existing = (await pool.query(
+      'SELECT * FROM responses WHERE quiz_id=$1 AND question_id=$2 AND user_email=$3',
+      [quizId, questionId, userEmail]
+    )).rows[0];
+    
+    const wasSubmitted = existing && existing.submitted_at;
+    const submittedAt = wasSubmitted ? existing.submitted_at : (responseText ? new Date() : null);
+    
+    if (existing) {
+      // Update existing response
+      await pool.query(
+        `UPDATE responses 
+         SET response_text=$1, locked=$2, submitted_at=$3
+         WHERE quiz_id=$4 AND question_id=$5 AND user_email=$6`,
+        [responseText, isLocked, submittedAt, quizId, questionId, userEmail]
+      );
+    } else {
+      // Create new response
+      await pool.query(
+        `INSERT INTO responses (quiz_id, question_id, user_email, response_text, locked, submitted_at)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [quizId, questionId, userEmail, responseText, isLocked, submittedAt]
+      );
+    }
+    
+    // If locking this question, unlock all other questions for this user/quiz
+    if (isLocked) {
+      await pool.query(
+        'UPDATE responses SET locked=false WHERE quiz_id=$1 AND user_email=$2 AND question_id <> $3',
+        [quizId, userEmail, questionId]
+      );
+    }
+    
+    // Regrade this user to recalculate points
+    await gradeQuiz(pool, quizId, userEmail);
+    
+    return res.redirect(`/admin/quiz/${quizId}/responses?email=${encodeURIComponent(userEmail)}&updated=1`);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to save response');
+  }
+});
+
+// --- Admin: Clear submission status for all players with empty responses ---
+app.post('/admin/quiz/:id/clear-all-empty-submissions', requireAdmin, async (req, res) => {
+  try {
+    const quizId = Number(req.params.id);
+    
+    // Verify quiz exists
+    const quiz = (await pool.query('SELECT * FROM quizzes WHERE id=$1', [quizId])).rows[0];
+    if (!quiz) return res.status(404).send('Quiz not found');
+    
+    // Find all players who have submitted but all their responses are empty
+    const emptySubmissions = await pool.query(`
+      WITH player_responses AS (
+        SELECT 
+          r.quiz_id,
+          r.user_email,
+          r.question_id,
+          r.submitted_at,
+          CASE WHEN r.response_text IS NULL OR TRIM(r.response_text) = '' THEN 1 ELSE 0 END as is_empty
+        FROM responses r
+        WHERE r.quiz_id = $1 AND r.submitted_at IS NOT NULL
+      ),
+      quiz_questions AS (
+        SELECT COUNT(*) as total_questions
+        FROM questions
+        WHERE quiz_id = $1
+      )
+      SELECT 
+        pr.user_email,
+        SUM(pr.is_empty) as empty_count,
+        COUNT(*) as response_count,
+        qq.total_questions
+      FROM player_responses pr
+      CROSS JOIN quiz_questions qq
+      GROUP BY pr.user_email, qq.total_questions
+      HAVING COUNT(*) = qq.total_questions AND SUM(pr.is_empty) = COUNT(*)
+    `, [quizId]);
+    
+    let cleared = 0;
+    for (const row of emptySubmissions.rows) {
+      await pool.query(
+        'UPDATE responses SET submitted_at = NULL WHERE quiz_id=$1 AND user_email=$2',
+        [quizId, row.user_email]
+      );
+      cleared++;
+    }
+    
+    return res.redirect(`/admin/quiz/${quizId}/responses?cleared=${cleared}&auto_fix=true`);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to clear empty submissions');
+  }
+});
+
+// --- Quiz Analytics Dashboard ---
+app.get('/admin/quiz/:id/analytics', requireAdmin, async (req, res) => {
+  try {
+    const quizId = Number(req.params.id);
+    const quiz = (await pool.query('SELECT * FROM quizzes WHERE id=$1', [quizId])).rows[0];
+    if (!quiz) return res.status(404).send('Quiz not found');
+    
+    // Get all questions for this quiz
+    const questions = (await pool.query('SELECT * FROM questions WHERE quiz_id=$1 ORDER BY number ASC', [quizId])).rows;
+    
+    // Get total number of players who have access
+    const totalPlayers = (await pool.query('SELECT COUNT(*) as count FROM players')).rows[0].count;
+    
+    // Get participation stats
+    const participants = (await pool.query(`
+      SELECT COUNT(DISTINCT user_email) as count
+      FROM responses
+      WHERE quiz_id=$1
+    `, [quizId])).rows[0].count;
+    const participationRate = totalPlayers > 0 ? ((participants / totalPlayers) * 100).toFixed(1) : 0;
+    
+    // Get question-level statistics
+    const questionStats = await Promise.all(questions.map(async (q) => {
+      const responses = (await pool.query(`
+        SELECT 
+          r.response_text,
+          r.override_correct,
+          r.created_at,
+          COUNT(*) as response_count
+        FROM responses r
+        WHERE r.question_id=$1
+        GROUP BY r.response_text, r.override_correct, r.created_at
+        ORDER BY response_count DESC
+      `, [q.id])).rows;
+      
+      const totalResponses = responses.reduce((sum, r) => sum + parseInt(r.response_count), 0);
+      const correctResponses = responses.filter(r => {
+        const isCorrect = r.override_correct === true || 
+          (r.override_correct === null && r.response_text && 
+           r.response_text.trim().toLowerCase() === q.answer.trim().toLowerCase());
+        return isCorrect;
+      }).reduce((sum, r) => sum + parseInt(r.response_count), 0);
+      
+      const correctRate = totalResponses > 0 ? ((correctResponses / totalResponses) * 100).toFixed(1) : 0;
+      
+      // Get common wrong answers
+      const wrongAnswers = responses
+        .filter(r => {
+          const isCorrect = r.override_correct === true || 
+            (r.override_correct === null && r.response_text && 
+             r.response_text.trim().toLowerCase() === q.answer.trim().toLowerCase());
+          return !isCorrect && r.response_text && r.response_text.trim();
+        })
+        .slice(0, 5)
+        .map(r => ({ text: r.response_text, count: r.response_count }));
+      
+      return {
+        question: q,
+        totalResponses,
+        correctResponses,
+        correctRate,
+        wrongAnswers
+      };
+    }));
+    
+    // Calculate average score
+    const playerScores = (await pool.query(`
+      SELECT 
+        r.user_email,
+        COUNT(DISTINCT r.question_id) as questions_answered,
+        SUM(CASE WHEN (r.override_correct = true AND r.response_text IS NOT NULL AND TRIM(r.response_text) != '') OR (r.override_correct IS NULL AND r.response_text IS NOT NULL AND TRIM(r.response_text) != '' AND LOWER(TRIM(r.response_text)) = LOWER(TRIM(q.answer))) THEN 1 ELSE 0 END) as correct_count
+      FROM responses r
+      JOIN questions q ON q.id = r.question_id
+      WHERE r.quiz_id=$1
+      GROUP BY r.user_email
+    `, [quizId])).rows;
+    
+    const totalQuestions = questions.length;
+    const scores = playerScores.map(p => totalQuestions > 0 ? (p.correct_count / totalQuestions) * 100 : 0);
+    const avgScore = scores.length > 0 ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1) : 0;
+    const medianScore = scores.length > 0 ? scores.sort((a, b) => a - b)[Math.floor(scores.length / 2)].toFixed(1) : 0;
+    
+    // Build question stats HTML
+    const questionStatsHtml = questionStats.map((stat, idx) => {
+      const difficulty = parseFloat(stat.correctRate) >= 70 ? 'Easy' : 
+                        parseFloat(stat.correctRate) >= 50 ? 'Medium' : 'Hard';
+      const difficultyColor = parseFloat(stat.correctRate) >= 70 ? '#4caf50' : 
+                             parseFloat(stat.correctRate) >= 50 ? '#ff9800' : '#f44336';
+      return `
+        <div style="border:1px solid #ddd;padding:16px;margin-bottom:16px;border-radius:6px;">
+          <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:12px;">
+            <div style="flex:1;">
+              <h3 style="margin:0 0 8px 0;">Question ${stat.question.number}: ${stat.question.category || 'General'}</h3>
+              <div style="opacity:0.8;margin-bottom:8px;">${stat.question.text.substring(0, 150)}${stat.question.text.length > 150 ? '...' : ''}</div>
+              <div style="font-size:12px;opacity:0.7;"><strong>Answer:</strong> ${stat.question.answer}</div>
+            </div>
+            <div style="text-align:right;margin-left:16px;">
+              <div style="font-size:24px;font-weight:bold;color:${difficultyColor};">
+                ${stat.correctRate}%
+              </div>
+              <div style="font-size:12px;opacity:0.7;">${difficulty}</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:24px;font-size:13px;margin-top:12px;padding-top:12px;border-top:1px solid #333;">
+            <div><strong>Total Responses:</strong> ${stat.totalResponses}</div>
+            <div><strong>Correct:</strong> ${stat.correctResponses}/${stat.totalResponses}</div>
+            <div><strong>Response Rate:</strong> ${participants > 0 ? ((stat.totalResponses / participants) * 100).toFixed(1) : 0}%</div>
+          </div>
+          ${stat.wrongAnswers.length > 0 ? `
+            <div style="margin-top:12px;padding-top:12px;border-top:1px solid #333;">
+              <div style="font-size:12px;opacity:0.7;margin-bottom:6px;"><strong>Common Wrong Answers:</strong></div>
+              <div style="font-size:12px;">
+                ${stat.wrongAnswers.map(w => `<span style="display:inline-block;background:#333;padding:4px 8px;margin:2px;border-radius:4px;">${w.text} (${w.count})</span>`).join('')}
+              </div>
+            </div>
+          ` : ''}
+        </div>
+      `;
+    }).join('');
+    
+    const header = await renderHeader(req);
+    res.type('html').send(`
+      ${renderHead(`Analytics: ${quiz.title} • Admin`, true)}
+      <body class="ta-body">
+        ${header}
+        <main class="ta-main ta-container">
+          <h1 class="ta-page-title">Quiz Analytics</h1>
+          <div style="background:#1a1a1a;padding:16px;border-radius:8px;margin-bottom:24px;">
+            <div style="font-size:20px;font-weight:bold;margin-bottom:8px;">${quiz.title || `Quiz #${quizId}`}</div>
+            ${quiz.author ? `<div style="opacity:0.8;margin-bottom:4px;">Author: ${quiz.author}</div>` : ''}
+            <div style="opacity:0.8;margin-bottom:4px;">Unlocked: ${fmtEt(quiz.unlock_at)}</div>
+            <div style="display:flex;gap:24px;margin-top:12px;">
+              <div><strong>Total Players:</strong> ${totalPlayers}</div>
+              <div><strong>Participants:</strong> ${participants}</div>
+              <div><strong>Participation Rate:</strong> ${participationRate}%</div>
+              <div><strong>Average Score:</strong> ${avgScore}%</div>
+              <div><strong>Median Score:</strong> ${medianScore}%</div>
+              <div><strong>Total Questions:</strong> ${totalQuestions}</div>
+            </div>
+          </div>
+          
+          <h2 style="margin-top:32px;margin-bottom:16px;">Question Performance</h2>
+          ${questionStatsHtml || '<p>No questions found.</p>'}
+          
+          <p style="margin-top:24px;">
+            <a href="/admin/quiz/${quizId}/grade" class="ta-btn ta-btn-outline">← Grade Responses</a>
+            <a href="/admin/quizzes" class="ta-btn ta-btn-outline" style="margin-left:8px;">← Back to Quizzes</a>
+          </p>
+        </main>
+        ${renderFooter(req)}
+      </body></html>
+    `);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to load analytics');
+  }
+});
+
+// --- Admin: access & links ---
+// /admin/access route removed - functionality merged into /admin/players
+// Redirect old access page to players page
+app.get('/admin/access', requireAdmin, async (req, res) => {
+  res.redirect('/admin/players' + (req.query.msg ? '?msg=' + encodeURIComponent(req.query.msg) : '') + (req.query.email ? (req.query.msg ? '&' : '?') + 'email=' + encodeURIComponent(req.query.email) : ''));
+});
+
+app.post('/admin/grant', requireAdmin, async (req, res) => {
+  try {
+    const email = String(req.body.email || '').trim().toLowerCase();
+    if (!email) return res.status(400).send('Email required');
+    await pool.query('INSERT INTO players(email, access_granted_at) VALUES($1, NOW()) ON CONFLICT (email) DO NOTHING', [email]);
+    res.redirect('/admin/players?msg=Access granted to ' + encodeURIComponent(email));
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to grant');
+  }
+});
+app.post('/admin/send-link', requireAdmin, async (req, res) => {
+  try {
+    const email = String(req.body.email || '').trim().toLowerCase();
+    const testMode = req.body.test === 'true' || req.query.test === 'true';
+    if (!email) return res.status(400).send('Email required');
+    
+    // Ensure email exists in players table (needed for admins too)
+    await pool.query('INSERT INTO players(email, access_granted_at) VALUES($1, NOW()) ON CONFLICT (email) DO NOTHING', [email]);
+    
+    // Delete any existing unused tokens for this email to prevent conflicts
+    await pool.query('DELETE FROM magic_tokens WHERE email = $1 AND used = false', [email]);
+    
+    const token = crypto.randomBytes(24).toString('base64url');
+    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
+    await pool.query('INSERT INTO magic_tokens(token,email,expires_at,used,created_at) VALUES($1,$2,$3,false,NOW())', [token, email, expiresAt]);
+    const linkUrl = `${process.env.PUBLIC_BASE_URL || ''}/auth/magic?token=${encodeURIComponent(token)}`;
+    
+    // In test mode, return the link without sending email
+    if (testMode) {
+      const header = await renderHeader(req);
+      res.type('html').send(`
+        ${renderHead('Test Magic Link', false)}
+        <body class="ta-body" style="padding:24px;">
+        ${header}
+        <main class="ta-main ta-container" style="max-width:720px; margin:0 auto;">
+          <h1 class="ta-page-title">Test Magic Link</h1>
+          <div style="background:#e3f2fd;border:1px solid #2196f3;border-radius:6px;padding:16px;margin-bottom:24px;">
+            <p style="margin-top:0;"><strong>Email:</strong> ${email.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</p>
+            <p style="margin-bottom:0;"><strong>Magic Link:</strong></p>
+            <div style="background:#fff;border:1px solid #ddd;border-radius:4px;padding:12px;margin-top:8px;word-break:break-all;font-family:monospace;font-size:14px;">
+              <a href="${linkUrl.replace(/&/g,'&amp;').replace(/</g,'&lt;')}" target="_blank">${linkUrl.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</a>
+            </div>
+          </div>
+          <p style="margin-bottom:16px;opacity:0.8;">This link was created but NOT emailed. Copy it to test manually.</p>
+          <div style="display:flex;gap:12px;">
+            <button onclick="navigator.clipboard.writeText('${linkUrl.replace(/'/g,"\\'")}').then(() => alert('Link copied!'))" class="ta-btn ta-btn-primary">Copy Link</button>
+            <a href="${linkUrl.replace(/&/g,'&amp;').replace(/</g,'&lt;')}" target="_blank" class="ta-btn ta-btn-outline">Open Link</a>
+            <a href="/admin/players" class="ta-btn ta-btn-outline">Back to Players</a>
+          </div>
+        </main>
+        ${renderFooter(req)}
+        </body></html>
+      `);
+      return;
+    }
+    
+    try {
+    await sendMagicLink(email, token, linkUrl);
+      res.redirect('/admin/players?msg=Magic link sent successfully to ' + encodeURIComponent(email));
+    } catch (mailErr) {
+      console.error('[admin/send-link] Email send failed:', mailErr);
+      const header = await renderHeader(req);
+      res.status(500).send(`
+        ${renderHead('Send Link Error', false)}
+        <body class="ta-body" style="padding:24px;">
+        ${header}
+        <main class="ta-main ta-container" style="max-width:720px; margin:0 auto;">
+          <h1 class="ta-page-title" style="color:#d32f2f;">Failed to Send Magic Link</h1>
+          <p style="margin-bottom:16px;"><strong>Email:</strong> ${email.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</p>
+          <p style="margin-bottom:16px;"><strong>Error:</strong> ${String(mailErr.message || mailErr).replace(/&/g,'&amp;').replace(/</g,'&lt;')}</p>
+          ${mailErr.message && mailErr.message.includes('refresh token') ? `
+          <div style="background:#fff3cd;border:1px solid #ffc107;border-radius:6px;padding:16px;margin-bottom:24px;">
+            <h3 style="margin-top:0;color:#856404;">Gmail OAuth Token Expired</h3>
+            <p style="margin-bottom:12px;">The Gmail refresh token has expired or been revoked. To fix this:</p>
+            <ol style="margin-left:20px;margin-bottom:0;">
+              <li>Go to <a href="https://console.cloud.google.com/apis/credentials" target="_blank" style="color:#ffd700;">Google Cloud Console → APIs & Services → Credentials</a></li>
+              <li>Create or regenerate OAuth 2.0 credentials</li>
+              <li>Generate a new refresh token using the OAuth 2.0 Playground or your OAuth flow</li>
+              <li>Update the <code>GMAIL_REFRESH_TOKEN</code> environment variable with the new token</li>
+            </ol>
+          </div>
+          ` : ''}
+          <p style="margin-bottom:24px;opacity:0.8;">The magic link token was created successfully, but sending the email failed. Check server logs for details.</p>
+          <div style="display:flex;gap:12px;">
+            <a href="/admin/access" class="ta-btn ta-btn-primary">Back to Access</a>
+            <a href="/admin/access?email=${encodeURIComponent(email)}" class="ta-btn ta-btn-outline">Try Again</a>
+          </div>
+        </main>
+        ${renderFooter(req)}
+        </body></html>
+      `);
+    }
+  } catch (e) {
+    console.error('[admin/send-link] Error:', e);
+    const header = await renderHeader(req);
+    res.status(500).send(`
+      ${renderHead('Send Link Error', false)}
+      <body class="ta-body" style="padding:24px;">
+      ${header}
+      <main class="ta-main ta-container" style="max-width:720px; margin:0 auto;">
+        <h1 class="ta-page-title" style="color:#d32f2f;">Failed to Send Magic Link</h1>
+        <p style="margin-bottom:16px;"><strong>Error:</strong> ${String(e.message || e).replace(/&/g,'&amp;').replace(/</g,'&lt;')}</p>
+        <p style="margin-bottom:24px;opacity:0.8;">Check server logs for details.</p>
+        <a href="/admin/access" class="ta-btn ta-btn-primary">Back to Access</a>
+      </main>
+      ${renderFooter(req)}
+      </body></html>
+    `);
+  }
+});
+
+// Test Ko-fi webhook
+app.post('/admin/test-kofi', requireAdmin, express.urlencoded({ extended: true }), async (req, res) => {
+  try {
+    const email = String(req.body.email || '').trim().toLowerCase();
+    if (!email) return res.status(400).send('Email required');
+    
+    // Parse donation date if provided
+    let createdAt = new Date();
+    if (req.body.created_at) {
+      const localDate = new Date(req.body.created_at);
+      createdAt = localDate;
+    }
+    
+    // Simulate Ko-fi webhook payload (same format as real webhook)
+    const webhookBody = {
+      type: 'donation',
+      email: email,
+      created_at: createdAt.toISOString()
+    };
+    
+    // Use the actual webhook processing function
+    const result = await processKofiDonation(webhookBody, true);
+    
+    if (!result.success) {
+      if (result.beforeCutoff) {
+        return res.redirect('/admin/players?msg=Donation date is before cutoff date');
+      }
+      return res.status(400).send(result.error || 'Failed to process webhook');
+    }
+    
+    res.redirect(`/admin/players?msg=Ko-fi webhook simulated successfully. Magic link sent to ${result.email}`);
+  } catch (e) {
+    console.error('Test Ko-fi webhook error:', e);
+    res.status(500).send(`Failed to simulate webhook: ${e.message}`);
+  }
+});
+
+// --- Players management ---
+app.get('/admin/players', requireAdmin, async (req, res) => {
+  try {
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const perPage = Math.min(100, Math.max(10, parseInt(req.query.perPage) || 50)); // Default 50, max 100, min 10
+    const offset = (page - 1) * perPage;
+    
+    // Get filter parameters
+    const searchTerm = String(req.query.search || '').trim().toLowerCase();
+    const statusFilter = String(req.query.status || 'all').trim();
+    const writersOnly = req.query.writers === 'true';
+    
+    // Build WHERE conditions
+    const whereConditions = [];
+    const queryParams = [];
+    let paramIndex = 1;
+    
+    // Search filter
+    if (searchTerm) {
+      whereConditions.push(`(LOWER(p.email) LIKE $${paramIndex} OR LOWER(p.username) LIKE $${paramIndex})`);
+      queryParams.push(`%${searchTerm}%`);
+      paramIndex++;
+    }
+    
+    // Status filter
+    if (statusFilter !== 'all') {
+      if (statusFilter === 'admin') {
+        whereConditions.push(`a.email IS NOT NULL`);
+      } else if (statusFilter === 'pending') {
+        whereConditions.push(`a.email IS NULL AND p.onboarding_complete = FALSE AND p.password_set_at IS NULL`);
+      } else if (statusFilter === 'onboarded') {
+        whereConditions.push(`a.email IS NULL AND p.onboarding_complete = TRUE AND p.password_set_at IS NULL`);
+      } else if (statusFilter === 'password-set') {
+        whereConditions.push(`a.email IS NULL AND p.onboarding_complete = FALSE AND p.password_set_at IS NOT NULL`);
+      } else if (statusFilter === 'fully-registered') {
+        whereConditions.push(`a.email IS NULL AND p.onboarding_complete = TRUE AND p.password_set_at IS NOT NULL`);
+      }
+    }
+    
+    // Writers filter
+    if (writersOnly) {
+      whereConditions.push(`(EXISTS (
+        SELECT 1 FROM writer_invites wi WHERE wi.email = p.email AND wi.active = true
+      ) OR EXISTS (
+        SELECT 1 FROM quizzes q WHERE q.author_email = p.email
+      ))`);
+    }
+    
+    const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
+    
+    // Get total count of filtered players
+    const totalCountQuery = `
+      SELECT COUNT(DISTINCT p.id) as count
+      FROM players p
+      LEFT JOIN admins a ON a.email = p.email
+      ${whereClause}
+    `;
+    const totalCountResult = await pool.query(totalCountQuery, queryParams);
+    const totalCount = parseInt(totalCountResult.rows[0].count || 0);
+    const totalPages = Math.ceil(totalCount / perPage);
+    
+    // Get paginated players with filters
+    const rows = (await pool.query(`
+      SELECT 
+        p.id,
+        p.email,
+        p.username,
+        p.access_granted_at,
+        p.onboarding_complete,
+        p.password_set_at,
+        COUNT(DISTINCT r.quiz_id) as quizzes_played,
+        MAX(r.created_at) as last_activity,
+        CASE WHEN a.email IS NOT NULL THEN true ELSE false END as is_admin,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM writer_invites wi WHERE wi.email = p.email AND wi.active = true
+        ) OR EXISTS (
+          SELECT 1 FROM quizzes q WHERE q.author_email = p.email
+        ) THEN true ELSE false END as is_writer
+      FROM players p
+      LEFT JOIN responses r ON r.user_email = p.email
+      LEFT JOIN admins a ON a.email = p.email
+      ${whereClause}
+      GROUP BY p.id, p.email, p.username, p.access_granted_at, p.onboarding_complete, p.password_set_at, a.email
+      ORDER BY p.access_granted_at DESC
+      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
+    `, [...queryParams, perPage, offset])).rows;
+    const items = rows.map(r => {
+      const status = [];
+      if (r.is_admin) status.push('<span style="color:#ffd700;font-weight:bold;">ADMIN</span>');
+      if (r.onboarding_complete) status.push('Onboarded');
+      if (r.password_set_at) status.push('Password set');
+      const statusStr = status.length ? status.join(' • ') : 'Pending setup';
+      
+      // Determine registration status category for filtering
+      let regStatus = 'pending';
+      if (r.is_admin) {
+        regStatus = 'admin';
+      } else if (r.onboarding_complete && r.password_set_at) {
+        regStatus = 'fully-registered';
+      } else if (r.onboarding_complete) {
+        regStatus = 'onboarded';
+      } else if (r.password_set_at) {
+        regStatus = 'password-set';
+      }
+      
+      return `<tr data-reg-status="${regStatus}" data-is-writer="${r.is_writer ? 'true' : 'false'}">
+        <td><input type="checkbox" class="player-checkbox" value="${r.email}" /></td>
+        <td><a href="/admin/players/${encodeURIComponent(r.email)}" class="ta-btn ta-btn-small" style="color:#111;text-decoration:none;">${r.email || ''}</a></td>
+        <td><a href="/admin/players/${encodeURIComponent(r.email)}" class="ta-btn ta-btn-small" style="color:#111;text-decoration:none;">${r.username || '<em>Not set</em>'}</a></td>
+        <td>${fmtEt(r.access_granted_at)}</td>
+        <td>${statusStr}</td>
+        <td>${r.quizzes_played || 0}</td>
+        <td>${r.last_activity ? fmtEt(r.last_activity) : '<em>Never</em>'}</td>
+        <td style="white-space:nowrap;min-width:450px;">
+          <div style="display:flex;flex-wrap:wrap;gap:4px;align-items:center;">
+          <form method="post" action="/admin/players/send-link" style="display:inline;" onsubmit="return confirm('Send magic link to ${r.email}?');">
+            <input type="hidden" name="email" value="${r.email}"/>
+              <button type="submit" style="padding:4px 8px;font-size:11px;margin:0;">Send Link</button>
+          </form>
+          <form method="post" action="/admin/players/reset-password" style="display:inline;" onsubmit="return confirm('Reset password for ${r.email}? They will need to set a new password.');">
+            <input type="hidden" name="email" value="${r.email}"/>
+              <button type="submit" style="padding:4px 8px;font-size:11px;margin:0;">Reset PW</button>
+          </form>
+          ${r.is_admin ? `
+          <form method="post" action="/admin/players/revoke-admin" style="display:inline;" onsubmit="return confirm('Revoke admin status from ${r.email}?');">
+            <input type="hidden" name="email" value="${r.email}"/>
+              <button type="submit" style="padding:4px 8px;font-size:11px;margin:0;background:#d32f2f;">Revoke Admin</button>
+          </form>
+          ` : `
+          <form method="post" action="/admin/players/grant-admin" style="display:inline;" onsubmit="return confirm('Grant admin status to ${r.email}?');">
+            <input type="hidden" name="email" value="${r.email}"/>
+              <button type="submit" style="padding:4px 8px;font-size:11px;margin:0;background:#2e7d32;">Grant Admin</button>
+          </form>
+          `}
+            <form method="post" action="/admin/players/delete" style="display:inline;" onsubmit="return confirm('DELETE ${r.email} and all their data? This cannot be undone.');">
+              <input type="hidden" name="email" value="${r.email}"/>
+              <button type="submit" style="padding:4px 8px;font-size:11px;margin:0;background:#d32f2f;color:#fff;">Delete</button>
+            </form>
+          <form method="post" action="/admin/players/revoke-access" style="display:inline;" onsubmit="return confirm('REVOKE ACCESS and delete all data for ${r.email}? This cannot be undone.');">
+            <input type="hidden" name="email" value="${r.email}"/>
+              <button type="submit" style="padding:4px 8px;font-size:11px;margin:0;background:#d32f2f;">Revoke Access</button>
+          </form>
+          </div>
+        </td>
+      </tr>`;
+    }).join('');
+    const header = await renderHeader(req);
+    res.type('html').send(`
+      ${renderHead('Players • Admin', true)}
+      <body class="ta-body">
+        ${header}
+        <main class="ta-main ta-container">
+          ${renderBreadcrumb([ADMIN_CRUMB, { label: 'Players' }])}
+          ${renderAdminNav('players')}
+          <h1 class="ta-page-title">Players</h1>
+          ${req.query.msg ? `<p style="padding:8px 12px;background:#2e7d32;color:#fff;border-radius:4px;margin-bottom:16px;">${req.query.msg}</p>` : ''}
+          
+          <!-- Access Management Section -->
+          <div style="margin-bottom:24px;padding:20px;background:#1a1a1a;border:1px solid #333;border-radius:8px;">
+            <h2 style="margin-top:0;margin-bottom:16px;color:#ffd700;font-size:20px;">Access Management</h2>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+              <div>
+                <h3 style="margin-top:0;margin-bottom:12px;font-size:16px;">Grant Access</h3>
+                <form method="post" action="/admin/grant" style="display:flex;gap:8px;align-items:flex-end;">
+                  <div style="flex:1;">
+                    <label style="display:block;margin-bottom:4px;font-weight:600;">Email</label>
+                    <input name="email" type="email" required style="width:100%;padding:6px;border-radius:6px;border:1px solid #555;background:#0a0a0a;color:#ffd700;"/>
+                  </div>
+                  <button type="submit" class="ta-btn ta-btn-primary">Grant</button>
+                </form>
+              </div>
+              <div>
+                <h3 style="margin-top:0;margin-bottom:12px;font-size:16px;">Send Magic Link</h3>
+                <form method="post" action="/admin/send-link" style="display:flex;flex-direction:column;gap:8px;">
+                  <div>
+                    <label style="display:block;margin-bottom:4px;font-weight:600;">Email</label>
+                    <input name="email" type="email" value="${req.query.email ? String(req.query.email).replace(/&/g,'&amp;').replace(/"/g,'&quot;') : ''}" required style="width:100%;padding:6px;border-radius:6px;border:1px solid #555;background:#0a0a0a;color:#ffd700;"/>
+                  </div>
+                  <div>
+                    <label style="display:flex;align-items:center;gap:8px;font-size:14px;">
+                      <input type="checkbox" name="test" value="true" />
+                      <span>Test mode (create link without sending email)</span>
+                    </label>
+                  </div>
+                  <button type="submit" class="ta-btn ta-btn-primary">Send Magic Link</button>
+                </form>
+              </div>
+            </div>
+            <div style="margin-top:20px;padding-top:20px;border-top:1px solid #333;">
+              <h3 style="margin-top:0;margin-bottom:12px;font-size:16px;">Test Ko-fi Webhook</h3>
+              <form method="post" action="/admin/test-kofi" style="max-width:500px;">
+                <div style="margin-bottom:12px;">
+                  <label style="display:block;margin-bottom:4px;font-weight:600;">Test Email</label>
+                  <input name="email" type="email" required style="width:100%;padding:6px;border-radius:6px;border:1px solid #555;background:#0a0a0a;color:#ffd700;"/>
+                  <div style="font-size:12px;opacity:0.7;margin-top:4px;">This will simulate a Ko-fi donation webhook</div>
+                </div>
+                <div style="margin-bottom:12px;">
+                  <label style="display:block;margin-bottom:4px;font-weight:600;">Donation Date (optional)</label>
+                  <input name="created_at" type="datetime-local" style="width:100%;padding:6px;border-radius:6px;border:1px solid #555;background:#0a0a0a;color:#ffd700;"/>
+                  <div style="font-size:12px;opacity:0.7;margin-top:4px;">Leave blank to use current time</div>
+                </div>
+                <button type="submit" style="background:#ff5e5e;color:#fff;border:none;padding:8px 16px;border-radius:4px;cursor:pointer;">Simulate Ko-fi Donation</button>
+              </form>
+            </div>
+          </div>
+          
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:12px;">
+            <p style="margin:0;opacity:0.8;">Showing ${rows.length} of ${totalCount} player${totalCount !== 1 ? 's' : ''} (Page ${page} of ${totalPages})</p>
+            <form method="get" action="/admin/players" id="filterForm" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+              <input type="hidden" name="page" value="1" id="filterPage" />
+              <input type="hidden" name="perPage" value="${perPage}" />
+              <input type="text" name="search" id="player-search" placeholder="Search by email or username..." value="${searchTerm ? String(searchTerm).replace(/&/g,'&amp;').replace(/"/g,'&quot;') : ''}" style="padding:8px 12px;border-radius:6px;border:1px solid #444;background:#1a1a1a;color:#fff;min-width:250px;" />
+              <select name="status" id="statusFilter" style="padding:8px;border-radius:6px;border:1px solid #444;background:#2a2a2a;color:#fff;min-width:200px;">
+                <option value="all" ${statusFilter === 'all' ? 'selected' : ''}>All Statuses</option>
+                <option value="pending" ${statusFilter === 'pending' ? 'selected' : ''}>Pending Setup</option>
+                <option value="onboarded" ${statusFilter === 'onboarded' ? 'selected' : ''}>Onboarded (No Password)</option>
+                <option value="password-set" ${statusFilter === 'password-set' ? 'selected' : ''}>Password Set (Not Onboarded)</option>
+                <option value="fully-registered" ${statusFilter === 'fully-registered' ? 'selected' : ''}>Fully Registered</option>
+                <option value="admin" ${statusFilter === 'admin' ? 'selected' : ''}>Admin</option>
+              </select>
+              <label style="display:flex;align-items:center;gap:6px;padding:8px 12px;border-radius:6px;border:1px solid #444;background:#2a2a2a;color:#fff;cursor:pointer;">
+                <input type="checkbox" name="writers" value="true" id="writerFilter" ${writersOnly ? 'checked' : ''} style="cursor:pointer;" />
+                <span>Writers only</span>
+              </label>
+              <button type="submit" class="ta-btn ta-btn-primary" style="padding:8px 16px;">Apply Filters</button>
+              <a href="/admin/players" class="ta-btn ta-btn-outline" style="padding:8px 16px;text-decoration:none;">Clear</a>
+            </form>
+          </div>
+          <div style="margin-bottom:16px;">
+            <span id="filterCount" style="opacity:0.7;font-size:14px;"></span>
+          </div>
+          
+          <div style="margin-bottom:16px;padding:12px;background:#1a3a1a;border:1px solid #2e7d32;border-radius:6px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
+              <div>
+                <strong style="color:#4caf50;">Quick Actions:</strong>
+                <span style="opacity:0.8;font-size:14px;margin-left:8px;">Send magic links to all currently visible players</span>
+              </div>
+              <button onclick="sendToAllVisible()" class="ta-btn ta-btn-primary" style="padding:8px 20px;font-weight:bold;">Send Magic Links to All Visible</button>
+            </div>
+          </div>
+          <div style="margin-bottom:16px;padding:12px;background:#1a1a3a;border:1px solid #4488ff;border-radius:6px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
+              <div>
+                <strong style="color:#88ccff;">Reminder:</strong>
+                <span style="opacity:0.8;font-size:14px;margin-left:8px;">Send courtesy reminder emails to all pending accounts</span>
+              </div>
+              <form method="post" action="/admin/players/bulk/send-reminder" style="display:inline;" onsubmit="return confirm('Send reminder emails to all pending accounts? This will send a friendly reminder with a magic link to complete setup.');">
+                <button type="submit" class="ta-btn ta-btn-outline" style="padding:8px 20px;font-weight:bold;background:#4488ff;color:#fff;border-color:#4488ff;">Send Reminders to Pending</button>
+              </form>
+            </div>
+          </div>
+          
+          <div id="bulk-actions" style="display:none;margin-bottom:16px;padding:12px;background:#1a1a1a;border-radius:6px;">
+            <div style="margin-bottom:8px;"><strong>Bulk Actions (<span id="selected-count">0</span> selected):</strong></div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button onclick="bulkAction('send-link')" style="padding:6px 12px;background:#2196f3;color:#fff;border:none;border-radius:4px;cursor:pointer;">Send Magic Links</button>
+              <button onclick="bulkAction('export-csv')" style="padding:6px 12px;background:#4caf50;color:#fff;border:none;border-radius:4px;cursor:pointer;">Export CSV</button>
+              <button onclick="bulkAction('grant-admin')" style="padding:6px 12px;background:#2e7d32;color:#fff;border:none;border-radius:4px;cursor:pointer;">Grant Admin</button>
+              <button onclick="bulkAction('revoke-admin')" style="padding:6px 12px;background:#ff9800;color:#fff;border:none;border-radius:4px;cursor:pointer;">Revoke Admin</button>
+              <button onclick="bulkAction('reset-password')" style="padding:6px 12px;background:#9c27b0;color:#fff;border:none;border-radius:4px;cursor:pointer;">Reset Passwords</button>
+              <button onclick="bulkAction('delete')" style="padding:6px 12px;background:#d32f2f;color:#fff;border:none;border-radius:4px;cursor:pointer;">Delete Players</button>
+            </div>
+          </div>
+          
+          <div style="overflow-x:auto;">
+            <table border="1" cellspacing="0" cellpadding="8" style="width:100%;border-collapse:collapse;">
+              <thead>
+                <tr style="background:#333;">
+                  <th style="text-align:left;padding:8px;"><input type="checkbox" id="select-all" onchange="toggleAll(this)" /></th>
+                  <th style="text-align:left;padding:8px;">Email</th>
+                  <th style="text-align:left;padding:8px;">Username</th>
+                  <th style="text-align:left;padding:8px;">Access Granted</th>
+                  <th style="text-align:left;padding:8px;">Status</th>
+                  <th style="text-align:left;padding:8px;">Quizzes Played</th>
+                  <th style="text-align:left;padding:8px;">Last Activity</th>
+                  <th style="text-align:left;padding:8px;">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${items || '<tr><td colspan="8">No players yet</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+          
+          ${totalPages > 1 ? `
+          <div style="display:flex;justify-content:center;align-items:center;gap:8px;margin-top:24px;flex-wrap:wrap;">
+            <button onclick="goToPage(${page - 1})" ${page === 1 ? 'disabled' : ''} class="ta-btn ta-btn-outline" style="padding:8px 16px;${page === 1 ? 'opacity:0.5;cursor:not-allowed;' : ''}">Previous</button>
+            ${Array.from({length: Math.min(7, totalPages)}, (_, i) => {
+              let pageNum;
+              if (totalPages <= 7) {
+                pageNum = i + 1;
+              } else if (page <= 4) {
+                pageNum = i + 1;
+              } else if (page >= totalPages - 3) {
+                pageNum = totalPages - 6 + i;
+              } else {
+                pageNum = page - 3 + i;
+              }
+              const isCurrent = pageNum === page;
+              return `<button onclick="goToPage(${pageNum})" ${isCurrent ? 'disabled' : ''} class="ta-btn ${isCurrent ? 'ta-btn-primary' : 'ta-btn-outline'}" style="padding:8px 12px;min-width:40px;${isCurrent ? 'cursor:default;' : ''}">${pageNum}</button>`;
+            }).join('')}
+            <button onclick="goToPage(${page + 1})" ${page === totalPages ? 'disabled' : ''} class="ta-btn ta-btn-outline" style="padding:8px 16px;${page === totalPages ? 'opacity:0.5;cursor:not-allowed;' : ''}">Next</button>
+            <select id="perPageSelect" onchange="changePerPage()" style="padding:8px;border-radius:6px;border:1px solid #444;background:#2a2a2a;color:#fff;margin-left:16px;">
+              <option value="25" ${perPage === 25 ? 'selected' : ''}>25 per page</option>
+              <option value="50" ${perPage === 50 ? 'selected' : ''}>50 per page</option>
+              <option value="100" ${perPage === 100 ? 'selected' : ''}>100 per page</option>
+            </select>
+          </div>
+          ` : totalCount === 0 ? '<p style="text-align:center;margin-top:24px;opacity:0.7;">No players match your filters.</p>' : ''}
+          
+          <script>
+            function goToPage(newPage) {
+              const form = document.getElementById('filterForm');
+              if (form) {
+                document.getElementById('filterPage').value = newPage;
+                form.submit();
+              } else {
+                // Fallback: preserve all URL params
+                const url = new URL(window.location);
+                url.searchParams.set('page', newPage);
+                window.location = url.toString();
+              }
+            }
+            function changePerPage() {
+              const perPage = document.getElementById('perPageSelect').value;
+              const form = document.getElementById('filterForm');
+              if (form) {
+                form.querySelector('input[name="perPage"]').value = perPage;
+                document.getElementById('filterPage').value = 1;
+                form.submit();
+              } else {
+                // Fallback: preserve all URL params
+                const url = new URL(window.location);
+                url.searchParams.set('perPage', perPage);
+                url.searchParams.set('page', '1');
+                window.location = url.toString();
+              }
+            }
+            // Remove old client-side filtering - now handled server-side
+            // Keep filterCount display for current page
+            function updateFilterCount() {
+              const rows = document.querySelectorAll('tbody tr');
+              const filterCountEl = document.getElementById('filterCount');
+              if (filterCountEl) {
+                filterCountEl.textContent = 'Showing ' + rows.length + ' player' + (rows.length !== 1 ? 's' : '') + ' on this page';
+              }
+            }
+            updateFilterCount();
+            function toggleAll(checkbox) {
+              document.querySelectorAll('.player-checkbox').forEach(cb => cb.checked = checkbox.checked);
+              updateBulkActions();
+            }
+            function updateBulkActions() {
+              const selected = document.querySelectorAll('.player-checkbox:checked').length;
+              const bulkDiv = document.getElementById('bulk-actions');
+              const countSpan = document.getElementById('selected-count');
+              if (selected > 0) {
+                bulkDiv.style.display = 'block';
+                countSpan.textContent = selected;
+              } else {
+                bulkDiv.style.display = 'none';
+              }
+            }
+            function getSelectedEmails() {
+              return Array.from(document.querySelectorAll('.player-checkbox:checked')).map(cb => cb.value);
+            }
+            function bulkAction(action) {
+              const emails = getSelectedEmails();
+              if (emails.length === 0) {
+                alert('No players selected');
+                return;
+              }
+              const actions = {
+                'send-link': { msg: 'Send magic links to ' + emails.length + ' player(s)?', endpoint: '/admin/players/bulk/send-link' },
+                'export-csv': { msg: null, endpoint: '/admin/players/bulk/export-csv' },
+                'grant-admin': { msg: 'Grant admin status to ' + emails.length + ' player(s)?', endpoint: '/admin/players/bulk/grant-admin' },
+                'revoke-admin': { msg: 'Revoke admin status from ' + emails.length + ' player(s)?', endpoint: '/admin/players/bulk/revoke-admin' },
+                'reset-password': { msg: 'Reset passwords for ' + emails.length + ' player(s)?', endpoint: '/admin/players/bulk/reset-password' },
+                'delete': { msg: 'DELETE ' + emails.length + ' player(s) and ALL their data? This cannot be undone!', endpoint: '/admin/players/bulk/delete' }
+              };
+              const config = actions[action];
+              if (!config) return;
+              if (config.msg && !confirm(config.msg)) return;
+              const form = document.createElement('form');
+              form.method = 'POST';
+              form.action = config.endpoint;
+              emails.forEach(email => {
+                const input = document.createElement('input');
+                input.type = 'hidden';
+                input.name = 'emails[]';
+                input.value = email;
+                form.appendChild(input);
+              });
+              document.body.appendChild(form);
+              form.submit();
+            }
+            document.querySelectorAll('.player-checkbox').forEach(cb => {
+              cb.addEventListener('change', updateBulkActions);
+            });
+            function sendToAllVisible() {
+              const visibleRows = Array.from(document.querySelectorAll('tbody tr')).filter(row => row.style.display !== 'none');
+              const visibleEmails = visibleRows.map(row => {
+                const checkbox = row.querySelector('.player-checkbox');
+                return checkbox ? checkbox.value : null;
+              }).filter(Boolean);
+              
+              if (visibleEmails.length === 0) {
+                alert('No visible players to send links to');
+                return;
+              }
+              
+              if (!confirm('Send magic links to all ' + visibleEmails.length + ' visible player(s)?')) {
+                return;
+              }
+              
+              const form = document.createElement('form');
+              form.method = 'POST';
+              form.action = '/admin/players/bulk/send-link';
+              visibleEmails.forEach(email => {
+                const input = document.createElement('input');
+                input.type = 'hidden';
+                input.name = 'emails[]';
+                input.value = email;
+                form.appendChild(input);
+              });
+              document.body.appendChild(form);
+              form.submit();
+            }
+          </script>
+          <p style="margin-top:16px;"><a href="/admin">Back to Admin</a></p>
+        </main>
+        ${renderFooter(req)}
+      </body></html>
+    `);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to load players');
+  }
+});
+
+// Player management actions
+app.post('/admin/players/send-link', requireAdmin, async (req, res) => {
+  try {
+    const email = String(req.body.email || '').trim().toLowerCase();
+    if (!email) return res.status(400).send('Email required');
+    
+    // Delete any existing unused tokens for this email to prevent conflicts
+    await pool.query('DELETE FROM magic_tokens WHERE email = $1 AND used = false', [email]);
+    
+    const token = crypto.randomBytes(24).toString('base64url');
+    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
+    await pool.query('INSERT INTO magic_tokens(token, email, expires_at, used) VALUES($1, $2, $3, false)', [token, email, expiresAt]);
+    const linkUrl = `${process.env.PUBLIC_BASE_URL || ''}/auth/magic?token=${encodeURIComponent(token)}`;
+    
+    try {
+      await sendMagicLink(email, token, linkUrl);
+      res.redirect('/admin/players?msg=Link sent to ' + encodeURIComponent(email));
+    } catch (mailErr) {
+      console.error('[admin/players/send-link] Email send failed:', mailErr);
+      const header = await renderHeader(req);
+      res.status(500).send(`
+        ${renderHead('Send Link Error', false)}
+        <body class="ta-body" style="padding:24px;">
+        ${header}
+        <main class="ta-main ta-container" style="max-width:720px; margin:0 auto;">
+          <h1 class="ta-page-title" style="color:#d32f2f;">Failed to Send Magic Link</h1>
+          <p style="margin-bottom:16px;"><strong>Email:</strong> ${email.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</p>
+          <p style="margin-bottom:16px;"><strong>Error:</strong> ${String(mailErr.message || mailErr).replace(/&/g,'&amp;').replace(/</g,'&lt;')}</p>
+          ${mailErr.message && mailErr.message.includes('refresh token') ? `
+          <div style="background:#fff3cd;border:1px solid #ffc107;border-radius:6px;padding:16px;margin-bottom:24px;">
+            <h3 style="margin-top:0;color:#856404;">Gmail OAuth Token Expired</h3>
+            <p style="margin-bottom:12px;">The Gmail refresh token has expired or been revoked. To fix this:</p>
+            <ol style="margin-left:20px;margin-bottom:0;">
+              <li>Go to <a href="https://console.cloud.google.com/apis/credentials" target="_blank" style="color:#ffd700;">Google Cloud Console → APIs & Services → Credentials</a></li>
+              <li>Create or regenerate OAuth 2.0 credentials</li>
+              <li>Generate a new refresh token using the OAuth 2.0 Playground or your OAuth flow</li>
+              <li>Update the <code>GMAIL_REFRESH_TOKEN</code> environment variable with the new token</li>
+            </ol>
+          </div>
+          ` : ''}
+          <p style="margin-bottom:24px;opacity:0.8;">The magic link token was created successfully, but sending the email failed. Check server logs for details.</p>
+          <div style="display:flex;gap:12px;">
+            <a href="/admin/players" class="ta-btn ta-btn-primary">Back to Players</a>
+            <a href="/admin/players?email=${encodeURIComponent(email)}" class="ta-btn ta-btn-outline">Try Again</a>
+          </div>
+        </main>
+        ${renderFooter(req)}
+        </body></html>
+      `);
+    }
+  } catch (e) {
+    console.error('[admin/players/send-link] Error:', e);
+    const header = await renderHeader(req);
+    res.status(500).send(`
+      ${renderHead('Send Link Error', false)}
+      <body class="ta-body" style="padding:24px;">
+      ${header}
+      <main class="ta-main ta-container" style="max-width:720px; margin:0 auto;">
+        <h1 class="ta-page-title" style="color:#d32f2f;">Failed to Send Magic Link</h1>
+        <p style="margin-bottom:16px;"><strong>Error:</strong> ${String(e.message || e).replace(/&/g,'&amp;').replace(/</g,'&lt;')}</p>
+        <p style="margin-bottom:24px;opacity:0.8;">Check server logs for details.</p>
+        <a href="/admin/players" class="ta-btn ta-btn-primary">Back to Players</a>
+      </main>
+      ${renderFooter(req)}
+      </body></html>
+    `);
+  }
+});
+
+app.post('/admin/players/reset-password', requireAdmin, async (req, res) => {
+  try {
+    const email = String(req.body.email || '').trim().toLowerCase();
+    if (!email) return res.status(400).send('Email required');
+    await pool.query('UPDATE players SET password_hash=NULL, password_set_at=NULL WHERE email=$1', [email]);
+    res.redirect('/admin/players?msg=Password reset');
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to reset password');
+  }
+});
+
+app.post('/admin/players/grant-admin', requireAdmin, async (req, res) => {
+  try {
+    const email = String(req.body.email || '').trim().toLowerCase();
+    if (!email) return res.status(400).send('Email required');
+    // Ensure they're in players table (should already be, but be safe)
+    await pool.query('INSERT INTO players(email, access_granted_at) VALUES($1, NOW()) ON CONFLICT (email) DO NOTHING', [email]);
+    await pool.query('INSERT INTO admins(email) VALUES($1) ON CONFLICT (email) DO NOTHING', [email]);
+    res.redirect('/admin/players?msg=Admin granted');
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to grant admin');
+  }
+});
+
+app.post('/admin/players/revoke-admin', requireAdmin, async (req, res) => {
+  try {
+    const email = String(req.body.email || '').trim().toLowerCase();
+    if (!email) return res.status(400).send('Email required');
+    await pool.query('DELETE FROM admins WHERE email=$1', [email]);
+    res.redirect('/admin/players?msg=Admin revoked');
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to revoke admin');
+  }
+});
+app.post('/admin/players/delete', requireAdmin, async (req, res) => {
+  try {
+    const email = String(req.body.email || '').trim().toLowerCase();
+    if (!email) return res.status(400).send('Email required');
+    // Delete responses first (foreign key constraint)
+    await pool.query('DELETE FROM responses WHERE user_email=$1', [email]);
+    // Delete magic tokens
+    await pool.query('DELETE FROM magic_tokens WHERE email=$1', [email]);
+    // Delete player
+    await pool.query('DELETE FROM players WHERE email=$1', [email]);
+    // Also remove from admins if they were an admin
+    await pool.query('DELETE FROM admins WHERE email=$1', [email]);
+    res.redirect('/admin/players?msg=Player deleted');
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to delete player');
+  }
+});
+
+app.post('/admin/players/revoke-access', requireAdmin, async (req, res) => {
+  try {
+    const email = String(req.body.email || '').trim().toLowerCase();
+    if (!email) return res.status(400).send('Email required');
+    // Delete responses first (foreign key constraint)
+    await pool.query('DELETE FROM responses WHERE user_email=$1', [email]);
+    // Delete player
+    await pool.query('DELETE FROM players WHERE email=$1', [email]);
+    // Also remove from admins if they were an admin
+    await pool.query('DELETE FROM admins WHERE email=$1', [email]);
+    res.redirect('/admin/players?msg=Access revoked');
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to revoke access');
+  }
+});
+
+// Bulk player operations
+app.post('/admin/players/bulk/send-link', requireAdmin, async (req, res) => {
+  try {
+    const emails = Array.isArray(req.body['emails[]']) ? req.body['emails[]'] : [req.body['emails[]']].filter(Boolean);
+    if (emails.length === 0) return res.status(400).send('No emails provided');
+    let sent = 0;
+    let failed = 0;
+    for (const email of emails) {
+      try {
+        const e = String(email || '').trim().toLowerCase();
+        if (!e) continue;
+        
+        // Delete any existing unused tokens for this email to prevent conflicts
+        await pool.query('DELETE FROM magic_tokens WHERE email = $1 AND used = false', [e]);
+        
+        const token = crypto.randomBytes(24).toString('base64url');
+        const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
+        await pool.query('INSERT INTO magic_tokens(token, email, expires_at, used, created_at) VALUES($1, $2, $3, false, NOW())', [token, e, expiresAt]);
+        const linkUrl = `${process.env.PUBLIC_BASE_URL || ''}/auth/magic?token=${encodeURIComponent(token)}`;
+        await sendMagicLink(e, token, linkUrl);
+        sent++;
+      } catch (err) {
+        console.error('Failed to send link to', email, err);
+        failed++;
+      }
+    }
+    res.redirect(`/admin/players?msg=${sent} link(s) sent${failed > 0 ? `, ${failed} failed` : ''}`);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to send links');
+  }
+});
+
+app.post('/admin/players/bulk/send-reminder', requireAdmin, async (req, res) => {
+  try {
+    // Get all pending accounts (not fully registered)
+    const { rows: pendingPlayers } = await pool.query(`
+      SELECT p.email 
+      FROM players p
+      LEFT JOIN admins a ON a.email = p.email
+      WHERE a.email IS NULL 
+        AND (p.onboarding_complete = false OR p.password_set_at IS NULL)
+      ORDER BY p.access_granted_at DESC
+    `);
+    
+    if (pendingPlayers.length === 0) {
+      return res.redirect('/admin/players?msg=No pending accounts found');
+    }
+    
+    let sent = 0;
+    let failed = 0;
+    for (const player of pendingPlayers) {
+      try {
+        const e = String(player.email || '').trim().toLowerCase();
+        if (!e) continue;
+        
+        // Delete any existing unused tokens for this email to prevent conflicts
+        await pool.query('DELETE FROM magic_tokens WHERE email = $1 AND used = false', [e]);
+        
+        const token = crypto.randomBytes(24).toString('base64url');
+        const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
+        await pool.query('INSERT INTO magic_tokens(token, email, expires_at, used, created_at) VALUES($1, $2, $3, false, NOW())', [token, e, expiresAt]);
+        const linkUrl = `${process.env.PUBLIC_BASE_URL || ''}/auth/magic?token=${encodeURIComponent(token)}`;
+        await sendReminderEmail(e, token, linkUrl);
+        sent++;
+      } catch (err) {
+        console.error('Failed to send reminder to', player.email, err);
+        failed++;
+      }
+    }
+    res.redirect(`/admin/players?msg=${sent} reminder(s) sent to pending accounts${failed > 0 ? `, ${failed} failed` : ''}`);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to send reminders');
+  }
+});
+
+app.post('/admin/players/bulk/reset-password', requireAdmin, async (req, res) => {
+  try {
+    const emails = Array.isArray(req.body['emails[]']) ? req.body['emails[]'] : [req.body['emails[]']].filter(Boolean);
+    if (emails.length === 0) return res.status(400).send('No emails provided');
+    for (const email of emails) {
+      const e = String(email || '').trim().toLowerCase();
+      if (!e) continue;
+      await pool.query('UPDATE players SET password_hash=NULL, password_set_at=NULL WHERE email=$1', [e]);
+    }
+    res.redirect(`/admin/players?msg=${emails.length} password(s) reset`);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to reset passwords');
+  }
+});
+
+app.post('/admin/players/bulk/grant-admin', requireAdmin, async (req, res) => {
+  try {
+    const emails = Array.isArray(req.body['emails[]']) ? req.body['emails[]'] : [req.body['emails[]']].filter(Boolean);
+    if (emails.length === 0) return res.status(400).send('No emails provided');
+    for (const email of emails) {
+      const e = String(email || '').trim().toLowerCase();
+      if (!e) continue;
+      // Ensure they're in players table (should already be, but be safe)
+      await pool.query('INSERT INTO players(email, access_granted_at) VALUES($1, NOW()) ON CONFLICT (email) DO NOTHING', [e]);
+      await pool.query('INSERT INTO admins(email) VALUES($1) ON CONFLICT (email) DO NOTHING', [e]);
+    }
+    res.redirect(`/admin/players?msg=${emails.length} admin(s) granted`);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to grant admin');
+  }
+});
+
+app.post('/admin/players/bulk/revoke-admin', requireAdmin, async (req, res) => {
+  try {
+    const emails = Array.isArray(req.body['emails[]']) ? req.body['emails[]'] : [req.body['emails[]']].filter(Boolean);
+    if (emails.length === 0) return res.status(400).send('No emails provided');
+    for (const email of emails) {
+      const e = String(email || '').trim().toLowerCase();
+      if (!e) continue;
+      await pool.query('DELETE FROM admins WHERE email=$1', [e]);
+    }
+    res.redirect(`/admin/players?msg=${emails.length} admin(s) revoked`);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to revoke admin');
+  }
+});
+
+app.post('/admin/players/bulk/delete', requireAdmin, async (req, res) => {
+  try {
+    const emails = Array.isArray(req.body['emails[]']) ? req.body['emails[]'] : [req.body['emails[]']].filter(Boolean);
+    if (emails.length === 0) return res.status(400).send('No emails provided');
+    let deleted = 0;
+    let failed = 0;
+    for (const email of emails) {
+      try {
+        const e = String(email || '').trim().toLowerCase();
+        if (!e) continue;
+        // Delete responses first (foreign key constraint)
+        await pool.query('DELETE FROM responses WHERE user_email=$1', [e]);
+        // Delete magic tokens
+        await pool.query('DELETE FROM magic_tokens WHERE email=$1', [e]);
+        // Delete player
+        await pool.query('DELETE FROM players WHERE email=$1', [e]);
+        // Also remove from admins if they were an admin
+        await pool.query('DELETE FROM admins WHERE email=$1', [e]);
+        deleted++;
+      } catch (err) {
+        console.error('Failed to delete player', email, err);
+        failed++;
+      }
+    }
+    res.redirect(`/admin/players?msg=${deleted} player(s) deleted${failed > 0 ? `, ${failed} failed` : ''}`);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to delete players');
+  }
+});
+
+app.post('/admin/players/bulk/export-csv', requireAdmin, async (req, res) => {
+  try {
+    const emails = Array.isArray(req.body['emails[]']) ? req.body['emails[]'] : [req.body['emails[]']].filter(Boolean);
+    if (emails.length === 0) return res.status(400).send('No emails provided');
+    const players = (await pool.query(`
+      SELECT 
+        p.email,
+        p.username,
+        p.access_granted_at,
+        p.onboarding_complete,
+        p.password_set_at,
+        COUNT(DISTINCT r.quiz_id) as quizzes_played,
+        MAX(r.created_at) as last_activity,
+        CASE WHEN a.email IS NOT NULL THEN true ELSE false END as is_admin
+      FROM players p
+      LEFT JOIN responses r ON r.user_email = p.email
+      LEFT JOIN admins a ON a.email = p.email
+      WHERE p.email = ANY($1)
+      GROUP BY p.email, p.username, p.access_granted_at, p.onboarding_complete, p.password_set_at, a.email
+    `, [emails])).rows;
+    
+    const csv = [
+      ['Email', 'Username', 'Access Granted', 'Onboarded', 'Password Set', 'Admin', 'Quizzes Played', 'Last Activity'].join(','),
+      ...players.map(p => [
+        p.email || '',
+        p.username || '',
+        p.access_granted_at ? fmtEt(p.access_granted_at) : '',
+        p.onboarding_complete ? 'Yes' : 'No',
+        p.password_set_at ? 'Yes' : 'No',
+        p.is_admin ? 'Yes' : 'No',
+        p.quizzes_played || 0,
+        p.last_activity ? fmtEt(p.last_activity) : ''
+      ].map(f => `"${String(f).replace(/"/g, '""')}"`).join(','))
+    ].join('\n');
+    
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="players-export-${new Date().toISOString().split('T')[0]}.csv"`);
+    res.send(csv);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to export');
+  }
+});
+// --- Individual Player Profile ---
+app.get('/admin/players/:email', requireAdmin, async (req, res) => {
+  try {
+    const email = decodeURIComponent(req.params.email).toLowerCase();
+    const player = (await pool.query('SELECT * FROM players WHERE email=$1', [email])).rows[0];
+    if (!player) return res.status(404).send('Player not found');
+    
+    // Get all quiz attempts with scores
+    const quizAttempts = (await pool.query(`
+      SELECT 
+        q.id,
+        q.title,
+        q.unlock_at,
+        q.freeze_at,
+        q.author,
+        COUNT(DISTINCT r.question_id) as questions_answered,
+        COUNT(DISTINCT qq.id) as total_questions,
+        SUM(CASE WHEN (r.override_correct = true AND r.response_text IS NOT NULL AND TRIM(r.response_text) != '') OR (r.override_correct IS NULL AND r.response_text IS NOT NULL AND TRIM(r.response_text) != '' AND LOWER(TRIM(r.response_text)) = LOWER(TRIM(qq.answer))) THEN 1 ELSE 0 END) as correct_count,
+        SUM(r.points) as total_points,
+        MIN(r.created_at) as first_response,
+        MAX(r.created_at) as last_response
+      FROM quizzes q
+      LEFT JOIN questions qq ON qq.quiz_id = q.id
+      LEFT JOIN responses r ON r.quiz_id = q.id AND r.user_email = $1 AND r.question_id = qq.id
+      WHERE EXISTS (SELECT 1 FROM responses r2 WHERE r2.quiz_id = q.id AND r2.user_email = $1)
+      GROUP BY q.id, q.title, q.unlock_at, q.freeze_at, q.author
+      ORDER BY q.unlock_at DESC
+    `, [email])).rows;
+    
+    // Get detailed responses for all quizzes
+    const allResponses = (await pool.query(`
+      SELECT 
+        r.id,
+        r.quiz_id,
+        r.question_id,
+        r.response_text,
+        r.points,
+        r.locked,
+        r.override_correct,
+        r.created_at,
+        q.title as quiz_title,
+        qq.number as question_number,
+        qq.text as question_text,
+        qq.answer as correct_answer,
+        qq.category
+      FROM responses r
+      JOIN quizzes q ON q.id = r.quiz_id
+      JOIN questions qq ON qq.id = r.question_id
+      WHERE r.user_email = $1
+      ORDER BY q.unlock_at DESC, qq.number ASC
+    `, [email])).rows;
+    
+    // Calculate overall stats
+    const totalQuizzes = quizAttempts.length;
+    const totalQuestions = allResponses.length;
+    const totalCorrect = allResponses.filter(r => r.override_correct === true || (r.override_correct === null && r.response_text && r.response_text.trim().toLowerCase() === r.correct_answer.trim().toLowerCase())).length;
+    const totalPoints = allResponses.reduce((sum, r) => sum + (r.points || 0), 0);
+    const avgScore = totalQuizzes > 0 ? (totalCorrect / totalQuestions * 100).toFixed(1) : 0;
+    
+    // Build quiz attempts HTML
+    const attemptsHtml = quizAttempts.map(q => {
+      const score = q.total_questions > 0 ? ((q.correct_count / q.total_questions) * 100).toFixed(1) : 0;
+      const isComplete = q.questions_answered === q.total_questions;
+      return `
+        <div style="border:1px solid #ddd;padding:12px;margin-bottom:12px;border-radius:6px;">
+          <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:8px;">
+            <div>
+              <strong><a href="/admin/quiz/${q.id}/grade" class="ta-btn ta-btn-small" style="color:#111;text-decoration:none;">${q.title || `Quiz #${q.id}`}</a></strong>
+              ${q.author ? `<span style="opacity:0.7;margin-left:8px;">by ${q.author}</span>` : ''}
+            </div>
+            <div style="text-align:right;">
+              <div style="font-size:18px;font-weight:bold;color:${score >= 70 ? '#4caf50' : score >= 50 ? '#ff9800' : '#f44336'};">
+                ${score}%
+              </div>
+              <div style="font-size:12px;opacity:0.7;">${q.correct_count}/${q.total_questions} correct</div>
+            </div>
+          </div>
+          <div style="font-size:12px;opacity:0.7;margin-bottom:8px;">
+            Unlocked: ${fmtEt(q.unlock_at)} • ${isComplete ? 'Complete' : `Incomplete (${q.questions_answered}/${q.total_questions})`}
+          </div>
+          <div style="font-size:12px;opacity:0.7;">
+            Points: ${q.total_points || 0} • First response: ${q.first_response ? fmtEt(q.first_response) : 'N/A'}
+          </div>
+        </div>
+      `;
+    }).join('');
+    
+    // Build responses HTML grouped by quiz
+    const responsesByQuiz = {};
+    allResponses.forEach(r => {
+      if (!responsesByQuiz[r.quiz_id]) {
+        responsesByQuiz[r.quiz_id] = {
+          title: r.quiz_title,
+          responses: []
+        };
+      }
+      responsesByQuiz[r.quiz_id].responses.push(r);
+    });
+    
+    const responsesHtml = Object.entries(responsesByQuiz).map(([quizId, data]) => {
+      const quizResponses = data.responses.map(r => {
+        const isCorrect = r.override_correct === true || (r.override_correct === null && r.response_text && r.response_text.trim().toLowerCase() === r.correct_answer.trim().toLowerCase());
+        const status = r.override_correct === true ? 'Correct (override)' : 
+                      r.override_correct === false ? 'Incorrect (override)' :
+                      isCorrect ? 'Correct' : 'Incorrect';
+        return `
+          <tr>
+            <td>Q${r.question_number}</td>
+            <td>${r.category || 'General'}</td>
+            <td>${r.question_text.substring(0, 80)}${r.question_text.length > 80 ? '...' : ''}</td>
+            <td>${r.response_text || '<em>No answer</em>'}</td>
+            <td>${r.correct_answer}</td>
+            <td style="color:${isCorrect ? '#4caf50' : '#f44336'};">${status}</td>
+            <td>${r.points || 0}</td>
+            <td><a href="/admin/quiz/${r.quiz_id}/grade?highlight=${r.id}">Review</a></td>
+          </tr>
+        `;
+      }).join('');
+      return `
+        <div style="margin-bottom:24px;">
+          <h3 style="margin-bottom:8px;">${data.title || `Quiz #${quizId}`}</h3>
+          <table border="1" cellspacing="0" cellpadding="6" style="width:100%;border-collapse:collapse;font-size:13px;">
+            <thead>
+              <tr style="background:#333;">
+                <th>Q#</th>
+                <th>Category</th>
+                <th>Question</th>
+                <th>Response</th>
+                <th>Correct Answer</th>
+                <th>Status</th>
+                <th>Points</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>${quizResponses}</tbody>
+          </table>
+        </div>
+      `;
+    }).join('');
+    
+    const header = await renderHeader(req);
+    res.type('html').send(`
+      ${renderHead(`Player: ${player.username || player.email} • Admin`, true)}
+      <body class="ta-body">
+        ${header}
+        <main class="ta-main ta-container">
+          <h1 class="ta-page-title">Player Profile</h1>
+          <div style="background:#1a1a1a;padding:16px;border-radius:8px;margin-bottom:24px;">
+            <div style="font-size:20px;font-weight:bold;margin-bottom:8px;">${player.username || '<em>No username</em>'}</div>
+            <div style="opacity:0.8;margin-bottom:4px;">Email: ${player.email}</div>
+            <div style="opacity:0.8;margin-bottom:4px;">Access granted: ${fmtEt(player.access_granted_at)}</div>
+            <div style="display:flex;gap:24px;margin-top:12px;">
+              <div><strong>Total Quizzes:</strong> ${totalQuizzes}</div>
+              <div><strong>Total Questions:</strong> ${totalQuestions}</div>
+              <div><strong>Correct:</strong> ${totalCorrect}/${totalQuestions}</div>
+              <div><strong>Average Score:</strong> ${avgScore}%</div>
+              <div><strong>Total Points:</strong> ${totalPoints}</div>
+            </div>
+          </div>
+          
+          <h2 style="margin-top:32px;margin-bottom:16px;">Quiz Attempts</h2>
+          ${attemptsHtml || '<p>No quiz attempts yet.</p>'}
+          
+          <h2 style="margin-top:32px;margin-bottom:16px;">Detailed Responses</h2>
+          ${responsesHtml || '<p>No responses yet.</p>'}
+          
+          <p style="margin-top:24px;"><a href="/admin/players" class="ta-btn ta-btn-outline">← Back to Players</a></p>
+        </main>
+        ${renderFooter(req)}
+      </body></html>
+    `);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to load player profile');
+  }
+});
+
+// --- Admins management (list/add/remove) ---
+app.get('/admin/admins', requireAdmin, async (_req, res) => {
+  try {
+    const rows = (await pool.query('SELECT email, created_at FROM admins ORDER BY email ASC')).rows;
+    const items = rows.map(r => `<tr><td>${r.email}</td><td>${fmtEt(r.created_at)}</td><td>
+      <form method="post" action="/admin/admins/remove" onsubmit="return confirm('Remove admin ${r.email}?');" style="display:inline;">
+        <input type="hidden" name="email" value="${r.email}"/>
+        <button type="submit">Remove</button>
+      </form>
+    </td></tr>`).join('');
+    const header = await renderHeader(_req);
+    res.type('html').send(`
+      ${renderHead('Admins', false)}
+      <body class="ta-body" style="padding:24px;">
+      ${header}
+        ${renderBreadcrumb([ADMIN_CRUMB, { label: 'Admins' }])}
+        ${renderAdminNav('admins')}
+        <h1 class="ta-page-title">Admins</h1>
+        <form method="post" action="/admin/admins/add" style="margin-bottom:12px;">
+          <label>Email <input name="email" type="email" required /></label>
+          <button type="submit">Add admin</button>
+        </form>
+        <form method="post" action="/admin/admins/send-links" style="margin-bottom:16px;">
+          <button type="submit">Send magic links to all admins</button>
+        </form>
+        <table border="1" cellspacing="0" cellpadding="6">
+          <tr><th>Email</th><th>Added</th><th>Actions</th></tr>
+          ${items || '<tr><td colspan="3">No admins yet</td></tr>'}
+        </table>
+      </body></html>
+    `);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to load admins');
+  }
+});
+app.post('/admin/admins/add', requireAdmin, async (req, res) => {
+  try {
+    const email = String(req.body.email || '').trim().toLowerCase();
+    if (!email) return res.status(400).send('Email required');
+    // Add to players table first (required for authentication and player management)
+    await pool.query('INSERT INTO players(email, access_granted_at) VALUES($1, NOW()) ON CONFLICT (email) DO NOTHING', [email]);
+    // Then add to admins table
+    await pool.query('INSERT INTO admins(email) VALUES($1) ON CONFLICT (email) DO NOTHING', [email]);
+    res.redirect('/admin/admins');
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to add admin');
+  }
+});
+
+// --- Donations management ---
+app.get('/admin/donations', requireAdmin, async (req, res) => {
+  try {
+    const cutoffUtcEnv = process.env.KOFI_CUTOFF_UTC || '';
+    const cutoffDate = cutoffUtcEnv ? new Date(cutoffUtcEnv) : new Date('2025-11-01T04:00:00Z');
+    
+    // Get all donations
+    const { rows: donations } = await pool.query(`
+      SELECT d.*, p.username
+      FROM donations d
+      LEFT JOIN players p ON p.email = d.email
+      ORDER BY d.created_at DESC
+      LIMIT 500
+    `);
+    
+    // Get summary stats
+    const summaryResult = await pool.query(`
+      SELECT 
+        COUNT(*) as count,
+        COALESCE(SUM(amount), 0) as total,
+        COALESCE(SUM(CASE WHEN created_at >= $1 THEN amount ELSE 0 END), 0) as total_this_year
+      FROM donations
+    `, [cutoffDate]);
+    const summary = summaryResult.rows[0];
+    
+    const header = await renderHeader(req);
+    res.type('html').send(`
+      ${renderHead('Donations • Admin', true)}
+      <body class="ta-body">
+        ${header}
+        <main class="ta-main ta-container">
+          ${renderBreadcrumb([ADMIN_CRUMB, { label: 'Donations' }])}
+          ${renderAdminNav('donations')}
+          <h1 class="ta-page-title">Donations</h1>
+          ${req.query.msg ? `<p style="padding:8px 12px;background:#2e7d32;color:#fff;border-radius:4px;margin-bottom:16px;">${req.query.msg}</p>` : ''}
+          
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin:24px 0;">
+            <div style="background:#1a1a1a;padding:16px;border-radius:8px;border:1px solid #333;">
+              <div style="font-size:14px;opacity:0.7;margin-bottom:4px;">Total Donations</div>
+              <div style="font-size:32px;font-weight:bold;color:#ffd700;">${parseInt(summary.count || 0)}</div>
+            </div>
+            <div style="background:#1a1a1a;padding:16px;border-radius:8px;border:1px solid #333;">
+              <div style="font-size:14px;opacity:0.7;margin-bottom:4px;">Total Amount (All Time)</div>
+              <div style="font-size:32px;font-weight:bold;color:#ffd700;">$${parseFloat(summary.total || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</div>
+            </div>
+            <div style="background:#1a1a1a;padding:16px;border-radius:8px;border:1px solid #333;">
+              <div style="font-size:14px;opacity:0.7;margin-bottom:4px;">This Year (Since ${cutoffDate.toLocaleDateString()})</div>
+              <div style="font-size:32px;font-weight:bold;color:#ffd700;">$${parseFloat(summary.total_this_year || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</div>
+            </div>
+          </div>
+          
+          <div style="background:#1a1a1a;padding:20px;border-radius:8px;border:1px solid #333;margin-bottom:24px;">
+            <h2 style="margin-top:0;margin-bottom:16px;color:#ffd700;font-size:20px;">Import CSV from Ko-fi</h2>
+            <p style="opacity:0.8;margin-bottom:16px;font-size:14px;">Upload a CSV file from Ko-fi export. The CSV should have columns for email, amount, date, and optionally currency and transaction ID. We'll try to auto-detect column names.</p>
+            <form method="post" action="/admin/donations/import-csv" enctype="multipart/form-data" style="margin-bottom:24px;">
+              <div style="margin-bottom:12px;">
+                <label style="display:block;margin-bottom:4px;font-weight:600;">CSV File *</label>
+                <input type="file" name="csvfile" accept=".csv,text/csv" required style="width:100%;padding:8px;border-radius:6px;border:1px solid #555;background:#0a0a0a;color:#fff;"/>
+                <div style="font-size:12px;opacity:0.7;margin-top:4px;">Select a CSV file. Include the header row. We'll detect columns like: email, amount, date, currency, transaction_id, etc.</div>
+              </div>
+              <button type="submit" class="ta-btn ta-btn-primary">Import CSV</button>
+            </form>
+            <hr style="border:none;border-top:1px solid #333;margin:24px 0;" />
+            <p style="opacity:0.8;margin-bottom:16px;font-size:14px;">Or paste CSV content directly:</p>
+            <form method="post" action="/admin/donations/import-csv" style="margin-bottom:24px;">
+              <div style="margin-bottom:12px;">
+                <label style="display:block;margin-bottom:4px;font-weight:600;">CSV Content</label>
+                <textarea name="csv" rows="8" style="width:100%;padding:8px;border-radius:6px;border:1px solid #555;background:#0a0a0a;color:#fff;font-family:monospace;font-size:12px;" placeholder="Paste CSV content here..."></textarea>
+                <div style="font-size:12px;opacity:0.7;margin-top:4px;">Include the header row. We'll detect columns like: email, amount, date, currency, transaction_id, etc.</div>
+              </div>
+              <button type="submit" class="ta-btn ta-btn-outline">Import from Text</button>
+            </form>
+            
+            <hr style="border:none;border-top:1px solid #333;margin:24px 0;" />
+            
+            <h2 style="margin-top:0;margin-bottom:16px;color:#ffd700;font-size:20px;">Add Single Historical Donation</h2>
+            <p style="opacity:0.8;margin-bottom:16px;font-size:14px;">Use this form to backfill individual donations that were received before donation tracking was implemented.</p>
+            <form method="post" action="/admin/donations/add" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:16px;align-items:end;">
+              <div>
+                <label style="display:block;margin-bottom:4px;font-weight:600;">Email *</label>
+                <input name="email" type="email" required style="width:100%;padding:8px;border-radius:6px;border:1px solid #555;background:#0a0a0a;color:#fff;"/>
+              </div>
+              <div>
+                <label style="display:block;margin-bottom:4px;font-weight:600;">Amount *</label>
+                <input name="amount" type="number" step="0.01" min="0" required style="width:100%;padding:8px;border-radius:6px;border:1px solid #555;background:#0a0a0a;color:#fff;"/>
+              </div>
+              <div>
+                <label style="display:block;margin-bottom:4px;font-weight:600;">Currency</label>
+                <select name="currency" style="width:100%;padding:8px;border-radius:6px;border:1px solid #555;background:#0a0a0a;color:#fff;">
+                  <option value="USD">USD</option>
+                  <option value="EUR">EUR</option>
+                  <option value="GBP">GBP</option>
+                  <option value="CAD">CAD</option>
+                </select>
+              </div>
+              <div>
+                <label style="display:block;margin-bottom:4px;font-weight:600;">Date</label>
+                <input name="created_at" type="datetime-local" style="width:100%;padding:8px;border-radius:6px;border:1px solid #555;background:#0a0a0a;color:#fff;"/>
+                <div style="font-size:12px;opacity:0.7;margin-top:4px;">Leave blank to use current time</div>
+              </div>
+              <div>
+                <label style="display:block;margin-bottom:4px;font-weight:600;">Ko-fi Transaction ID (optional)</label>
+                <input name="kofi_id" type="text" style="width:100%;padding:8px;border-radius:6px;border:1px solid #555;background:#0a0a0a;color:#fff;"/>
+              </div>
+              <div>
+                <button type="submit" class="ta-btn ta-btn-primary" style="width:100%;">Add Donation</button>
+              </div>
+            </form>
+          </div>
+          
+          <div style="overflow-x:auto;">
+            <table border="1" cellspacing="0" cellpadding="8" style="width:100%;border-collapse:collapse;">
+              <thead>
+                <tr style="background:#333;">
+                  <th style="text-align:left;padding:8px;">Date</th>
+                  <th style="text-align:left;padding:8px;">Email</th>
+                  <th style="text-align:left;padding:8px;">Username</th>
+                  <th style="text-align:right;padding:8px;">Amount</th>
+                  <th style="text-align:left;padding:8px;">Currency</th>
+                  <th style="text-align:left;padding:8px;">Ko-fi ID</th>
+                  <th style="text-align:left;padding:8px;">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${donations.length > 0 ? donations.map(d => `
+                  <tr>
+                    <td>${fmtEt(d.created_at)}</td>
+                    <td><a href="/admin/players/${encodeURIComponent(d.email)}" class="ta-btn ta-btn-small" style="color:#111;text-decoration:none;">${d.email}</a></td>
+                    <td>${d.username || '<em>Not set</em>'}</td>
+                    <td style="text-align:right;font-weight:bold;">${parseFloat(d.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    <td>${d.currency || 'USD'}</td>
+                    <td style="font-size:12px;opacity:0.7;">${d.kofi_id || '<em>None</em>'}</td>
+                    <td>
+                      <form method="post" action="/admin/donations/delete" style="display:inline;" onsubmit="return confirm('Delete this donation record? This cannot be undone.');">
+                        <input type="hidden" name="id" value="${d.id}"/>
+                        <button type="submit" style="padding:4px 8px;font-size:11px;background:#d32f2f;color:#fff;border:none;border-radius:4px;cursor:pointer;">Delete</button>
+                      </form>
+                    </td>
+                  </tr>
+                `).join('') : '<tr><td colspan="7" style="text-align:center;opacity:0.7;">No donations recorded yet</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+          
+          <div style="background:#3a1a1a;padding:20px;border-radius:8px;border:1px solid #d32f2f;margin-top:32px;">
+            <h2 style="margin-top:0;margin-bottom:16px;color:#ff6b6b;font-size:20px;">Cleanup Historic Players</h2>
+            <p style="opacity:0.8;margin-bottom:16px;font-size:14px;">Remove player accounts that were created from historic donations (before the cutoff date). These players don't have access for this year's calendar.</p>
+            <p style="opacity:0.7;margin-bottom:16px;font-size:13px;"><strong>Note:</strong> This will only delete player accounts, not donation records. Donation records are preserved for accounting purposes.</p>
+            <form method="post" action="/admin/donations/cleanup-historic-players" onsubmit="return confirm('This will delete all player accounts whose access was granted before the cutoff date. This cannot be undone. Continue?');">
+              <button type="submit" class="ta-btn" style="background:#d32f2f;color:#fff;border:none;padding:10px 20px;border-radius:6px;cursor:pointer;font-weight:bold;">Clean Up Historic Players</button>
+            </form>
+          </div>
+        </main>
+        ${renderFooter(req)}
+      </body></html>
+    `);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to load donations');
+  }
+});
+
+app.post('/admin/donations/add', requireAdmin, async (req, res) => {
+  try {
+    const email = String(req.body.email || '').trim().toLowerCase();
+    const amount = parseFloat(req.body.amount || 0);
+    const currency = String(req.body.currency || 'USD').toUpperCase();
+    const kofiId = String(req.body.kofi_id || '').trim() || null;
+    const createdAtInput = String(req.body.created_at || '').trim();
+    
+    if (!email || amount <= 0) {
+      return res.redirect('/admin/donations?msg=Invalid email or amount');
+    }
+    
+    // Validate email
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.redirect('/admin/donations?msg=Invalid email format');
+    }
+    
+    // Parse date or use current time
+    const createdAt = createdAtInput ? new Date(createdAtInput) : new Date();
+    
+    // Ensure player exists
+    await pool.query('INSERT INTO players(email, access_granted_at) VALUES($1, $2) ON CONFLICT (email) DO NOTHING', [email, createdAt]);
+    
+    // Insert donation
+    await pool.query(
+      'INSERT INTO donations(email, amount, currency, kofi_id, created_at, processed_at) VALUES($1, $2, $3, $4, $5, NOW())',
+      [email, amount, currency, kofiId, createdAt]
+    );
+    
+    res.redirect('/admin/donations?msg=Donation added successfully');
+  } catch (e) {
+    console.error(e);
+    res.redirect('/admin/donations?msg=Failed to add donation: ' + (e.message || String(e)));
+  }
+});
+
+// Configure multer for file uploads (memory storage for CSV)
+const upload = multer({ 
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype === 'text/csv' || file.originalname.endsWith('.csv')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only CSV files are allowed'));
+    }
+  }
+});
+
+app.post('/admin/donations/import-csv', requireAdmin, upload.single('csvfile'), express.urlencoded({ extended: true, limit: '10mb' }), async (req, res) => {
+  try {
+    // Get CSV content from file upload or textarea
+    let csvContent = '';
+    if (req.file) {
+      // File was uploaded
+      csvContent = req.file.buffer.toString('utf8');
+    } else {
+      // Text was pasted
+      csvContent = String(req.body.csv || '').trim();
+    }
+    
+    if (!csvContent) {
+      return res.redirect('/admin/donations?msg=No CSV content provided');
+    }
+    
+    // Parse CSV - handle quoted fields and commas
+    const lines = csvContent.split('\n').filter(line => line.trim());
+    if (lines.length < 2) {
+      return res.redirect('/admin/donations?msg=CSV must have at least a header row and one data row');
+    }
+    
+    // Parse header row
+    const headerLine = lines[0];
+    const headers = parseCSVLine(headerLine).map(h => h.toLowerCase().trim());
+    
+    // Find column indices
+    // Ko-fi CSV columns: DateTime (UTC), From, Message, Item, Received, Given, Currency, TransactionType, TransactionId, Reference, SalesTax, SalesTaxPercentage, SalesTaxIncludesShipping, BuyerCountry, BuyerStateOrProvince, BuyerEmail, PaymentProvider
+    const emailIdx = findColumnIndex(headers, ['buyeremail', 'buyer email', 'email', 'e-mail', 'donor email', 'donor_email', 'from']);
+    const amountIdx = findColumnIndex(headers, ['received', 'amount', 'donation amount', 'donation_amount', 'value', 'total']);
+    const dateIdx = findColumnIndex(headers, ['datetime (utc)', 'datetime(utc)', 'datetime', 'date', 'created_at', 'created at', 'timestamp', 'time', 'donation date', 'donation_date']);
+    const currencyIdx = findColumnIndex(headers, ['currency', 'curr', 'currency code']);
+    const kofiIdIdx = findColumnIndex(headers, ['transactionid', 'transaction id', 'transaction_id', 'id', 'kofi_id', 'kofi id', 'transaction']);
+    
+    if (emailIdx === -1 || amountIdx === -1) {
+      return res.redirect('/admin/donations?msg=CSV must have email and amount columns');
+    }
+    
+    let imported = 0;
+    let skipped = 0;
+    let errors = [];
+    
+    // Process data rows
+    for (let i = 1; i < lines.length; i++) {
+      try {
+        const values = parseCSVLine(lines[i]);
+        if (values.length < Math.max(emailIdx, amountIdx) + 1) continue;
+        
+        const emailRaw = String(values[emailIdx] || '').trim().toLowerCase();
+        const amountRaw = String(values[amountIdx] || '').trim();
+        const dateRaw = dateIdx >= 0 ? String(values[dateIdx] || '').trim() : '';
+        const currencyRaw = currencyIdx >= 0 ? String(values[currencyIdx] || '').trim().toUpperCase() : 'USD';
+        const kofiIdRaw = kofiIdIdx >= 0 ? String(values[kofiIdIdx] || '').trim() : null;
+        
+        if (!emailRaw || !amountRaw) {
+          skipped++;
+          continue;
+        }
+        
+        // Validate email
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(emailRaw)) {
+          errors.push(`Row ${i + 1}: Invalid email "${emailRaw}"`);
+          skipped++;
+          continue;
+        }
+        
+        // Parse amount (remove currency symbols, commas)
+        const amount = parseFloat(amountRaw.replace(/[^0-9.-]/g, ''));
+        if (isNaN(amount) || amount <= 0) {
+          errors.push(`Row ${i + 1}: Invalid amount "${amountRaw}"`);
+          skipped++;
+          continue;
+        }
+        
+        // Parse date
+        let createdAt = new Date();
+        if (dateRaw) {
+          // Try various date formats
+          const parsedDate = new Date(dateRaw);
+          if (!isNaN(parsedDate.getTime())) {
+            createdAt = parsedDate;
+          }
+        }
+        
+        // Get cutoff date for this year
+        const cutoffUtcEnv = process.env.KOFI_CUTOFF_UTC || '';
+        const cutoffDate = cutoffUtcEnv ? new Date(cutoffUtcEnv) : new Date('2025-11-01T04:00:00Z');
+        const isHistoric = createdAt < cutoffDate;
+        
+        const currency = currencyRaw || 'USD';
+        
+        // Only create player records for donations after the cutoff date (this year's players)
+        // Historic donations are still imported for record-keeping, but don't create player accounts
+        if (!isHistoric) {
+          await pool.query('INSERT INTO players(email, access_granted_at) VALUES($1, $2) ON CONFLICT (email) DO NOTHING', [emailRaw, createdAt]);
+        }
+        
+        // Insert donation (skip if duplicate transaction ID exists)
+        if (kofiIdRaw) {
+          const existing = await pool.query('SELECT id FROM donations WHERE kofi_id = $1', [kofiIdRaw]);
+          if (existing.rows.length > 0) {
+            skipped++;
+            continue;
+          }
+        }
+        
+        await pool.query(
+          'INSERT INTO donations(email, amount, currency, kofi_id, created_at, processed_at) VALUES($1, $2, $3, $4, $5, NOW())',
+          [emailRaw, amount, currency, kofiIdRaw, createdAt]
+        );
+        
+        imported++;
+      } catch (rowErr) {
+        errors.push(`Row ${i + 1}: ${rowErr.message || String(rowErr)}`);
+        skipped++;
+      }
+    }
+    
+    let msg = `Imported ${imported} donation${imported !== 1 ? 's' : ''}`;
+    if (skipped > 0) msg += `, skipped ${skipped}`;
+    msg += `. Note: Player accounts were only created for donations after ${cutoffDate.toLocaleDateString()}. Historic donations were imported for record-keeping but do not create player accounts.`;
+    if (errors.length > 0 && errors.length <= 10) {
+      msg += ` Errors: ${errors.join('; ')}`;
+    } else if (errors.length > 10) {
+      msg += ` ${errors.length} errors (showing first 10): ${errors.slice(0, 10).join('; ')}`;
+    }
+    
+    res.redirect(`/admin/donations?msg=${encodeURIComponent(msg)}`);
+  } catch (e) {
+    console.error(e);
+    res.redirect('/admin/donations?msg=Failed to import CSV: ' + encodeURIComponent(e.message || String(e)));
+  }
+});
+
+// Helper function to parse CSV line (handles quoted fields)
+function parseCSVLine(line) {
+  const result = [];
+  let current = '';
+  let inQuotes = false;
+  
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    const nextChar = line[i + 1];
+    
+    if (char === '"') {
+      if (inQuotes && nextChar === '"') {
+        // Escaped quote
+        current += '"';
+        i++; // Skip next quote
+      } else {
+        // Toggle quote state
+        inQuotes = !inQuotes;
+      }
+    } else if (char === ',' && !inQuotes) {
+      // End of field
+      result.push(current);
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+  
+  // Add last field
+  result.push(current);
+  
+  return result.map(f => f.trim());
+}
+
+// Helper function to find column index by possible names
+function findColumnIndex(headers, possibleNames) {
+  for (const name of possibleNames) {
+    const idx = headers.indexOf(name);
+    if (idx !== -1) return idx;
+  }
+  return -1;
+}
+
+app.post('/admin/donations/delete', requireAdmin, async (req, res) => {
+  try {
+    const id = parseInt(req.body.id);
+    if (!id) return res.status(400).send('Invalid donation ID');
+    
+    await pool.query('DELETE FROM donations WHERE id = $1', [id]);
+    res.redirect('/admin/donations?msg=Donation deleted');
+  } catch (e) {
+    console.error(e);
+    res.redirect('/admin/donations?msg=Failed to delete donation');
+  }
+});
+
+app.post('/admin/donations/cleanup-historic-players', requireAdmin, async (req, res) => {
+  try {
+    // Get cutoff date
+    const cutoffUtcEnv = process.env.KOFI_CUTOFF_UTC || '';
+    const cutoffDate = cutoffUtcEnv ? new Date(cutoffUtcEnv) : new Date('2025-11-01T04:00:00Z');
+    
+    // Count historic players first
+    const countResult = await pool.query(
+      `SELECT COUNT(*) as count FROM players 
+       WHERE access_granted_at < $1 
+       AND email NOT IN (SELECT email FROM admins)`,
+      [cutoffDate]
+    );
+    const count = parseInt(countResult.rows[0]?.count || 0);
+    
+    if (count === 0) {
+      return res.redirect('/admin/donations?msg=No historic players found to clean up');
+    }
+    
+    // Delete historic players (but not admins)
+    // Also delete their responses, magic tokens, etc. for complete cleanup
+    await pool.query(`
+      DELETE FROM responses 
+      WHERE user_email IN (
+        SELECT email FROM players 
+        WHERE access_granted_at < $1 
+        AND email NOT IN (SELECT email FROM admins)
+      )
+    `, [cutoffDate]);
+    
+    await pool.query(`
+      DELETE FROM magic_tokens 
+      WHERE email IN (
+        SELECT email FROM players 
+        WHERE access_granted_at < $1 
+        AND email NOT IN (SELECT email FROM admins)
+      )
+    `, [cutoffDate]);
+    
+    await pool.query(`
+      DELETE FROM players 
+      WHERE access_granted_at < $1 
+      AND email NOT IN (SELECT email FROM admins)
+    `, [cutoffDate]);
+    
+    res.redirect(`/admin/donations?msg=Successfully deleted ${count} historic player account${count !== 1 ? 's' : ''} and their associated data`);
+  } catch (e) {
+    console.error(e);
+    res.redirect('/admin/donations?msg=Failed to clean up historic players: ' + encodeURIComponent(e.message || String(e)));
+  }
+});
+
+app.post('/admin/admins/remove', requireAdmin, async (req, res) => {
+  try {
+    const email = String(req.body.email || '').trim().toLowerCase();
+    if (!email) return res.status(400).send('Email required');
+    await pool.query('DELETE FROM admins WHERE email=$1', [email]);
+    res.redirect('/admin/admins');
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to remove admin');
+  }
+});
+
+app.post('/admin/admins/send-links', requireAdmin, async (_req, res) => {
+  try {
+    const rows = (await pool.query('SELECT email FROM admins ORDER BY email ASC')).rows;
+    let sent = 0;
+    for (const r of rows) {
+      const email = (r.email || '').toLowerCase();
+      if (!email) continue;
+      // Ensure admin can sign in
+      await pool.query('INSERT INTO players(email, access_granted_at) VALUES($1, NOW()) ON CONFLICT (email) DO NOTHING', [email]);
+      // Delete any existing unused tokens for this email to prevent conflicts
+      await pool.query('DELETE FROM magic_tokens WHERE email = $1 AND used = false', [email]);
+      // Create magic token and send
+      const token = crypto.randomBytes(24).toString('base64url');
+      const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
+      await pool.query('INSERT INTO magic_tokens(token,email,expires_at,used,created_at) VALUES($1,$2,$3,false,NOW())', [token, email, expiresAt]);
+      const linkUrl = `${process.env.PUBLIC_BASE_URL || ''}/auth/magic?token=${encodeURIComponent(token)}`;
+      try {
+        await sendMagicLink(email, token, linkUrl);
+        sent++;
+      } catch (mailErr) {
+        console.warn('Send mail failed for', email, mailErr?.message || mailErr);
+      }
+    }
+    res.type('html').send(`<html><body style="font-family: system-ui; padding:24px;"><h1>Magic links sent</h1><p>Sent ${sent} link(s) to ${rows.length} admin(s).</p><p><a href="/admin/admins" class="ta-btn ta-btn-outline">Back</a></p></body></html>`);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to send links');
+  }
+});
+
+// --- Admin: Send Announcements ---
+app.get('/admin/announcements', requireAdmin, async (req, res) => {
+  try {
+    // Get count of players who have announcements enabled
+    const countResult = await pool.query(`
+      SELECT COUNT(*) as count 
+      FROM players 
+      WHERE email_notifications_enabled = true 
+        AND email_announcements = true
+    `);
+    const recipientCount = parseInt(countResult.rows[0]?.count || 0);
+    
+    const header = await renderHeader(req);
+    res.type('html').send(`
+      ${renderHead('Send Announcement • Admin', true)}
+      <body class="ta-body">
+        ${header}
+        <main class="ta-main ta-container" style="max-width:800px;">
+          ${renderBreadcrumb([ADMIN_CRUMB, { label: 'Announcements' }])}
+          ${renderAdminNav('announcements')}
+          <h1 class="ta-page-title">Send Announcement</h1>
+          
+          <div style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:24px;margin-bottom:24px;">
+            <p style="margin:0;opacity:0.9;">This announcement will be sent to <strong>${recipientCount}</strong> player${recipientCount !== 1 ? 's' : ''} who have announcements enabled.</p>
+          </div>
+          
+          <form method="post" action="/admin/announcements" style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:24px;">
+            <div style="margin-bottom:20px;">
+              <label style="display:block;margin-bottom:8px;font-weight:bold;">Subject</label>
+              <input type="text" name="subject" required style="width:100%;padding:10px;border-radius:6px;border:1px solid #444;background:#2a2a2a;color:#fff;font-size:16px;" placeholder="Announcement subject line" />
+            </div>
+            
+            <div style="margin-bottom:20px;">
+              <label style="display:block;margin-bottom:8px;font-weight:bold;">Message</label>
+              <textarea name="message" required rows="12" style="width:100%;padding:10px;border-radius:6px;border:1px solid #444;background:#2a2a2a;color:#fff;font-size:14px;font-family:inherit;resize:vertical;" placeholder="Enter your announcement message here. You can use plain text or basic HTML."></textarea>
+              <div style="font-size:12px;opacity:0.7;margin-top:4px;">Basic HTML is supported (e.g., &lt;strong&gt;, &lt;em&gt;, &lt;a&gt;, &lt;br&gt;)</div>
+            </div>
+            
+            <div style="margin-top:24px;">
+              <button type="submit" class="ta-btn ta-btn-primary" data-confirm="Send announcement to ${recipientCount} player${recipientCount !== 1 ? 's' : ''}?">Send Announcement</button>
+              <a href="/admin" class="ta-btn ta-btn-outline" style="margin-left:8px;">Cancel</a>
+            </div>
+          </form>
+        </main>
+        ${renderFooter(req)}
+        <script src="/js/common-enhancements.js?v=${ASSET_VERSION}"></script>
+      </body></html>
+    `);
+  } catch (e) {
+    console.error('Error loading announcements page:', e);
+    res.status(500).send('Failed to load announcements page');
+  }
+});
+app.post('/admin/announcements', requireAdmin, express.urlencoded({ extended: true }), async (req, res) => {
+  try {
+    const subject = String(req.body.subject || '').trim();
+    const message = String(req.body.message || '').trim();
+    
+    if (!subject || !message) {
+      return res.status(400).send('Subject and message are required');
+    }
+    
+    // Get all players who have announcements enabled
+    const players = await pool.query(`
+      SELECT email, username 
+      FROM players 
+      WHERE email_notifications_enabled = true 
+        AND email_announcements = true
+    `);
+    
+    if (players.rows.length === 0) {
+      return res.redirect('/admin/announcements?msg=No recipients found');
+    }
+    
+    // Create HTML email template
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <style>
+          body { font-family: system-ui, -apple-system, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background: linear-gradient(90deg, #FFA726 0%, #FFC46B 100%); color: #111; padding: 20px; border-radius: 8px 8px 0 0; text-align: center; }
+          .content { background: #f9f9f9; padding: 24px; border: 1px solid #ddd; border-top: none; }
+          .footer { text-align: center; padding: 16px; color: #666; font-size: 12px; }
+          a { color: #FFA726; }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h1 style="margin: 0;">Trivia Advent-ure</h1>
+        </div>
+        <div class="content">
+          ${message.replace(/\n/g, '<br>')}
+        </div>
+        <div class="footer">
+          <p>You're receiving this because you have announcements enabled in your email preferences.</p>
+          <p><a href="${process.env.PUBLIC_BASE_URL || 'https://triviaadventure.org'}/account/preferences">Manage email preferences</a></p>
+        </div>
+      </body>
+      </html>
+    `;
+    
+    // Collect all recipient emails for BCC
+    const recipientEmails = players.rows.map(p => p.email).filter(Boolean);
+    
+    // Send single email with all recipients in BCC
+    // Use a dummy "To" address (the from address) since all recipients are in BCC
+    const fromHeader = process.env.EMAIL_FROM || 'no-reply@example.com';
+    let sent = 0;
+    let failed = 0;
+    const errors = [];
+    
+    try {
+      await sendHTMLEmail(fromHeader, subject, htmlContent, { bcc: recipientEmails });
+      sent = recipientEmails.length;
+      console.log(`[announcements] Sent to ${sent} recipients via BCC`);
+      } catch (e) {
+      failed = recipientEmails.length;
+      errors.push({ error: e.message || String(e) });
+      console.error('Failed to send announcement:', e);
+    }
+    
+    const header = await renderHeader(req);
+    res.type('html').send(`
+      ${renderHead('Announcement Sent • Admin', true)}
+      <body class="ta-body">
+        ${header}
+        <main class="ta-main ta-container" style="max-width:800px;">
+          <h1 class="ta-page-title">Announcement Sent</h1>
+          <div style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:24px;margin-bottom:24px;">
+            <p style="font-size:18px;margin:0 0 16px 0;"><strong>Successfully sent:</strong> ${sent} email${sent !== 1 ? 's' : ''}</p>
+            ${failed > 0 ? '<p style="font-size:18px;margin:0;color:#d32f2f;"><strong>Failed:</strong> ' + failed + ' email' + (failed !== 1 ? 's' : '') + '</p>' : ''}
+          </div>
+          
+          ${errors.length > 0 ? `
+          <div style="background:#2a1a1a;border:1px solid #d32f2f;border-radius:8px;padding:16px;margin-bottom:24px;">
+            <h3 style="margin:0 0 12px 0;color:#d32f2f;">Errors:</h3>
+            <ul style="margin:0;padding-left:20px;">
+              ${errors.map(e => '<li>' + e.email + ': ' + e.error + '</li>').join('')}
+            </ul>
+          </div>
+          ` : ''}
+          
+          <div style="margin-top:24px;">
+            <a href="/admin/announcements" class="ta-btn ta-btn-primary">Send Another</a>
+            <a href="/admin" class="ta-btn ta-btn-outline" style="margin-left:8px;">Back to Admin</a>
+          </div>
+        </main>
+        ${renderFooter(req)}
+      </body></html>
+    `);
+  } catch (e) {
+    console.error('Error sending announcements:', e);
+    res.status(500).send('Failed to send announcements');
+  }
+});
+
+// --- Contact Page ---
+app.get('/contact', async (req, res) => {
+    const header = await renderHeader(req);
+    res.type('html').send(`
+    ${renderHead('Contact Us', false)}
+    <body class="ta-body" style="padding:24px;">
+        ${header}
+      <div style="max-width:600px;margin:0 auto;">
+        <h1 style="color:#ffd700;margin-bottom:24px;">Contact Us</h1>
+
+        <p style="opacity:0.9;margin-bottom:24px;">Have a question, feedback, or need help? We'd love to hear from you! Fill out the form below and we'll get back to you as soon as possible.</p>
+
+        <form method="post" action="/contact" style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:24px;">
+          <div style="margin-bottom:20px;">
+            <label style="display:block;margin-bottom:8px;font-weight:bold;color:#ffd700;">Name *</label>
+            <input type="text" name="name" required style="width:100%;padding:10px;border-radius:6px;border:1px solid #444;background:#2a2a2a;color:#fff;font-size:16px;" placeholder="Your full name" />
+          </div>
+
+          <div style="margin-bottom:20px;">
+            <label style="display:block;margin-bottom:8px;font-weight:bold;color:#ffd700;">Email *</label>
+            <input type="email" name="email" required style="width:100%;padding:10px;border-radius:6px;border:1px solid #444;background:#2a2a2a;color:#fff;font-size:16px;" placeholder="your.email@example.com" />
+          </div>
+
+          <div style="margin-bottom:20px;">
+            <label style="display:block;margin-bottom:8px;font-weight:bold;color:#ffd700;">Subject *</label>
+            <input type="text" name="subject" required style="width:100%;padding:10px;border-radius:6px;border:1px solid #444;background:#2a2a2a;color:#fff;font-size:16px;" placeholder="What's this about?" />
+          </div>
+
+          <div style="margin-bottom:24px;">
+            <label style="display:block;margin-bottom:8px;font-weight:bold;color:#ffd700;">Message *</label>
+            <textarea name="message" required rows="6" style="width:100%;padding:10px;border-radius:6px;border:1px solid #444;background:#2a2a2a;color:#fff;font-size:16px;font-family:inherit;resize:vertical;" placeholder="Tell us what's on your mind..."></textarea>
+          </div>
+
+          <button type="submit" class="ta-btn ta-btn-primary" style="width:100%;padding:12px;font-size:16px;">Send Message</button>
+              </form>
+          </div>
+      ${renderFooter(req)}
+    </body>
+  `);
+});
+
+app.post('/contact', express.urlencoded({ extended: true }), async (req, res) => {
+  try {
+    const { name, email, subject, message } = req.body;
+
+    if (!name || !email || !subject || !message) {
+      return res.status(400).send(`
+        <html><body style="font-family: system-ui; padding:24px;">
+          <h1>Error</h1>
+          <p>All fields are required. Please go back and fill out the complete form.</p>
+          <a href="/contact" class="ta-btn ta-btn-outline">Try Again</a>
+      </body></html>
+    `);
+    }
+
+    // Send email to the team
+    const emailContent = `
+      New contact form submission from Trivia Advent-ure Calendar:
+
+      Name: ${name}
+      Email: ${email}
+      Subject: ${subject}
+
+      Message:
+      ${message}
+
+      ---
+      Sent via contact form at ${new Date().toISOString()}
+    `;
+
+    // Send email with Reply-To header so replies go to the submitter
+    const fromHeader = process.env.EMAIL_FROM || 'no-reply@example.com';
+    const oAuth2Client = getOAuth2Client();
+    const gmail = google.gmail({ version: 'v1', auth: oAuth2Client });
+    
+    // Send to both addresses
+    const recipients = ['Trivia.Adventure12124@gmail.com', 'jay@liquidkourage.com'];
+    
+    for (const recipient of recipients) {
+      const rawLines = [
+        `From: ${fromHeader}`,
+        `To: ${recipient}`,
+        `Reply-To: ${name} <${email}>`,
+        `Subject: Contact Form: ${subject}`,
+        'MIME-Version: 1.0',
+        'Content-Type: text/html; charset=UTF-8',
+        '',
+        `<pre>${emailContent.replace(/\n/g, '<br>')}</pre>`
+      ];
+      const rawMessage = Buffer.from(rawLines.join('\r\n'))
+        .toString('base64')
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/, '');
+      try {
+        await gmail.users.messages.send({ userId: 'me', requestBody: { raw: rawMessage } });
+        console.log(`[contact] Email sent to ${recipient}`);
+      } catch (emailErr) {
+        console.error(`[contact] Failed to send email to ${recipient}:`, emailErr?.message || emailErr);
+        // Continue to try sending to the other recipient even if one fails
+      }
+    }
+
+    res.type('html').send(`
+      ${renderHead('Message Sent', false)}
+      <body class="ta-body" style="padding:24px;">
+        ${await renderHeader(req)}
+        <div style="max-width:600px;margin:0 auto;text-align:center;">
+          <h1 style="color:#ffd700;margin-bottom:24px;">Message Sent!</h1>
+          <p style="opacity:0.9;margin-bottom:24px;">Thank you for contacting us! We've received your message and will get back to you as soon as possible.</p>
+          <a href="/" class="ta-btn ta-btn-primary">Return Home</a>
+        </div>
+        ${renderFooter(req)}
+      </body>
+    `);
+
+  } catch (error) {
+    console.error('Contact form error:', error);
+    res.status(500).send(`
+      <html><body style="font-family: system-ui; padding:24px;">
+        <h1>Error</h1>
+        <p>Sorry, there was an error sending your message. Please try again later or email us directly at <a href="mailto:Trivia.Adventure12124@gmail.com">Trivia.Adventure12124@gmail.com</a></p>
+        <a href="/contact" class="ta-btn ta-btn-outline">Try Again</a>
+      </body></html>
+    `);
+}
+});
+
+// --- FAQ Page ---
+app.get('/faq', async (req, res) => {
+  const header = await renderHeader(req);
+  res.type('html').send(`
+    ${renderHead('FAQ', false)}
+    <body class="ta-body" style="padding:24px;">
+      ${header}
+      <div style="max-width:800px;margin:0 auto;">
+        <h1 style="color:#ffd700;margin-bottom:24px;">Frequently Asked Questions</h1>
+
+        <div class="faq-section" style="margin-bottom:32px;">
+          <h2 style="color:#ffd700;margin-bottom:16px;">What is Trivia Advent-ure Calendar?</h2>
+          <p style="opacity:0.9;line-height:1.6;margin-bottom:16px;">Trivia Advent-ure Calendar is a daily trivia event that runs throughout December and into January, featuring 60 unique quiz challenges created by different authors. The Advent calendar includes 48 quizzes from December 1–24, and the 12 Days of Quizmas adds 12 more quizzes from December 26–January 6. Each day brings new trivia questions to test your knowledge while supporting charitable causes.</p>
+        </div>
+
+        <div class="faq-section" style="margin-bottom:32px;">
+          <h2 style="color:#ffd700;margin-bottom:16px;">How does the event work?</h2>
+          <p style="opacity:0.9;line-height:1.6;margin-bottom:16px;">The Advent calendar runs from December 1st through December 24th, with quizzes unlocking every 12 hours (at midnight and noon Eastern) - that's 48 Advent quizzes. The 12 Days of Quizmas runs from December 26th through January 6th, with one quiz unlocking each day at midnight Eastern - that's 12 Quizmas quizzes. In total, 60 quizzes written by 60 different authors covering 60 different topics.</p>
+        </div>
+
+        <div class="faq-section" style="margin-bottom:32px;">
+          <h2 style="color:#ffd700;margin-bottom:16px;">When do quizzes become available?</h2>
+          <p style="opacity:0.9;line-height:1.6;margin-bottom:16px;">Quizzes unlock every 12 hours (at midnight and noon Eastern) from December 1st through December 24th.</p>
+        </div>
+
+        <div class="faq-section" style="margin-bottom:32px;">
+          <h2 style="color:#ffd700;margin-bottom:16px;">How do I participate?</h2>
+          <p style="opacity:0.9;line-height:1.6;margin-bottom:16px;">This is a fundraising venture, so players receive access by making a donation to the Calendar's Ko-Fi page. Suggested donation is $25 per player, but we operate under a "donate what you can" model so that players can enjoy the experience regardless of economic situation.</p>
+        </div>
+
+        <div class="faq-section" style="margin-bottom:32px;">
+          <h2 style="color:#ffd700;margin-bottom:16px;">Do I need to create an account?</h2>
+          <p style="opacity:0.9;line-height:1.6;margin-bottom:16px;">After you make a donation, you'll receive an email with a special link to grant you access to the site. From there, you can let us know if you've donated so that you can play, as a gift for someone else to play, or both! You'll be prompted to set a username and password during this process.</p>
+        </div>
+
+        <div class="faq-section" style="margin-bottom:32px;">
+          <h2 style="color:#ffd700;margin-bottom:16px;">Is participation free?</h2>
+          <p style="opacity:0.9;line-height:1.6;margin-bottom:16px;">This is a fundraising venture, so participation requires a donation to the Calendar's Ko-Fi page. We operate under a "donate what you can" model - suggested donation is $25 per player, but you can contribute any amount that works for your situation. We also have a gifting process where donors can purchase access for others.</p>
+        </div>
+
+        <div class="faq-section" style="margin-bottom:32px;">
+          <h2 style="color:#ffd700;margin-bottom:16px;">How do I play a quiz?</h2>
+          <p style="opacity:0.9;line-height:1.6;margin-bottom:16px;">Access the Calendar page and you'll see 24 numbered boxes, representing each day from December 1 to December 24. Each door unlocks at the start of each day, giving you access to that day's AM quiz, and at noon that day's PM quiz. Each quiz is 10 questions, presented all at once.</p>
+        </div>
+
+        <div class="faq-section" style="margin-bottom:32px;">
+          <h2 style="color:#ffd700;margin-bottom:16px;">How are answers scored?</h2>
+          <p style="opacity:0.9;line-height:1.6;margin-bottom:16px;">Answers are compared to the official correct answer and to any other matching responses. The Advent-ure team will regularly check responses, making grading decisions for every response. Answers are marked either correct or incorrect; no partial credit.</p>
+          <p style="opacity:0.9;line-height:1.6;margin-bottom:16px;">Scoring works like this: Questions are worth points based on consecutive correct answers (1 point for the first correct answer, 2 points for the second consecutive correct, 3 for the third, and so on). Each player *must* choose one question per quiz to "lock" - that question is worth a flat 5 points when answered correctly and doesn't interrupt your streak. Incorrect answers reset your streak to zero.</p>
+        </div>
+
+        <div class="faq-section" style="margin-bottom:32px;">
+          <h2 style="color:#ffd700;margin-bottom:16px;">Can I change my answers?</h2>
+          <p style="opacity:0.9;line-height:1.6;margin-bottom:16px;">Once a response is submitted, there's no way to amend your answer(s). Read closely, make sure you answer the question being asked, and double-check your answers before submitting.</p>
+        </div>
+
+        <div class="faq-section" style="margin-bottom:32px;">
+          <h2 style="color:#ffd700;margin-bottom:16px;">Can I participate in multiple quizzes?</h2>
+          <p style="opacity:0.9;line-height:1.6;margin-bottom:16px;">Every quiz is available (after it unlocks) for every registered player.</p>
+        </div>
+
+        <div class="faq-section" style="margin-bottom:32px;">
+          <h2 style="color:#ffd700;margin-bottom:16px;">Are there prizes?</h2>
+          <p style="opacity:0.9;line-height:1.6;margin-bottom:16px;">As this is a fundraising venture and a massive trivia undertaking without proctors or cheat prevention tools, there is no equitable way to ensure that high-scoring players are competing fairly. For that reason, the only "prize" is pride at how you ended up on the leaderboards.</p>
+        </div>
+
+        <div class="faq-section" style="margin-bottom:32px;">
+          <h2 style="color:#ffd700;margin-bottom:16px;">Who creates the quizzes?</h2>
+          <p style="opacity:0.9;line-height:1.6;margin-bottom:16px;">Each quiz was written by a trivia professional or enthusiast. 60 quizzes total, 60 authors who you'll learn about when their quiz becomes available.</p>
+        </div>
+
+        <div class="faq-section" style="margin-bottom:32px;">
+          <h2 style="color:#ffd700;margin-bottom:16px;">What types of questions can I expect?</h2>
+          <p style="opacity:0.9;line-height:1.6;margin-bottom:16px;">The sky's the limit on what to expect. Since we have dozens of guest writers, quizzes may vary wildly in topic, difficulty, voice, etc. Each quiz is intended to have a single theme, however, and many quizzes will naturally feature ideas around the holiday season.</p>
+        </div>
+
+        <div class="faq-section" style="margin-bottom:32px;">
+          <h2 style="color:#ffd700;margin-bottom:16px;">What if I have technical difficulties?</h2>
+          <p style="opacity:0.9;line-height:1.6;margin-bottom:16px;">This site is under active development, so we anticipate there may be technical issues. Any such issues should be brought to the attention of the Trivia Advent-ure Calendar team at <a href="mailto:Trivia.Adventure12124@gmail.com">Trivia.Adventure12124@gmail.com</a>, and we will work to resolve those issues ASAP.</p>
+        </div>
+
+        <div class="faq-section" style="margin-bottom:32px;">
+          <h2 style="color:#ffd700;margin-bottom:16px;">Can I play on mobile devices?</h2>
+          <p style="opacity:0.9;line-height:1.6;margin-bottom:16px;">The site is designed to work from any browser on any device, but if you find any issues with accessing the calendar from a mobile device, please let us know!</p>
+        </div>
+
+        <div class="faq-section" style="margin-bottom:32px;">
+          <h2 style="color:#ffd700;margin-bottom:16px;">What time zone are the quiz times in?</h2>
+          <p style="opacity:0.9;line-height:1.6;margin-bottom:16px;">The calendar runs on Eastern Standard Time.</p>
+        </div>
+
+      </div>
+      ${renderFooter(req)}
+    </body>
+  `);
+});
+
+// ... (rest of the code remains unchanged)
