@@ -3095,9 +3095,18 @@ app.get('/admin/calendar', requireAdmin, async (req, res) => {
         AND wi.slot_date IS NOT NULL
         AND wi.slot_half IS NOT NULL
     `);
+    // Fetch published writer submissions to check which quizzes have corresponding submissions
+    const { rows: publishedSubmissions } = await pool.query(`
+      SELECT wi.slot_date, wi.slot_half
+      FROM writer_invites wi
+      WHERE wi.published_at IS NOT NULL
+        AND wi.slot_date IS NOT NULL
+        AND wi.slot_half IS NOT NULL
+    `);
     
     const bySlot = new Map(); // key: YYYY-MM-DD|AM|PM → array of quizzes
     const unpublishedBySlot = new Map(); // key: YYYY-MM-DD|AM|PM → array of submission info
+    const publishedSlots = new Set(); // key: YYYY-MM-DD|AM|PM → has published submission
     // Use current year for calendar display (not derived from existing quizzes)
     const currentYear = new Date().getUTCFullYear();
     function slotKey(dParts){
@@ -3125,6 +3134,14 @@ app.get('/admin/calendar', requireAdmin, async (req, res) => {
         const key = slotKeyFromDate(sub.slot_date, half);
         if (!unpublishedBySlot.has(key)) unpublishedBySlot.set(key, []);
         unpublishedBySlot.get(key).push(sub);
+      }
+    }
+    // Map published submissions to slots
+    for (const pub of publishedSubmissions) {
+      if (pub.slot_date && pub.slot_half) {
+        const half = String(pub.slot_half).trim().toUpperCase();
+        const key = slotKeyFromDate(pub.slot_date, half);
+        publishedSlots.add(key);
       }
     }
     
@@ -3157,6 +3174,7 @@ app.get('/admin/calendar', requireAdmin, async (req, res) => {
       const key = `${day}|${half}`;
       const unpublished = unpublishedBySlot.get(key) || [];
       const hasUnpublished = unpublished.length > 0;
+      const hasPublishedSubmission = publishedSlots.has(key);
       
       if (!list.length) {
         const hh = half === 'AM' ? '00:00' : '12:00';
@@ -3172,14 +3190,20 @@ app.get('/admin/calendar', requireAdmin, async (req, res) => {
       if (list.length === 1) {
         const q = list[0];
         const title = q.title.replace(/</g,'&lt;');
+        const isMissingSubmission = !hasPublishedSubmission && !hasUnpublished;
         let extraHtml = '';
         if (hasUnpublished) {
           const submissionLinks = unpublished.map(s => 
             `<a href="/admin/writer-submissions/${s.submission_id}" class="ta-btn-small" style="margin:2px 0;display:block;background:#ff9800;color:#000;">📝 ${s.author || 'Unnamed'}'s Submission</a>`
           ).join('');
           extraHtml = `<div style="color:#ff9800;font-weight:bold;margin-top:4px;font-size:11px;">⚠️ Unpublished Submission${unpublished.length > 1 ? 's' : ''} also waiting</div>${submissionLinks}`;
+        } else if (isMissingSubmission) {
+          const hh = half === 'AM' ? '00:00' : '12:00';
+          const unlock = `${day}T${hh}`;
+          extraHtml = `<div style="color:#ff4444;font-weight:bold;margin-top:4px;font-size:11px;">⚠️ Missing Submission</div><div><a href="/admin/writer-submissions?unlock=${unlock}" class="ta-btn-small" style="margin:2px 0;display:block;background:#ff4444;color:#fff;">📝 Create Submission</a></div>`;
         }
-        return `<div><a href=\"/admin/quiz/${q.id}\" class=\"ta-btn ta-btn-small\">#${q.id} ${title}</a></div>${extraHtml}`;
+        const titleStyle = isMissingSubmission ? 'style="color:#ff4444;"' : '';
+        return `<div><a href=\"/admin/quiz/${q.id}\" class=\"ta-btn ta-btn-small\" ${titleStyle}>#${q.id} ${title}</a></div>${extraHtml}`;
       }
       // Conflict
       const links = list.map(q => {
@@ -3192,6 +3216,10 @@ app.get('/admin/calendar', requireAdmin, async (req, res) => {
           `<a href="/admin/writer-submissions/${s.submission_id}" class="ta-btn-small" style="margin:2px 0;display:block;background:#ff9800;color:#000;">📝 ${s.author || 'Unnamed'}'s Submission</a>`
         ).join('');
         extraHtml = `<div style="color:#ff9800;font-weight:bold;margin-top:4px;font-size:11px;">⚠️ Unpublished Submission${unpublished.length > 1 ? 's' : ''} also waiting</div>${submissionLinks}`;
+      } else if (!hasPublishedSubmission) {
+        const hh = half === 'AM' ? '00:00' : '12:00';
+        const unlock = `${day}T${hh}`;
+        extraHtml = `<div style="color:#ff4444;font-weight:bold;margin-top:4px;font-size:11px;">⚠️ Missing Submission</div><div><a href="/admin/writer-submissions?unlock=${unlock}" class="ta-btn-small" style="margin:2px 0;display:block;background:#ff4444;color:#fff;">📝 Create Submission</a></div>`;
       }
       return `<div style=\"color:#c62828;\"><strong>Conflict (${list.length})</strong></div>${links}${extraHtml}`;
     }
