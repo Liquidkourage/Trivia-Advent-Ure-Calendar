@@ -4001,6 +4001,21 @@ app.get('/calendar', async (req, res) => {
                 } else {
                   // Use click for desktop
                   d.addEventListener('click', function(e){
+                    // If clicking on a slot button, let it handle navigation without interference
+                    var clickedButton = e.target.closest && e.target.closest('.slot-btn');
+                    if (clickedButton) {
+                      var door = clickedButton.closest('.ta-door');
+                      // Only block if door is closed or was just opened
+                      if (!door || !door.classList.contains('is-open') || recentlyOpened.has(door)) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        e.stopImmediatePropagation();
+                        return false;
+                      }
+                      // Door is open and not recently opened - let button handle navigation
+                      // Don't call handleDoorClick at all - just return
+                      return;
+                    }
                     handleDoorClick(e);
                   }, true);
                 }
