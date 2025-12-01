@@ -421,9 +421,10 @@ body.ta-modal-open{overflow:hidden}
 .ta-door.is-unlocked:hover .ta-door-leaf.right, .ta-door.is-open .ta-door-leaf.right{transform:rotateY(155deg)}
 /* Keep number visible even when open */
 .ta-door.is-locked .ta-door-leaf{filter:saturate(.6) brightness(.85)}
-.ta-door.is-unlocked:hover .ta-door-front, .ta-door.is-open .ta-door-front{pointer-events:none}
-.ta-door.is-unlocked:hover .ta-door-back, .ta-door.is-open .ta-door-back{opacity:1;pointer-events:auto;z-index:10}
-.ta-door.is-open .slot-btn{pointer-events:auto;position:relative;z-index:11;cursor:pointer}
+.ta-door.is-unlocked:hover .ta-door-front, .ta-door.is-open .ta-door-front{pointer-events:none !important}
+.ta-door.is-unlocked:hover .ta-door-back, .ta-door.is-open .ta-door-back{opacity:1;pointer-events:auto !important;z-index:10}
+.ta-door.is-open .slot-btn{pointer-events:auto !important;position:relative;z-index:100 !important;cursor:pointer}
+.ta-door.is-open .slot-btn.unlocked{pointer-events:auto !important;z-index:100 !important;cursor:pointer}
 .ta-badge{display:inline-block;padding:2px 6px;border-radius:999px;background:#2ECC71;color:#111;font-size:11px;font-weight:800;box-shadow:0 2px 0 rgba(0,0,0,.3)}
 .ta-door.is-finalized .ta-badge{background:#d79c6c;color:#111}
 
