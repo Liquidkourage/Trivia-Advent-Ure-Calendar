@@ -8503,7 +8503,27 @@ app.get('/admin/quiz/:id/responses', requireAdmin, async (req, res) => {
       }
     }
     
-    // Filter out players who have NO actual answers (only blank responses)
+    // Identify players who submitted but have NO actual answers (all blank responses)
+    // These players should be allowed to resubmit
+    const playersWithAllEmpty = Array.from(responsesByPlayer.values()).filter(playerData => {
+      const hasAnyAnswer = playerData.responses.some(r => {
+        const text = (r.response_text || '').trim();
+        return text && text.length > 0;
+      });
+      return !hasAnyAnswer && playerData.responses.length > 0; // Has responses but all empty
+    });
+    
+    // Automatically clear submission status for players with all empty responses if requested
+    if (req.query.auto_fix === 'true' && playersWithAllEmpty.length > 0) {
+      for (const playerData of playersWithAllEmpty) {
+        await pool.query(
+          'UPDATE responses SET submitted_at = NULL WHERE quiz_id=$1 AND user_email=$2',
+          [quizId, playerData.player.user_email]
+        );
+      }
+    }
+    
+    // Filter out players who have NO actual answers (only blank responses) for display
     const playersWithAnswers = Array.from(responsesByPlayer.values()).filter(playerData => {
       const hasAnyAnswer = playerData.responses.some(r => {
         const text = (r.response_text || '').trim();
@@ -8619,6 +8639,19 @@ app.get('/admin/quiz/:id/responses', requireAdmin, async (req, res) => {
           ${req.query.updated ? '<div style="background:#efffef;border:1px solid #55cc55;color:#1a5a1a;padding:10px;border-radius:6px;margin-bottom:16px;">✓ Response updated successfully</div>' : ''}
           ${req.query.deleted ? '<div style="background:#ffefef;border:1px solid #cc5555;color:#5a1a1a;padding:10px;border-radius:6px;margin-bottom:16px;">✓ Response deleted successfully</div>' : ''}
           ${req.query.cleared ? '<div style="background:#efffef;border:1px solid #55cc55;color:#1a5a1a;padding:10px;border-radius:6px;margin-bottom:16px;">✓ Submission cleared - player can now resubmit</div>' : ''}
+          ${req.query.auto_fix === 'true' && playersWithAllEmpty.length > 0 ? `<div style="background:#efffef;border:1px solid #55cc55;color:#1a5a1a;padding:10px;border-radius:6px;margin-bottom:16px;">✓ Cleared submission status for ${playersWithAllEmpty.length} player${playersWithAllEmpty.length !== 1 ? 's' : ''} with all empty responses - they can now resubmit</div>` : ''}
+          ${playersWithAllEmpty.length > 0 && req.query.auto_fix !== 'true' ? `<div style="background:#ffefef;border:2px solid #ff9800;color:#5a1a1a;padding:16px;border-radius:8px;margin-bottom:16px;">
+            <strong style="font-size:16px;">⚠️ Found ${playersWithAllEmpty.length} player${playersWithAllEmpty.length !== 1 ? 's' : ''} who submitted but have ALL empty responses:</strong>
+            <ul style="margin:12px 0 0 24px;padding:0;line-height:1.8;">
+              ${playersWithAllEmpty.map(p => `<li><strong>${p.player.username || p.player.email || p.player.user_email}</strong> - Submitted but no answers saved</li>`).join('')}
+            </ul>
+            <div style="margin-top:16px;padding-top:16px;border-top:1px solid rgba(255,152,0,0.3);">
+              <form method="POST" action="/admin/quiz/${quizId}/clear-all-empty-submissions" style="display:inline;">
+                <button type="submit" class="ta-btn ta-btn-primary" style="font-size:15px;padding:10px 20px;">Clear Submission Status for All (Allow Resubmit)</button>
+              </form>
+              <div style="margin-top:8px;font-size:13px;opacity:0.8;">This will clear their submission status so they can resubmit with their actual answers.</div>
+            </div>
+          </div>` : ''}
           <div style="margin-bottom:24px;">
             <a href="/admin/quiz/${quizId}/grade" class="ta-btn ta-btn-primary" style="margin-right:8px;">Grade Responses</a>
             <a href="/admin/quiz/${quizId}" class="ta-btn ta-btn-outline" style="margin-right:8px;">Edit Quiz</a>
@@ -8821,6 +8854,59 @@ app.post('/admin/quiz/:id/edit-response', requireAdmin, async (req, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).send('Failed to save response');
+  }
+});
+
+// --- Admin: Clear submission status for all players with empty responses ---
+app.post('/admin/quiz/:id/clear-all-empty-submissions', requireAdmin, async (req, res) => {
+  try {
+    const quizId = Number(req.params.id);
+    
+    // Verify quiz exists
+    const quiz = (await pool.query('SELECT * FROM quizzes WHERE id=$1', [quizId])).rows[0];
+    if (!quiz) return res.status(404).send('Quiz not found');
+    
+    // Find all players who have submitted but all their responses are empty
+    const emptySubmissions = await pool.query(`
+      WITH player_responses AS (
+        SELECT 
+          r.quiz_id,
+          r.user_email,
+          r.question_id,
+          r.submitted_at,
+          CASE WHEN r.response_text IS NULL OR TRIM(r.response_text) = '' THEN 1 ELSE 0 END as is_empty
+        FROM responses r
+        WHERE r.quiz_id = $1 AND r.submitted_at IS NOT NULL
+      ),
+      quiz_questions AS (
+        SELECT COUNT(*) as total_questions
+        FROM questions
+        WHERE quiz_id = $1
+      )
+      SELECT 
+        pr.user_email,
+        SUM(pr.is_empty) as empty_count,
+        COUNT(*) as response_count,
+        qq.total_questions
+      FROM player_responses pr
+      CROSS JOIN quiz_questions qq
+      GROUP BY pr.user_email, qq.total_questions
+      HAVING COUNT(*) = qq.total_questions AND SUM(pr.is_empty) = COUNT(*)
+    `, [quizId]);
+    
+    let cleared = 0;
+    for (const row of emptySubmissions.rows) {
+      await pool.query(
+        'UPDATE responses SET submitted_at = NULL WHERE quiz_id=$1 AND user_email=$2',
+        [quizId, row.user_email]
+      );
+      cleared++;
+    }
+    
+    return res.redirect(`/admin/quiz/${quizId}/responses?cleared=${cleared}&auto_fix=true`);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to clear empty submissions');
   }
 });
 
