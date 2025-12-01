@@ -3882,7 +3882,8 @@ app.get('/calendar', async (req, res) => {
                   return false;
                 }
                 // Door is open and not recently opened - let the button handle navigation
-                // Don't interfere at all - return immediately without stopping propagation
+                // Don't interfere at all - return immediately without any event manipulation
+                // The button's own handler will stop immediate propagation to prevent this handler
                 return;
               }
               
@@ -3917,25 +3918,19 @@ app.get('/calendar', async (req, res) => {
                 // Add click handlers directly to buttons with higher priority
                 var slotButtons = d.querySelectorAll('.slot-btn');
                 slotButtons.forEach(function(btn){
-                  // Use capture phase with higher priority to intercept before door handler
+                  // Use capture phase to intercept before door handler
                   btn.addEventListener('click', function(e){
                     var door = btn.closest('.ta-door');
-                    if (!door || !door.classList.contains('is-open')) {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      e.stopImmediatePropagation();
-                      return false;
-                    }
-                    if (recentlyOpened.has(door)) {
+                    // Only block if door is closed or was just opened
+                    if (!door || !door.classList.contains('is-open') || recentlyOpened.has(door)) {
                       e.preventDefault();
                       e.stopPropagation();
                       e.stopImmediatePropagation();
                       return false;
                     }
                     // Door is open and not recently opened - allow navigation
-                    // Don't prevent default, let the link work
-                    // Stop propagation to prevent door handler from interfering
-                    e.stopPropagation();
+                    // Don't prevent default, don't stop propagation - let the link work naturally
+                    // Just stop immediate propagation to prevent door handler from running
                     e.stopImmediatePropagation();
                   }, true); // Use capture phase to run before door handler
                 });
@@ -4001,8 +3996,10 @@ app.get('/calendar', async (req, res) => {
                 } else {
                   // Use click for desktop
                   d.addEventListener('click', function(e){
-                    // If clicking on a slot button, let it handle navigation without interference
-                    var clickedButton = e.target.closest && e.target.closest('.slot-btn');
+                    // Check if clicking on a slot button (check both target and closest)
+                    var clickedButton = (e.target.classList && e.target.classList.contains('slot-btn')) 
+                      ? e.target 
+                      : (e.target.closest && e.target.closest('.slot-btn'));
                     if (clickedButton) {
                       var door = clickedButton.closest('.ta-door');
                       // Only block if door is closed or was just opened
@@ -4013,7 +4010,8 @@ app.get('/calendar', async (req, res) => {
                         return false;
                       }
                       // Door is open and not recently opened - let button handle navigation
-                      // Don't call handleDoorClick at all - just return
+                      // Don't call handleDoorClick at all - just return without any event manipulation
+                      // The button's own handler will stop immediate propagation to prevent door handler
                       return;
                     }
                     handleDoorClick(e);
