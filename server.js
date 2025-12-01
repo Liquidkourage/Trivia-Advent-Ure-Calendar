@@ -8637,9 +8637,9 @@ app.get('/admin/quiz/:id/responses', requireAdmin, async (req, res) => {
     // Get all questions for this quiz
     const questions = (await pool.query('SELECT * FROM questions WHERE quiz_id=$1 ORDER BY number ASC', [quizId])).rows;
     
-    // Get all unique players who have responses for this quiz
-    // Include both submitted (submitted_at IS NOT NULL) and unsubmitted (submitted_at IS NULL) players
-    // This helps catch players who appear on leaderboard but don't have submitted_at set
+    // Get all unique players who have SUBMITTED responses for this quiz
+    // Only show players who have actually submitted (submitted_at IS NOT NULL)
+    // Autosave-only players (submitted_at IS NULL) should NOT appear
     const showAll = req.query.show_all === 'true';
     const players = (await pool.query(`
       SELECT DISTINCT 
@@ -8651,13 +8651,13 @@ app.get('/admin/quiz/:id/responses', requireAdmin, async (req, res) => {
         COUNT(*) as total_response_count
       FROM responses r
       LEFT JOIN players p ON p.email = r.user_email
-      WHERE r.quiz_id = $1 ${showAll ? '' : 'AND r.submitted_at IS NOT NULL'}
+      WHERE r.quiz_id = $1 AND r.submitted_at IS NOT NULL
       GROUP BY r.user_email, p.username, p.email
-      ORDER BY last_submitted_at DESC NULLS LAST
+      ORDER BY last_submitted_at DESC
     `, [quizId])).rows;
     
-    // Get all responses for this quiz
-    // If showAll=true, include unsubmitted responses too
+    // Get all SUBMITTED responses for this quiz
+    // Only include responses that have been submitted (submitted_at IS NOT NULL)
     const allResponses = (await pool.query(`
       SELECT 
         r.user_email,
@@ -8673,7 +8673,7 @@ app.get('/admin/quiz/:id/responses', requireAdmin, async (req, res) => {
         qq.answer as correct_answer
       FROM responses r
       JOIN questions qq ON qq.id = r.question_id
-      WHERE r.quiz_id = $1 ${showAll ? '' : 'AND r.submitted_at IS NOT NULL'}
+      WHERE r.quiz_id = $1 AND r.submitted_at IS NOT NULL
       ORDER BY r.user_email, qq.number ASC
     `, [quizId])).rows;
     
