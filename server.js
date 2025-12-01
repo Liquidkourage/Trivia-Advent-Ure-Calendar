@@ -9129,8 +9129,9 @@ app.post('/admin/quiz/:id/edit-response', requireAdmin, async (req, res) => {
       [quizId, questionId, userEmail]
     )).rows[0];
     
-    const wasSubmitted = existing && existing.submitted_at;
-    const submittedAt = wasSubmitted ? existing.submitted_at : (responseText ? new Date() : null);
+    // Preserve submitted_at - admin edits should NOT mark responses as submitted
+    // Only preserve existing submitted_at, never set it to a new date
+    const submittedAt = existing && existing.submitted_at ? existing.submitted_at : null;
     
     if (existing) {
       // Update existing response
@@ -9141,11 +9142,11 @@ app.post('/admin/quiz/:id/edit-response', requireAdmin, async (req, res) => {
         [responseText, isLocked, submittedAt, quizId, questionId, userEmail]
       );
     } else {
-      // Create new response
+      // Create new response - never set submitted_at on new admin-created responses
       await pool.query(
         `INSERT INTO responses (quiz_id, question_id, user_email, response_text, locked, submitted_at)
          VALUES ($1, $2, $3, $4, $5, $6)`,
-        [quizId, questionId, userEmail, responseText, isLocked, submittedAt]
+        [quizId, questionId, userEmail, responseText, isLocked, null]
       );
     }
     
