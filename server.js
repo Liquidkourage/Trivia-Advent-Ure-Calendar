@@ -3870,10 +3870,19 @@ app.get('/calendar', async (req, res) => {
               var door = e.currentTarget;
               
               // CRITICAL: If clicking on a slot button, let it handle navigation
-              // Check if the click target is actually a slot button or inside one
-              var clickedButton = e.target.closest && e.target.closest('.slot-btn');
+              // Check multiple ways to detect button clicks
+              var clickedButton = null;
+              if (e.target.classList && e.target.classList.contains('slot-btn')) {
+                clickedButton = e.target;
+              } else if (e.target.closest) {
+                clickedButton = e.target.closest('.slot-btn');
+              } else if (e.target.tagName === 'A' && e.target.closest('.slot-grid')) {
+                clickedButton = e.target;
+              }
+              
               if (clickedButton) {
                 var isOpen = door.classList.contains('is-open');
+                console.log('[door] Button click detected, door open:', isOpen, 'button:', clickedButton.href);
                 // Only block if door is closed
                 if (!isOpen) {
                   e.preventDefault();
@@ -3883,6 +3892,7 @@ app.get('/calendar', async (req, res) => {
                 }
                 // Door is open - let the link navigate naturally
                 // Don't prevent default, don't stop propagation - just return
+                console.log('[door] Allowing button navigation');
                 return;
               }
               
