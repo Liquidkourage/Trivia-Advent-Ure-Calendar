@@ -8457,6 +8457,125 @@ app.get('/admin/quiz/:id/seed-responses', requireAdmin, async (req, res) => {
   }
 });
 
+// --- Admin: diagnostic endpoint to see what SQL query counts as ungraded ---
+app.get('/admin/quiz/:id/debug-ungraded', requireAdmin, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const quiz = (await pool.query('SELECT id, title FROM quizzes WHERE id=$1', [id])).rows[0];
+    if (!quiz) return res.status(404).send('Quiz not found');
+    
+    // Run the same SQL query as the admin dashboard
+    const result = await pool.query(`
+      WITH normalized_responses AS (
+        SELECT 
+          r.id,
+          r.question_id,
+          r.response_text,
+          r.override_correct,
+          r.flagged,
+          qu.answer,
+          qu.number as question_number,
+          qu.quiz_id,
+          LOWER(REGEXP_REPLACE(TRIM(r.response_text), '[^a-z0-9]', '', 'g')) as norm_response,
+          LOWER(REGEXP_REPLACE(TRIM(qu.answer), '[^a-z0-9]', '', 'g')) as norm_answer
+        FROM responses r
+        JOIN questions qu ON qu.id = r.question_id
+        WHERE r.submitted_at IS NOT NULL
+          AND TRIM(r.response_text) != ''
+          AND qu.quiz_id = $1
+      ),
+      response_groups AS (
+        SELECT 
+          nr.quiz_id,
+          nr.question_id,
+          nr.question_number,
+          nr.norm_response,
+          BOOL_OR(nr.flagged = true) as any_flagged,
+          CASE 
+            WHEN COUNT(*) FILTER (WHERE nr.override_correct = true) > 0 
+                 AND COUNT(*) FILTER (WHERE nr.override_correct = false) > 0 
+            THEN true 
+            ELSE false 
+          END as is_mixed,
+          BOOL_OR(nr.override_correct IS NOT NULL) as has_override,
+          BOOL_OR(nr.override_correct IS NULL) as has_ungraded,
+          BOOL_OR(nr.norm_response = nr.norm_answer) as is_auto_correct,
+          COUNT(*) as response_count,
+          STRING_AGG(DISTINCT nr.response_text, ', ') as sample_responses
+        FROM normalized_responses nr
+        GROUP BY nr.quiz_id, nr.question_id, nr.question_number, nr.norm_response
+      )
+      SELECT 
+        rg.question_number,
+        rg.norm_response,
+        rg.sample_responses,
+        rg.response_count,
+        rg.any_flagged,
+        rg.is_mixed,
+        rg.has_override,
+        rg.has_ungraded,
+        rg.is_auto_correct,
+        CASE
+          WHEN rg.any_flagged = true THEN 'flagged'
+          WHEN rg.is_mixed = true THEN 'mixed'
+          WHEN rg.has_ungraded = true AND rg.norm_response != '' THEN 'has_ungraded'
+          WHEN rg.is_auto_correct = false AND rg.has_override = false THEN 'not_auto_no_override'
+          ELSE 'graded'
+        END as reason_ungraded
+      FROM response_groups rg
+      WHERE rg.quiz_id = $1
+        AND (
+          rg.any_flagged = true
+          OR rg.is_mixed = true
+          OR (rg.has_ungraded = true AND rg.norm_response != '')
+          OR (rg.is_auto_correct = false AND rg.has_override = false)
+        )
+      ORDER BY rg.question_number, rg.norm_response
+    `, [id]);
+    
+    res.type('html').send(`
+      <html><head><title>Debug Ungraded - ${quiz.title}</title></head>
+      <body style="font-family: system-ui; padding: 24px; background: #0a0a0a; color: #fff;">
+        <h1>Debug: Ungraded Groups for "${quiz.title}"</h1>
+        <p><a href="/admin/quiz/${id}/grade" style="color: #4CAF50;">← Back to Grader</a></p>
+        <p>SQL Query found <strong>${result.rows.length}</strong> ungraded groups:</p>
+        <table border="1" cellpadding="8" style="border-collapse: collapse; margin-top: 16px; background: #1a1a1a;">
+          <tr style="background: #333;">
+            <th>Q#</th>
+            <th>Normalized Text</th>
+            <th>Sample Responses</th>
+            <th>Count</th>
+            <th>Flagged</th>
+            <th>Mixed</th>
+            <th>Has Override</th>
+            <th>Has Ungraded</th>
+            <th>Auto Correct</th>
+            <th>Reason</th>
+          </tr>
+          ${result.rows.map(r => `
+            <tr>
+              <td>Q${r.question_number}</td>
+              <td><code>${r.norm_response || '(blank)'}</code></td>
+              <td>${r.sample_responses.substring(0, 50)}${r.sample_responses.length > 50 ? '...' : ''}</td>
+              <td>${r.response_count}</td>
+              <td>${r.any_flagged ? '✓' : ''}</td>
+              <td>${r.is_mixed ? '✓' : ''}</td>
+              <td>${r.has_override ? '✓' : ''}</td>
+              <td>${r.has_ungraded ? '✓' : ''}</td>
+              <td>${r.is_auto_correct ? '✓' : ''}</td>
+              <td><strong>${r.reason_ungraded}</strong></td>
+            </tr>
+          `).join('')}
+        </table>
+        ${result.rows.length === 0 ? '<p style="color: #4CAF50;">✓ No ungraded groups found by SQL query!</p>' : ''}
+      </body></html>
+    `);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Error: ' + e.message);
+  }
+});
+
 // --- Admin: grading UI (per quiz) ---
 app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
   try {
