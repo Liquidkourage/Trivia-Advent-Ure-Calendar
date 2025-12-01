@@ -8312,9 +8312,10 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
         <main class=\"grader-container\">
           <h1 class=\"grader-title\">Grading: ${quiz.title}</h1>
           ${isStale ? '<div style="background:#ffefef;border:1px solid #cc5555;color:#5a1a1a;padding:10px;border-radius:6px;margin-bottom:10px;">Another grader changed one or more items you were viewing. Please refresh to see the latest state.</div>' : ''}
+          ${req.query.regraded ? `<div style="background:#efffef;border:1px solid #55cc55;color:#1a5a1a;padding:10px;border-radius:6px;margin-bottom:10px;">✓ Regraded ${req.query.regraded} player${req.query.regraded !== '1' ? 's' : ''}${req.query.email ? ` (${req.query.email})` : ''}</div>` : ''}
           <div class=\"grader-date\">Viewing: <strong>Awaiting review</strong> by default (🚩 flagged always shown and prioritized). Use "Show graded / Hide graded" in each question section to include graded rows for that question.</div>
           <form method=\"post\" action=\"/admin/quiz/${id}/regrade\" class=\"btn-row\">
-            <button class=\"btn-save\" type=\"submit\">Save All Grading Decisions</button>
+            <button class=\"btn-save\" type=\"submit\">Regrade All Players</button>
             <a class=\"ta-btn ta-btn-outline\" href=\"/admin/quiz/${id}\" style=\"margin-left:8px;\">Back</a>
           </form>
           <div class=\"grader-bar\">${nav}</div>
@@ -8396,14 +8397,32 @@ app.post('/admin/quiz/:id/override-all', requireAdmin, async (req, res) => {
 app.post('/admin/quiz/:id/regrade', requireAdmin, async (req, res) => {
   try {
     const quizId = Number(req.params.id);
-    const users = await pool.query('SELECT DISTINCT user_email FROM responses WHERE quiz_id=$1', [quizId]);
+    const users = await pool.query('SELECT DISTINCT user_email FROM responses WHERE quiz_id=$1 AND submitted_at IS NOT NULL', [quizId]);
+    let regraded = 0;
     for (const u of users.rows) {
       await gradeQuiz(pool, quizId, u.user_email);
+      regraded++;
     }
-    res.redirect(`/admin/quiz/${quizId}/grade`);
+    res.redirect(`/admin/quiz/${quizId}/grade?regraded=${regraded}`);
   } catch (e) {
     console.error(e);
     res.status(500).send('Failed to regrade');
+  }
+});
+
+// Regrade a specific user for a quiz
+app.post('/admin/quiz/:id/regrade-user', requireAdmin, async (req, res) => {
+  try {
+    const quizId = Number(req.params.id);
+    const userEmail = String(req.body.email || '').toLowerCase().trim();
+    if (!userEmail) {
+      return res.status(400).send('Email required');
+    }
+    await gradeQuiz(pool, quizId, userEmail);
+    res.redirect(`/admin/quiz/${quizId}/grade?regraded=1&email=${encodeURIComponent(userEmail)}`);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to regrade user');
   }
 });
 
