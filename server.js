@@ -3914,31 +3914,23 @@ app.get('/calendar', async (req, res) => {
             function setupDoors(){
               var doors = document.querySelectorAll('.ta-door');
               doors.forEach(function(d){
-                // CRITICAL: Attach handlers directly to buttons FIRST
-                // This ensures button clicks NEVER reach the door handler
-                var slotButtons = d.querySelectorAll('.slot-btn');
-                slotButtons.forEach(function(btn){
-                  btn.addEventListener('click', function(e){
+                // Door handler - check if clicking button first
+                d.addEventListener('click', function(e){
+                  // Check if clicking on a button/link
+                  var btn = e.target.closest('.slot-btn');
+                  if (btn) {
                     var door = btn.closest('.ta-door');
                     // Only block if door is closed
                     if (!door || !door.classList.contains('is-open')) {
                       e.preventDefault();
                       e.stopPropagation();
-                      e.stopImmediatePropagation();
                       return false;
                     }
-                    // Door is open - allow navigation
-                    // Stop ALL propagation so door handler never sees this click
-                    e.stopPropagation();
-                    e.stopImmediatePropagation();
-                    // Don't prevent default - let link navigate
-                  }, true); // Capture phase - runs BEFORE door handler
-                });
-                
-                // Door handler - only handles clicks NOT on buttons
-                d.addEventListener('click', function(e){
-                  // If this handler runs, button handler didn't stop propagation
-                  // So this is NOT a button click - handle door toggle
+                    // Door is open - let link navigate naturally
+                    // Don't prevent default, don't stop propagation - just return
+                    return;
+                  }
+                  // Not a button click - handle door toggle
                   handleDoorClick(e);
                 }, false); // Bubble phase
               });
