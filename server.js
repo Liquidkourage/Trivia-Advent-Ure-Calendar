@@ -1214,7 +1214,14 @@ async function gradeQuiz(pool, quizId, userEmail) {
     // Blank non-locked responses are NEVER correct
     if (isBlank) {
       streak = 0;
-      if (r) await pool.query('UPDATE responses SET points = 0, override_correct = FALSE WHERE quiz_id=$1 AND user_email=$2 AND question_id=$3', [quizId, userEmail, q.id]);
+      if (r) {
+        // CRITICAL: Update ALL blank responses for this question to ensure consistency
+        // Blank responses normalize to empty string, so they're all the same normalized text
+        await pool.query(
+          'UPDATE responses SET points = 0, override_correct = FALSE WHERE quiz_id=$1 AND question_id=$2 AND submitted_at IS NOT NULL AND (response_text IS NULL OR TRIM(response_text) = \'\')',
+          [quizId, q.id]
+        );
+      }
       graded.push({ questionId: q.id, number: q.number, locked: false, correct: false, points: 0, given: '', answer: q.answer });
       continue;
     }
@@ -8720,29 +8727,30 @@ app.post('/admin/quiz/:id/override', requireAdmin, async (req, res) => {
       client.release();
     }
     
-    // CRITICAL SAFEGUARD: After updating, verify no mixed states exist for this normalized text
-    // If any responses with this normalized text have different override_correct values, fix them
+    // CRITICAL SAFEGUARD: After updating, verify no mixed states exist for ALL normalized texts
+    // Check ALL normalized texts, not just the one that was updated, to catch any inconsistencies
     const verifyResp = await pool.query('SELECT id, response_text, override_correct FROM responses WHERE question_id=$1 AND submitted_at IS NOT NULL', [questionId]);
     const normGroups = new Map();
     for (const r of verifyResp.rows) {
       const rNorm = normalizeAnswer(r.response_text || '');
-      if (rNorm === norm) {
-        if (!normGroups.has(rNorm)) normGroups.set(rNorm, []);
-        normGroups.get(rNorm).push(r);
-      }
+      if (!normGroups.has(rNorm)) normGroups.set(rNorm, []);
+      normGroups.get(rNorm).push(r);
     }
     
-    // Check for mixed states and fix them
+    // Check for mixed states and fix them for ALL normalized texts
     for (const [normKey, group] of normGroups.entries()) {
       const overrideValues = group.map(r => r.override_correct).filter(v => v !== null);
       const hasTrue = overrideValues.some(v => v === true);
       const hasFalse = overrideValues.some(v => v === false);
       
       if (hasTrue && hasFalse) {
-        // Mixed state detected! Fix it by setting all to the action value (or true if accept was the intent)
-        const fixValue = val !== null ? val : true; // Default to true (accept) if clearing
+        // Mixed state detected! Fix it by setting all to the most common value, or true if tied
+        // Count occurrences
+        const trueCount = overrideValues.filter(v => v === true).length;
+        const falseCount = overrideValues.filter(v => v === false).length;
+        const fixValue = trueCount >= falseCount ? true : false; // Prefer true if tied
         const fixIds = group.map(r => r.id);
-        console.warn(`[override] Mixed state detected for normalized text "${normKey}", fixing ${fixIds.length} responses to ${fixValue}`);
+        console.warn(`[override] Mixed state detected for normalized text "${normKey}", fixing ${fixIds.length} responses to ${fixValue} (${trueCount} true, ${falseCount} false)`);
         await pool.query(
           'UPDATE responses SET override_correct = $1, override_version = override_version + 1, override_updated_at = NOW(), override_updated_by = $3 WHERE id = ANY($2)',
           [fixValue, fixIds, updatedBy]
