@@ -8461,7 +8461,8 @@ app.get('/admin/quiz/:id/responses', requireAdmin, async (req, res) => {
       ORDER BY last_submitted_at DESC NULLS LAST
     `, [quizId])).rows;
     
-    // Get all SUBMITTED responses for this quiz (exclude autosave-only)
+    // Get all responses for this quiz
+    // If showAll=true, include unsubmitted responses too
     const allResponses = (await pool.query(`
       SELECT 
         r.user_email,
@@ -8477,7 +8478,7 @@ app.get('/admin/quiz/:id/responses', requireAdmin, async (req, res) => {
         qq.answer as correct_answer
       FROM responses r
       JOIN questions qq ON qq.id = r.question_id
-      WHERE r.quiz_id = $1 AND r.submitted_at IS NOT NULL
+      WHERE r.quiz_id = $1 ${showAll ? '' : 'AND r.submitted_at IS NOT NULL'}
       ORDER BY r.user_email, qq.number ASC
     `, [quizId])).rows;
     
