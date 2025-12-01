@@ -7168,6 +7168,76 @@ app.get('/leaderboard', async (req, res) => {
         </tr>
       `;
     }).join('');
+    // Fetch all quizzes that have responses for the browse section
+    const { rows: quizzesWithResponses } = await pool.query(`
+      SELECT q.id, q.title, q.unlock_at, q.quiz_type,
+        COUNT(DISTINCT r.user_email) as participant_count,
+        MAX(r.submitted_at) as last_submission
+      FROM quizzes q
+      LEFT JOIN responses r ON r.quiz_id = q.id AND r.submitted_at IS NOT NULL
+      GROUP BY q.id, q.title, q.unlock_at, q.quiz_type
+      HAVING COUNT(DISTINCT r.user_email) > 0
+      ORDER BY q.unlock_at DESC
+    `);
+    
+    // Helper function to escape HTML
+    const escapeHtml = (text) => {
+      return String(text || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+    };
+    
+    // Build quiz leaderboard links section
+    let quizLinksHtml = '';
+    if (quizzesWithResponses.length > 0) {
+      // Group by quiz type
+      const adventQuizzes = quizzesWithResponses.filter(q => !q.quiz_type || q.quiz_type === 'advent');
+      const quizmasQuizzes = quizzesWithResponses.filter(q => q.quiz_type === 'quizmas');
+      
+      if (adventQuizzes.length > 0) {
+        quizLinksHtml += '<div style="margin-bottom:24px;"><h3 style="margin:0 0 12px 0;color:#ffd700;font-size:18px;">Advent Calendar Quizzes</h3>';
+        quizLinksHtml += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;">';
+        adventQuizzes.forEach(q => {
+          const unlockDate = q.unlock_at ? new Date(q.unlock_at) : null;
+          const dateStr = unlockDate ? unlockDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'TBD';
+          const timeStr = unlockDate ? (unlockDate.getHours() < 12 ? 'AM' : 'PM') : '';
+          quizLinksHtml += `
+            <a href="/quiz/${q.id}/leaderboard" style="display:block;background:#1a1a1a;border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:12px;text-decoration:none;color:inherit;transition:all 0.2s;" onmouseover="this.style.background='#222';this.style.borderColor='rgba(255,215,0,0.3)';" onmouseout="this.style.background='#1a1a1a';this.style.borderColor='rgba(255,255,255,0.1)';">
+              <div style="font-weight:600;margin-bottom:4px;">${escapeHtml(q.title || `Quiz #${q.id}`)}</div>
+              <div style="font-size:12px;opacity:0.7;margin-bottom:6px;">${dateStr}${timeStr ? ' ' + timeStr : ''}</div>
+              <div style="font-size:12px;opacity:0.6;">${q.participant_count} participant${q.participant_count !== 1 ? 's' : ''}</div>
+            </a>
+          `;
+        });
+        quizLinksHtml += '</div></div>';
+      }
+      
+      if (quizmasQuizzes.length > 0) {
+        quizLinksHtml += '<div style="margin-bottom:24px;"><h3 style="margin:0 0 12px 0;color:#ffd700;font-size:18px;">12 Days of Quizmas</h3>';
+        quizLinksHtml += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;">';
+        quizmasQuizzes.forEach(q => {
+          const unlockDate = q.unlock_at ? new Date(q.unlock_at) : null;
+          // Calculate which day of Quizmas (Dec 26 = Day 1, Jan 6 = Day 12)
+          let dayLabel = '';
+          if (unlockDate) {
+            const dec26 = new Date(unlockDate.getFullYear(), 11, 26); // Month is 0-indexed
+            const dayDiff = Math.floor((unlockDate - dec26) / (1000 * 60 * 60 * 24)) + 1;
+            if (dayDiff >= 1 && dayDiff <= 12) {
+              dayLabel = `Day ${dayDiff}`;
+            }
+          }
+          quizLinksHtml += `
+            <a href="/quiz/${q.id}/leaderboard" style="display:block;background:#1a1a1a;border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:12px;text-decoration:none;color:inherit;transition:all 0.2s;" onmouseover="this.style.background='#222';this.style.borderColor='rgba(255,215,0,0.3)';" onmouseout="this.style.background='#1a1a1a';this.style.borderColor='rgba(255,255,255,0.1)';">
+              <div style="font-weight:600;margin-bottom:4px;">${escapeHtml(q.title || `Quiz #${q.id}`)}</div>
+              <div style="font-size:12px;opacity:0.7;margin-bottom:6px;">${dayLabel || (unlockDate ? unlockDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'TBD')}</div>
+              <div style="font-size:12px;opacity:0.6;">${q.participant_count} participant${q.participant_count !== 1 ? 's' : ''}</div>
+            </a>
+          `;
+        });
+        quizLinksHtml += '</div></div>';
+      }
+    } else {
+      quizLinksHtml = '<p style="opacity:0.7;font-style:italic;">No quiz leaderboards available yet.</p>';
+    }
+    
     const header = await renderHeader(req);
     res.type('html').send(`
       ${renderHead('Overall Leaderboard', false)}
@@ -7214,6 +7284,13 @@ app.get('/leaderboard', async (req, res) => {
         </table>
             </div>
           </section>
+          
+          <section style="margin:40px 0;">
+            <h2 style="margin:0 0 16px 0;color:#ffd700;">Browse Quiz Leaderboards</h2>
+            <p style="opacity:0.8;margin-bottom:20px;">View individual leaderboards for each quiz:</p>
+            ${quizLinksHtml}
+          </section>
+          
           <p style="margin-top:16px;"><a href="/calendar" class="ta-btn ta-btn-outline">Back to Calendar</a></p>
         </main>
         ${renderFooter(req)}
