@@ -3124,6 +3124,18 @@ app.get('/admin/calendar', requireAdmin, async (req, res) => {
       const am = bySlot.get(amKey) || [];
       rows.push({ day, am, pm: [], isQuizmas: true });
     }
+    // Helper function to detect if a quiz title is a default/unpublished title
+    function isDefaultTitle(title) {
+      if (!title) return true;
+      const t = title.trim();
+      // Check for common default title patterns
+      if (t === 'Untitled Quiz') return true;
+      if (/^[A-Za-z\s]+'s Quiz$/.test(t)) return true; // "Author's Quiz"
+      if (/^[A-Za-z\s]+'s Quiz - [A-Za-z]+ \d+ (AM|PM)$/.test(t)) return true; // "Author's Quiz - December 1 AM"
+      if (/^[A-Za-z]+ \d+ (AM|PM) Quiz$/.test(t)) return true; // "December 1 AM Quiz"
+      return false;
+    }
+    
     function cellHtml(list, day, half){
       if (!list.length) {
         const hh = half === 'AM' ? '00:00' : '12:00';
@@ -3132,10 +3144,22 @@ app.get('/admin/calendar', requireAdmin, async (req, res) => {
       }
       if (list.length === 1) {
         const q = list[0];
-        return `<div><a href=\"/admin/quiz/${q.id}\" class=\"ta-btn ta-btn-small\">#${q.id} ${q.title.replace(/</g,'&lt;')}</a></div>`;
+        const title = q.title.replace(/</g,'&lt;');
+        const isUnpublished = isDefaultTitle(q.title);
+        const displayTitle = isUnpublished 
+          ? `<span style="color:#ff9800;font-style:italic;">[Unpublished Quiz]</span>` 
+          : title;
+        return `<div><a href=\"/admin/quiz/${q.id}\" class=\"ta-btn ta-btn-small\">#${q.id} ${displayTitle}</a></div>`;
       }
       // Conflict
-      const links = list.map(q=>`<div><a href=\"/admin/quiz/${q.id}\" class=\"ta-btn ta-btn-small\">#${q.id} ${q.title.replace(/</g,'&lt;')}</a></div>`).join('');
+      const links = list.map(q => {
+        const title = q.title.replace(/</g,'&lt;');
+        const isUnpublished = isDefaultTitle(q.title);
+        const displayTitle = isUnpublished 
+          ? `<span style="color:#ff9800;font-style:italic;">[Unpublished Quiz]</span>` 
+          : title;
+        return `<div><a href=\"/admin/quiz/${q.id}\" class=\"ta-btn ta-btn-small\">#${q.id} ${displayTitle}</a></div>`;
+      }).join('');
       return `<div style=\"color:#c62828;\"><strong>Conflict (${list.length})</strong></div>${links}`;
     }
     const htmlRows = rows.map(r => {
