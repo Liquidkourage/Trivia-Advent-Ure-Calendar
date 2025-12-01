@@ -3914,27 +3914,6 @@ app.get('/calendar', async (req, res) => {
             function setupDoors(){
               var doors = document.querySelectorAll('.ta-door');
               doors.forEach(function(d){
-                // Block all clicks on slot buttons when door is closed
-                // Add click handlers directly to buttons with higher priority
-                var slotButtons = d.querySelectorAll('.slot-btn');
-                slotButtons.forEach(function(btn){
-                  // Use capture phase to intercept before door handler
-                  btn.addEventListener('click', function(e){
-                    var door = btn.closest('.ta-door');
-                    // Only block if door is closed or was just opened
-                    if (!door || !door.classList.contains('is-open') || recentlyOpened.has(door)) {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      e.stopImmediatePropagation();
-                      return false;
-                    }
-                    // Door is open and not recently opened - allow navigation
-                    // Don't prevent default, don't stop propagation - let the link work naturally
-                    // Just stop immediate propagation to prevent door handler from running
-                    e.stopImmediatePropagation();
-                  }, true); // Use capture phase to run before door handler
-                });
-                
                 // Handle touch events first to prevent double-firing
                 if ('ontouchstart' in window) {
                   d.addEventListener('touchstart', function(e){
