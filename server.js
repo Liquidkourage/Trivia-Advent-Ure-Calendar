@@ -7254,9 +7254,17 @@ app.post('/quiz/:id/submit', requireAuthOrAdmin, async (req, res) => {
       const val = String(req.body[key] || '').trim();
       const isLocked = lockedSelected === q.id;
       if (!val) {
-        // still persist lock choice even without new text if row exists
+        // If no value provided, preserve existing response_text if it exists, but still update lock and submitted_at
+        // This prevents overwriting existing answers when a field is missing from the form
         await pool.query(
-          'INSERT INTO responses(quiz_id, question_id, user_email, response_text, locked, override_correct, submitted_at) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (user_email, question_id) DO UPDATE SET locked = EXCLUDED.locked, response_text = EXCLUDED.response_text, override_correct = COALESCE(responses.override_correct, FALSE), submitted_at = EXCLUDED.submitted_at',
+          `INSERT INTO responses(quiz_id, question_id, user_email, response_text, locked, override_correct, submitted_at) 
+           VALUES($1,$2,$3,$4,$5,$6,$7) 
+           ON CONFLICT (user_email, question_id) 
+           DO UPDATE SET 
+             locked = EXCLUDED.locked, 
+             response_text = COALESCE(NULLIF(EXCLUDED.response_text, ''), responses.response_text),
+             override_correct = COALESCE(responses.override_correct, FALSE), 
+             submitted_at = EXCLUDED.submitted_at`,
           [id, q.id, email, '', isLocked, false, submittedAt]
         );
         continue;
@@ -7279,6 +7287,106 @@ app.post('/quiz/:id/submit', requireAuthOrAdmin, async (req, res) => {
     res.status(500).send('Failed to submit');
   }
 });
+
+// --- Admin: Diagnostic page for responses with missing text ---
+app.get('/admin/diagnostics/missing-response-text', requireAdmin, async (req, res) => {
+  try {
+    // Find responses that have submitted_at but empty or NULL response_text
+    const problematic = await pool.query(`
+      SELECT 
+        r.id,
+        r.quiz_id,
+        r.question_id,
+        r.user_email,
+        r.response_text,
+        r.submitted_at,
+        r.locked,
+        r.points,
+        q.title as quiz_title,
+        qq.number as question_number,
+        qq.text as question_text,
+        qq.answer as correct_answer,
+        p.username,
+        p.email
+      FROM responses r
+      JOIN quizzes q ON q.id = r.quiz_id
+      JOIN questions qq ON qq.id = r.question_id
+      LEFT JOIN players p ON p.email = r.user_email
+      WHERE r.submitted_at IS NOT NULL
+        AND (r.response_text IS NULL OR TRIM(r.response_text) = '')
+      ORDER BY r.submitted_at DESC
+      LIMIT 100
+    `);
+    
+    const header = await renderHeader(req);
+    res.type('html').send(`
+      ${renderHead('Diagnostics: Missing Response Text', true)}
+      <body class="ta-body">
+        ${header}
+        <main class="ta-main ta-container" style="max-width:1200px;">
+          ${renderBreadcrumb([ADMIN_CRUMB, { label: 'Diagnostics', href: '#' }, { label: 'Missing Response Text' }])}
+          ${renderAdminNav('dashboard')}
+          <h1 class="ta-page-title">Responses with Missing Text</h1>
+          <div style="background:#2a1a0a;border:1px solid #664400;border-radius:8px;padding:16px;margin-bottom:24px;color:#ff9800;">
+            <strong>Issue:</strong> These responses have <code>submitted_at</code> set (indicating submission) but empty or NULL <code>response_text</code>.
+            This may indicate a bug where form submissions overwrote existing answers with empty strings.
+          </div>
+          <div style="margin-bottom:16px;">
+            <strong>Total Found:</strong> ${problematic.rows.length} ${problematic.rows.length === 100 ? '(showing first 100)' : ''}
+          </div>
+          ${problematic.rows.length > 0 ? `
+          <div class="ta-table-wrapper">
+            <table class="ta-table">
+              <thead>
+                <tr>
+                  <th>Player</th>
+                  <th>Quiz</th>
+                  <th>Question</th>
+                  <th>Submitted</th>
+                  <th>Locked?</th>
+                  <th>Points</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${problematic.rows.map(r => `
+                  <tr>
+                    <td>${r.username || r.email || r.user_email}</td>
+                    <td><a href="/admin/quiz/${r.quiz_id}">${r.quiz_title || `Quiz #${r.quiz_id}`}</a></td>
+                    <td>Q${r.question_number}: ${(r.question_text || '').substring(0, 50)}...</td>
+                    <td>${r.submitted_at ? new Date(r.submitted_at).toLocaleString() : 'N/A'}</td>
+                    <td>${r.locked ? '🔒 Yes' : 'No'}</td>
+                    <td>${r.points || 0}</td>
+                    <td>
+                      <a href="/admin/quiz/${r.quiz_id}/responses" class="ta-btn ta-btn-small">View All Responses</a>
+                      <a href="/admin/quiz/${r.quiz_id}/grade" class="ta-btn ta-btn-small">Grade</a>
+                    </td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+          ` : '<p>No problematic responses found.</p>'}
+          <div style="margin-top:24px;padding:16px;background:#1a1a1a;border:1px solid #333;border-radius:8px;">
+            <h3 style="margin-top:0;">Possible Causes:</h3>
+            <ul>
+              <li><strong>Form submission bug:</strong> If a question field was missing from the form or empty, it may have overwritten existing text with empty string</li>
+              <li><strong>Race condition:</strong> Multiple simultaneous submissions might have caused conflicts</li>
+              <li><strong>Data migration issue:</strong> Responses created before certain fixes might have empty text</li>
+            </ul>
+            <h3 style="margin-top:16px;">Fix Applied:</h3>
+            <p>The submit endpoint has been updated to preserve existing <code>response_text</code> when a form field is empty or missing, preventing accidental overwrites.</p>
+          </div>
+        </main>
+        ${renderFooter(req)}
+      </body></html>
+    `);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to load diagnostics');
+  }
+});
+
 initDb().then(() => {
   app.listen(PORT, () => {
     console.log(`Advent staging listening on :${PORT}`);
