@@ -8544,7 +8544,10 @@ app.get('/admin/quiz/:id/debug-ungraded', requireAdmin, async (req, res) => {
             <th>Q#</th>
             <th>Normalized Text</th>
             <th>Sample Responses</th>
-            <th>Count</th>
+            <th>Total</th>
+            <th>True</th>
+            <th>False</th>
+            <th>NULL</th>
             <th>Flagged</th>
             <th>Mixed</th>
             <th>Has Override</th>
@@ -8558,8 +8561,11 @@ app.get('/admin/quiz/:id/debug-ungraded', requireAdmin, async (req, res) => {
               <td><code>${r.norm_response || '(blank)'}</code></td>
               <td>${r.sample_responses.substring(0, 50)}${r.sample_responses.length > 50 ? '...' : ''}</td>
               <td>${r.response_count}</td>
+              <td style="color: ${r.true_count > 0 ? '#4CAF50' : '#888'}">${r.true_count || 0}</td>
+              <td style="color: ${r.false_count > 0 ? '#f44336' : '#888'}">${r.false_count || 0}</td>
+              <td style="color: ${r.null_count > 0 ? '#ff9800' : '#888'}">${r.null_count || 0}</td>
               <td>${r.any_flagged ? '✓' : ''}</td>
-              <td>${r.is_mixed ? '✓' : ''}</td>
+              <td style="color: ${r.is_mixed ? '#f44336' : '#888'}">${r.is_mixed ? '✓ MIXED' : ''}</td>
               <td>${r.has_override ? '✓' : ''}</td>
               <td>${r.has_ungraded ? '✓' : ''}</td>
               <td>${r.is_auto_correct ? '✓' : ''}</td>
@@ -8573,6 +8579,63 @@ app.get('/admin/quiz/:id/debug-ungraded', requireAdmin, async (req, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).send('Error: ' + e.message);
+  }
+});
+
+// --- Admin: Auto-fix mixed states for a quiz ---
+app.post('/admin/quiz/:id/fix-mixed', requireAdmin, async (req, res) => {
+  try {
+    const quizId = Number(req.params.id);
+    const quiz = (await pool.query('SELECT id, title FROM quizzes WHERE id=$1', [quizId])).rows[0];
+    if (!quiz) return res.status(404).send('Quiz not found');
+    
+    // Get all questions for this quiz
+    const questions = (await pool.query('SELECT id, number FROM questions WHERE quiz_id=$1', [quizId])).rows;
+    let fixedCount = 0;
+    
+    for (const question of questions) {
+      // Get all responses for this question
+      const allResponses = await pool.query(
+        'SELECT id, response_text, override_correct FROM responses WHERE question_id=$1 AND submitted_at IS NOT NULL',
+        [question.id]
+      );
+      
+      // Group by normalized text
+      const normGroups = new Map();
+      for (const r of allResponses.rows) {
+        const norm = normalizeAnswer(r.response_text || '');
+        if (!normGroups.has(norm)) normGroups.set(norm, []);
+        normGroups.get(norm).push(r);
+      }
+      
+      // Check each group for mixed states and fix them
+      for (const [norm, group] of normGroups.entries()) {
+        const overrideValues = group.map(r => r.override_correct).filter(v => v !== null);
+        const hasTrue = overrideValues.some(v => v === true);
+        const hasFalse = overrideValues.some(v => v === false);
+        
+        if (hasTrue && hasFalse) {
+          // Mixed state detected - fix by setting all to the most common value
+          const trueCount = overrideValues.filter(v => v === true).length;
+          const falseCount = overrideValues.filter(v => v === false).length;
+          const fixValue = trueCount >= falseCount ? true : false;
+          const fixIds = group.map(r => r.id);
+          
+          await pool.query(
+            'UPDATE responses SET override_correct = $1, override_version = COALESCE(override_version, 0) + 1, override_updated_at = NOW(), override_updated_by = $3 WHERE id = ANY($2)',
+            [fixValue, fixIds, getAdminEmail() || 'admin']
+          );
+          
+          fixedCount++;
+          console.log(`[fix-mixed] Q${question.number}: Fixed ${fixIds.length} responses with norm "${norm}" to ${fixValue} (${trueCount} true, ${falseCount} false)`);
+        }
+      }
+    }
+    
+    return res.redirect(`/admin/quiz/${quizId}/grade?fixed=${fixedCount}`);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to fix mixed states: ' + e.message);
   }
 });
 
