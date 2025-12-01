@@ -914,6 +914,7 @@ const ADMIN_NAV_LINKS = [
   { id: 'writers', label: 'Writer Invites', href: '/admin/writer-invites/list' },
   { id: 'submissions', label: 'Writer Submissions', href: '/admin/writer-submissions' },
   { id: 'players', label: 'Players', href: '/admin/players' },
+  { id: 'donations', label: 'Donations', href: '/admin/donations' },
   { id: 'admins', label: 'Admins', href: '/admin/admins' },
   { id: 'announcements', label: 'Announcements', href: '/admin/announcements' }
 ];
@@ -3366,6 +3367,7 @@ app.get('/admin', requireAdmin, async (req, res) => {
           <h2 style="margin-bottom:12px;color:#ffd700;">Access & Users</h2>
           <div class="ta-card-grid">
             <a class="ta-card" href="/admin/players"><strong>Players</strong><span>View and manage all players</span></a>
+            <a class="ta-card" href="/admin/donations"><strong>Donations</strong><span>View donations and add historical records</span></a>
             <a class="ta-card" href="/admin/admins"><strong>Admins</strong><span>Manage admin emails</span></a>
           </div>
         </section>
@@ -9171,6 +9173,186 @@ app.post('/admin/admins/add', requireAdmin, async (req, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).send('Failed to add admin');
+  }
+});
+
+// --- Donations management ---
+app.get('/admin/donations', requireAdmin, async (req, res) => {
+  try {
+    const cutoffUtcEnv = process.env.KOFI_CUTOFF_UTC || '';
+    const cutoffDate = cutoffUtcEnv ? new Date(cutoffUtcEnv) : new Date('2025-11-01T04:00:00Z');
+    
+    // Get all donations
+    const { rows: donations } = await pool.query(`
+      SELECT d.*, p.username
+      FROM donations d
+      LEFT JOIN players p ON p.email = d.email
+      ORDER BY d.created_at DESC
+      LIMIT 500
+    `);
+    
+    // Get summary stats
+    const summaryResult = await pool.query(`
+      SELECT 
+        COUNT(*) as count,
+        COALESCE(SUM(amount), 0) as total,
+        COALESCE(SUM(CASE WHEN created_at >= $1 THEN amount ELSE 0 END), 0) as total_this_year
+      FROM donations
+    `, [cutoffDate]);
+    const summary = summaryResult.rows[0];
+    
+    const header = await renderHeader(req);
+    res.type('html').send(`
+      ${renderHead('Donations • Admin', true)}
+      <body class="ta-body">
+        ${header}
+        <main class="ta-main ta-container">
+          ${renderBreadcrumb([ADMIN_CRUMB, { label: 'Donations' }])}
+          ${renderAdminNav('donations')}
+          <h1 class="ta-page-title">Donations</h1>
+          ${req.query.msg ? `<p style="padding:8px 12px;background:#2e7d32;color:#fff;border-radius:4px;margin-bottom:16px;">${req.query.msg}</p>` : ''}
+          
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin:24px 0;">
+            <div style="background:#1a1a1a;padding:16px;border-radius:8px;border:1px solid #333;">
+              <div style="font-size:14px;opacity:0.7;margin-bottom:4px;">Total Donations</div>
+              <div style="font-size:32px;font-weight:bold;color:#ffd700;">${parseInt(summary.count || 0)}</div>
+            </div>
+            <div style="background:#1a1a1a;padding:16px;border-radius:8px;border:1px solid #333;">
+              <div style="font-size:14px;opacity:0.7;margin-bottom:4px;">Total Amount (All Time)</div>
+              <div style="font-size:32px;font-weight:bold;color:#ffd700;">$${parseFloat(summary.total || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</div>
+            </div>
+            <div style="background:#1a1a1a;padding:16px;border-radius:8px;border:1px solid #333;">
+              <div style="font-size:14px;opacity:0.7;margin-bottom:4px;">This Year (Since ${cutoffDate.toLocaleDateString()})</div>
+              <div style="font-size:32px;font-weight:bold;color:#ffd700;">$${parseFloat(summary.total_this_year || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</div>
+            </div>
+          </div>
+          
+          <div style="background:#1a1a1a;padding:20px;border-radius:8px;border:1px solid #333;margin-bottom:24px;">
+            <h2 style="margin-top:0;margin-bottom:16px;color:#ffd700;font-size:20px;">Add Historical Donation</h2>
+            <p style="opacity:0.8;margin-bottom:16px;font-size:14px;">Use this form to backfill donations that were received before donation tracking was implemented.</p>
+            <form method="post" action="/admin/donations/add" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:16px;align-items:end;">
+              <div>
+                <label style="display:block;margin-bottom:4px;font-weight:600;">Email *</label>
+                <input name="email" type="email" required style="width:100%;padding:8px;border-radius:6px;border:1px solid #555;background:#0a0a0a;color:#fff;"/>
+              </div>
+              <div>
+                <label style="display:block;margin-bottom:4px;font-weight:600;">Amount *</label>
+                <input name="amount" type="number" step="0.01" min="0" required style="width:100%;padding:8px;border-radius:6px;border:1px solid #555;background:#0a0a0a;color:#fff;"/>
+              </div>
+              <div>
+                <label style="display:block;margin-bottom:4px;font-weight:600;">Currency</label>
+                <select name="currency" style="width:100%;padding:8px;border-radius:6px;border:1px solid #555;background:#0a0a0a;color:#fff;">
+                  <option value="USD">USD</option>
+                  <option value="EUR">EUR</option>
+                  <option value="GBP">GBP</option>
+                  <option value="CAD">CAD</option>
+                </select>
+              </div>
+              <div>
+                <label style="display:block;margin-bottom:4px;font-weight:600;">Date</label>
+                <input name="created_at" type="datetime-local" style="width:100%;padding:8px;border-radius:6px;border:1px solid #555;background:#0a0a0a;color:#fff;"/>
+                <div style="font-size:12px;opacity:0.7;margin-top:4px;">Leave blank to use current time</div>
+              </div>
+              <div>
+                <label style="display:block;margin-bottom:4px;font-weight:600;">Ko-fi Transaction ID (optional)</label>
+                <input name="kofi_id" type="text" style="width:100%;padding:8px;border-radius:6px;border:1px solid #555;background:#0a0a0a;color:#fff;"/>
+              </div>
+              <div>
+                <button type="submit" class="ta-btn ta-btn-primary" style="width:100%;">Add Donation</button>
+              </div>
+            </form>
+          </div>
+          
+          <div style="overflow-x:auto;">
+            <table border="1" cellspacing="0" cellpadding="8" style="width:100%;border-collapse:collapse;">
+              <thead>
+                <tr style="background:#333;">
+                  <th style="text-align:left;padding:8px;">Date</th>
+                  <th style="text-align:left;padding:8px;">Email</th>
+                  <th style="text-align:left;padding:8px;">Username</th>
+                  <th style="text-align:right;padding:8px;">Amount</th>
+                  <th style="text-align:left;padding:8px;">Currency</th>
+                  <th style="text-align:left;padding:8px;">Ko-fi ID</th>
+                  <th style="text-align:left;padding:8px;">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${donations.length > 0 ? donations.map(d => `
+                  <tr>
+                    <td>${fmtEt(d.created_at)}</td>
+                    <td><a href="/admin/players/${encodeURIComponent(d.email)}" class="ta-btn ta-btn-small" style="color:#111;text-decoration:none;">${d.email}</a></td>
+                    <td>${d.username || '<em>Not set</em>'}</td>
+                    <td style="text-align:right;font-weight:bold;">${parseFloat(d.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    <td>${d.currency || 'USD'}</td>
+                    <td style="font-size:12px;opacity:0.7;">${d.kofi_id || '<em>None</em>'}</td>
+                    <td>
+                      <form method="post" action="/admin/donations/delete" style="display:inline;" onsubmit="return confirm('Delete this donation record? This cannot be undone.');">
+                        <input type="hidden" name="id" value="${d.id}"/>
+                        <button type="submit" style="padding:4px 8px;font-size:11px;background:#d32f2f;color:#fff;border:none;border-radius:4px;cursor:pointer;">Delete</button>
+                      </form>
+                    </td>
+                  </tr>
+                `).join('') : '<tr><td colspan="7" style="text-align:center;opacity:0.7;">No donations recorded yet</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+        </main>
+        ${renderFooter(req)}
+      </body></html>
+    `);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to load donations');
+  }
+});
+
+app.post('/admin/donations/add', requireAdmin, async (req, res) => {
+  try {
+    const email = String(req.body.email || '').trim().toLowerCase();
+    const amount = parseFloat(req.body.amount || 0);
+    const currency = String(req.body.currency || 'USD').toUpperCase();
+    const kofiId = String(req.body.kofi_id || '').trim() || null;
+    const createdAtInput = String(req.body.created_at || '').trim();
+    
+    if (!email || amount <= 0) {
+      return res.redirect('/admin/donations?msg=Invalid email or amount');
+    }
+    
+    // Validate email
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.redirect('/admin/donations?msg=Invalid email format');
+    }
+    
+    // Parse date or use current time
+    const createdAt = createdAtInput ? new Date(createdAtInput) : new Date();
+    
+    // Ensure player exists
+    await pool.query('INSERT INTO players(email, access_granted_at) VALUES($1, $2) ON CONFLICT (email) DO NOTHING', [email, createdAt]);
+    
+    // Insert donation
+    await pool.query(
+      'INSERT INTO donations(email, amount, currency, kofi_id, created_at, processed_at) VALUES($1, $2, $3, $4, $5, NOW())',
+      [email, amount, currency, kofiId, createdAt]
+    );
+    
+    res.redirect('/admin/donations?msg=Donation added successfully');
+  } catch (e) {
+    console.error(e);
+    res.redirect('/admin/donations?msg=Failed to add donation: ' + (e.message || String(e)));
+  }
+});
+
+app.post('/admin/donations/delete', requireAdmin, async (req, res) => {
+  try {
+    const id = parseInt(req.body.id);
+    if (!id) return res.status(400).send('Invalid donation ID');
+    
+    await pool.query('DELETE FROM donations WHERE id = $1', [id]);
+    res.redirect('/admin/donations?msg=Donation deleted');
+  } catch (e) {
+    console.error(e);
+    res.redirect('/admin/donations?msg=Failed to delete donation');
   }
 });
 
