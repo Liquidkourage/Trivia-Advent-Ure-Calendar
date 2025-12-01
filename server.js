@@ -753,7 +753,7 @@ async function sendPlainEmail(email, subject, text) {
   await gmail.users.messages.send({ userId: 'me', requestBody: { raw: rawMessage } });
 }
 
-async function sendHTMLEmail(email, subject, html) {
+async function sendHTMLEmail(email, subject, html, options = {}) {
   const fromHeader = process.env.EMAIL_FROM || 'no-reply@example.com';
   const oAuth2Client = getOAuth2Client();
   const gmail = google.gmail({ version: 'v1', auth: oAuth2Client });
@@ -763,9 +763,20 @@ async function sendHTMLEmail(email, subject, html) {
     `Subject: ${subject}`,
     'MIME-Version: 1.0',
     'Content-Type: text/html; charset=UTF-8',
-    '',
-    html
   ];
+  
+  // Add BCC if provided (array of email addresses)
+  if (options.bcc && Array.isArray(options.bcc) && options.bcc.length > 0) {
+    rawLines.push(`Bcc: ${options.bcc.join(', ')}`);
+  }
+  
+  // Add Reply-To if provided
+  if (options.replyTo) {
+    rawLines.push(`Reply-To: ${options.replyTo}`);
+  }
+  
+  rawLines.push('', html);
+  
   const rawMessage = Buffer.from(rawLines.join('\r\n'))
     .toString('base64')
     .replace(/\+/g, '-')
