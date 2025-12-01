@@ -8540,9 +8540,23 @@ app.get('/admin/quiz/:id/responses', requireAdmin, async (req, res) => {
       return hasAnyAnswer;
     });
     
+    // Filter to only submitted responses if requested
+    const showSubmittedOnly = req.query.show_submitted_only === 'true';
+    
     // Build HTML for each player's submission
     const playerSubmissions = playersWithAnswers.map(playerData => {
-      const { player, responses, lockedQuestion, totalPoints } = playerData;
+      // Filter responses if showing submitted only
+      const displayResponses = showSubmittedOnly 
+        ? playerData.responses.filter(r => r.submitted_at)
+        : playerData.responses;
+      
+      // Skip this player if they have no responses to show after filtering
+      if (showSubmittedOnly && displayResponses.length === 0) {
+        return '';
+      }
+      
+      const { player, lockedQuestion, totalPoints } = playerData;
+      const responses = displayResponses;
       const displayName = player.username || player.email || player.user_email;
       
       // Build response rows
@@ -8579,11 +8593,17 @@ app.get('/admin/quiz/:id/responses', requireAdmin, async (req, res) => {
           }
         }
         
+        const isSubmitted = resp && resp.submitted_at;
+        const statusBadge = hasResponse ? (isSubmitted 
+          ? '<span style="font-size:10px;color:#4caf50;opacity:0.8;" title="Submitted">✓ Submitted</span>' 
+          : '<span style="font-size:10px;color:#ff9800;opacity:0.8;" title="Auto-saved (not submitted)">💾 Auto-saved</span>') 
+          : '';
+        
         return `
-          <tr${isLocked ? ' style="background:rgba(255,215,0,0.15);border-left:3px solid #ffd700;"' : ''}>
+          <tr${isLocked ? ' style="background:rgba(255,215,0,0.15);border-left:3px solid #ffd700;"' : ''}${hasResponse && !isSubmitted ? ' style="opacity:0.7;border-left:2px solid #ff9800;"' : ''}>
             <td style="font-weight:bold;">Q${q.number}${isLocked ? ' 🔒' : ''}</td>
             <td>${escapeHtml(q.text.substring(0, 100))}${q.text.length > 100 ? '...' : ''}</td>
-            <td>${responseDisplay}</td>
+            <td>${responseDisplay} ${statusBadge}</td>
             <td>${escapeHtml(q.answer)}</td>
             <td>${correctnessDisplay}</td>
             <td>${resp ? (resp.points || 0) : 0}</td>
@@ -8603,6 +8623,7 @@ app.get('/admin/quiz/:id/responses', requireAdmin, async (req, res) => {
                 ${player.email || player.user_email}
                 ${lockedQuestion ? ` • <strong style="color:#ffd700;">🔒 Locked Q${lockedQuestion}</strong>` : ''}
                 • Total: ${totalPoints} pts
+                ${player.last_submitted_at ? ` • <span style="color:#4caf50;">✓ Submitted: ${new Date(player.last_submitted_at).toLocaleString()}</span>` : ` • <span style="color:#ff9800;">💾 Auto-saved only (not submitted)</span>`}
               </div>
             </div>
             <div>
@@ -8664,8 +8685,11 @@ app.get('/admin/quiz/:id/responses', requireAdmin, async (req, res) => {
             <a href="/admin/quiz/${quizId}/grade" class="ta-btn ta-btn-primary" style="margin-right:8px;">Grade Responses</a>
             <a href="/admin/quiz/${quizId}" class="ta-btn ta-btn-outline" style="margin-right:8px;">Edit Quiz</a>
             <a href="/admin/quizzes" class="ta-btn ta-btn-outline">Back to Quizzes</a>
-            <a href="/admin/quiz/${quizId}/responses?show_all=${showAll ? 'false' : 'true'}" class="ta-btn ta-btn-outline" style="background:${showAll ? '#2a4a1a' : '#1a1a1a'};border-color:${showAll ? '#55cc55' : '#444'};">
+            <a href="/admin/quiz/${quizId}/responses?show_all=${showAll ? 'false' : 'true'}${req.query.show_submitted_only ? '&show_submitted_only=' + req.query.show_submitted_only : ''}" class="ta-btn ta-btn-outline" style="background:${showAll ? '#2a4a1a' : '#1a1a1a'};border-color:${showAll ? '#55cc55' : '#444'};">
               ${showAll ? '✓ Showing All Players' : 'Show All Players'}
+            </a>
+            <a href="/admin/quiz/${quizId}/responses?show_submitted_only=${req.query.show_submitted_only === 'true' ? 'false' : 'true'}${showAll ? '&show_all=true' : ''}" class="ta-btn ta-btn-outline" style="background:${req.query.show_submitted_only === 'true' ? '#2a4a1a' : '#1a1a1a'};border-color:${req.query.show_submitted_only === 'true' ? '#55cc55' : '#444'};">
+              ${req.query.show_submitted_only === 'true' ? '✓ Submitted Only' : 'Show Submitted Only'}
             </a>
           </div>
           <div style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:16px;margin-bottom:24px;">
