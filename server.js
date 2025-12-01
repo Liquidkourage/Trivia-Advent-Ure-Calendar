@@ -7108,6 +7108,7 @@ app.get('/leaderboard', async (req, res) => {
       `SELECT r.user_email, COALESCE(p.username, r.user_email) AS handle, SUM(r.points) AS points
        FROM responses r
        LEFT JOIN players p ON p.email = r.user_email
+       WHERE r.submitted_at IS NOT NULL
        GROUP BY r.user_email, handle`
     );
     const totals = new Map();
