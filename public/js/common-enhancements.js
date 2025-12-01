@@ -31,6 +31,11 @@
     const form = e.target;
     if (form.tagName !== 'FORM') return;
     
+    // Skip confirmation if form has data-skip-confirm attribute
+    if (form.hasAttribute('data-skip-confirm')) {
+      return;
+    }
+    
     // Check for destructive action indicators
     const action = form.action || '';
     const method = (form.method || 'GET').toUpperCase();

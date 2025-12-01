@@ -7799,7 +7799,7 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
           <td><span class="status-badge ${badgeClass}">${accepted}${flagged ? ' • 🚩' : ''} • ${arr.length}</span></td>
           <td>
             <div class="seg">
-            <form method="post" action="/admin/quiz/${id}/override" style="display:inline;">
+            <form method="post" action="/admin/quiz/${id}/override" style="display:inline;" data-skip-confirm="true">
               <input type="hidden" name="question_id" value="${sec.number}"/>
               <input type="hidden" name="norm" value="${ans}"/>
               <input type="hidden" name="expected_version" value="${groupVersion}"/>
