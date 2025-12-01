@@ -3617,6 +3617,17 @@ app.get('/admin', requireAdmin, async (req, res) => {
         normGroups.get(key).responses.push(r);
       }
       
+      // Get all accepted answers for all questions in this quiz (more efficient)
+      const acceptedAnswersMap = new Map();
+      const questionIds = [...new Set(allResponses.rows.map(r => r.question_id))];
+      for (const questionId of questionIds) {
+        const acceptedAnswers = await pool.query(
+          'SELECT response_text FROM responses WHERE question_id=$1 AND override_correct=true AND submitted_at IS NOT NULL',
+          [questionId]
+        );
+        acceptedAnswersMap.set(questionId, new Set(acceptedAnswers.rows.map(r => normalizeAnswer(r.response_text || ''))));
+      }
+      
       // Count ungraded groups (matching grading page logic)
       let ungradedCount = 0;
       for (const group of normGroups.values()) {
@@ -3633,11 +3644,7 @@ app.get('/admin', requireAdmin, async (req, res) => {
         
         // Get accepted answers for this question
         const questionId = responses[0]?.question_id;
-        const acceptedAnswers = questionId ? await pool.query(
-          'SELECT response_text FROM responses WHERE question_id=$1 AND override_correct=true AND submitted_at IS NOT NULL',
-          [questionId]
-        ) : { rows: [] };
-        const acceptedNorms = new Set(acceptedAnswers.rows.map(r => normalizeAnswer(r.response_text || '')));
+        const acceptedNorms = acceptedAnswersMap.get(questionId) || new Set();
         const accepted = acceptedNorms.has(group.norm_response);
         
         // Count if ungraded (matching grading page logic)
