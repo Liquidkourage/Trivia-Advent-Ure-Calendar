@@ -3701,6 +3701,8 @@ app.get('/calendar', async (req, res) => {
                     e.stopImmediatePropagation();
                     return false;
                   }
+                  // Don't prevent navigation - let the link work
+                  e.stopPropagation(); // Stop bubbling to door handler
                   return; // Allow normal button navigation
                 }
               }
@@ -3749,6 +3751,9 @@ app.get('/calendar', async (req, res) => {
                       e.stopImmediatePropagation();
                       return false;
                     }
+                    // Door is open and not recently opened - allow navigation
+                    // Don't prevent default, let the link work
+                    e.stopPropagation(); // Stop event from bubbling to door handler
                   }, true);
                 });
                 
