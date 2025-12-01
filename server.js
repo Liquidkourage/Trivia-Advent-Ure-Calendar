@@ -8582,7 +8582,7 @@ app.get('/admin/quiz/:id/debug-ungraded', requireAdmin, async (req, res) => {
         ${result.rows.length === 0 ? '<p style="color: #4CAF50;">✓ No ungraded groups found by SQL query!</p>' : ''}
         <hr style="margin: 24px 0; border-color: #333;">
         <h2>Detailed View for Mixed Groups</h2>
-        ${result.rows.filter(r => r.is_mixed).length > 0 ? result.rows.filter(r => r.is_mixed).map(r => {
+        ${result.rows.filter(r => r.is_mixed === true || r.is_mixed === 't' || r.reason_ungraded === 'mixed').length > 0 ? result.rows.filter(r => r.is_mixed === true || r.is_mixed === 't' || r.reason_ungraded === 'mixed').map(r => {
           return `<div style="margin: 16px 0; padding: 16px; background: #222; border: 1px solid #444; border-radius: 4px;">
             <h3 style="color: #f44336; margin-top: 0;">Q${r.question_number}: "${r.norm_response}" - ${r.response_count} responses (MIXED)</h3>
             <p><strong>Breakdown:</strong> ${r.true_count || 0} TRUE, ${r.false_count || 0} FALSE, ${r.null_count || 0} NULL</p>
