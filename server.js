@@ -3559,7 +3559,7 @@ app.get('/admin', requireAdmin, async (req, res) => {
     // Count ungraded GROUPS matching the grading page logic EXACTLY
     // A group is ungraded if: flagged OR mixed OR (hasUngraded AND !blank) OR (!auto && !accepted && !hasOverride)
     // Since SQL can't perfectly replicate JavaScript normalization or check manually accepted answers,
-    // we approximate by checking: flagged OR mixed OR (!auto && !hasOverride AND hasUngraded)
+    // we approximate by checking: flagged OR mixed OR (hasUngraded AND !blank) OR (!auto && !hasOverride)
     // Note: We can't check for manually accepted answers in SQL easily, so this is an approximation
     const recentQuizzes = await pool.query(`
       WITH normalized_responses AS (
@@ -3574,6 +3574,55 @@ app.get('/admin', requireAdmin, async (req, res) => {
           -- Simple normalization: lowercase, remove punctuation/whitespace (approximation)
           LOWER(REGEXP_REPLACE(TRIM(r.response_text), '[^a-z0-9]', '', 'g')) as norm_response,
           LOWER(REGEXP_REPLACE(TRIM(qu.answer), '[^a-z0-9]', '', 'g')) as norm_answer
+        FROM responses r
+        JOIN questions qu ON qu.id = r.question_id
+        WHERE r.submitted_at IS NOT NULL
+          AND TRIM(r.response_text) != ''
+      ),
+      response_groups AS (
+        SELECT 
+          nr.quiz_id,
+          nr.question_id,
+          nr.norm_response,
+          -- Check if group has any flagged responses
+          BOOL_OR(nr.flagged = true) as any_flagged,
+          -- Check if group has mixed overrides (some true, some false)
+          CASE 
+            WHEN COUNT(*) FILTER (WHERE nr.override_correct = true) > 0 
+                 AND COUNT(*) FILTER (WHERE nr.override_correct = false) > 0 
+            THEN true 
+            ELSE false 
+          END as is_mixed,
+          -- Check if group has any override
+          BOOL_OR(nr.override_correct IS NOT NULL) as has_override,
+          -- Check if group has any ungraded responses (NULL override_correct)
+          BOOL_OR(nr.override_correct IS NULL) as has_ungraded,
+          -- Check if group is auto-correct (any response matches answer)
+          BOOL_OR(nr.norm_response = nr.norm_answer) as is_auto_correct
+        FROM normalized_responses nr
+        GROUP BY nr.quiz_id, nr.question_id, nr.norm_response
+      )
+      SELECT 
+        q.id, 
+        q.title, 
+        q.unlock_at, 
+        q.author,
+        (SELECT COUNT(DISTINCT r.user_email) FROM responses r WHERE r.quiz_id = q.id AND r.submitted_at IS NOT NULL) as response_count,
+        (SELECT COUNT(DISTINCT rg.question_id || '|' || rg.norm_response)
+         FROM response_groups rg
+         WHERE rg.quiz_id = q.id
+           AND (
+             rg.any_flagged = true
+             OR rg.is_mixed = true
+             OR (rg.has_ungraded = true AND rg.norm_response != '')  -- hasUngraded AND !blank
+             OR (rg.is_auto_correct = false AND rg.has_override = false)  -- !auto && !hasOverride (approximation - can't check accepted in SQL)
+           )
+        ) as ungraded_count
+      FROM quizzes q
+      WHERE q.unlock_at <= NOW()
+      ORDER BY q.unlock_at DESC 
+      LIMIT 5
+    `);
     stats.recentQuizzes = recentQuizzes.rows;
   } catch (e) {
     console.error('Error fetching admin stats:', e);
