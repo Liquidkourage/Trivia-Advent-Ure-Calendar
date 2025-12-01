@@ -8578,6 +8578,13 @@ app.post('/admin/quiz/:id/override', requireAdmin, async (req, res) => {
     } else {
       await pool.query('UPDATE responses SET override_correct = $1, override_version = override_version + 1, override_updated_at = NOW(), override_updated_by = $3 WHERE id = ANY($2)', [val, ids, updatedBy]);
     }
+    
+    // Regrade all affected users to recalculate points
+    const affectedUsers = await pool.query('SELECT DISTINCT user_email FROM responses WHERE id = ANY($1)', [ids]);
+    for (const user of affectedUsers.rows) {
+      await gradeQuiz(pool, quizId, user.user_email);
+    }
+    
     res.redirect(`/admin/quiz/${quizId}/grade`);
   } catch (e) {
     console.error(e);
@@ -8606,6 +8613,13 @@ app.post('/admin/quiz/:id/override-all', requireAdmin, async (req, res) => {
       const updatedBy = getAdminEmail() || 'admin';
       await pool.query('UPDATE responses SET override_correct = $1, override_version = override_version + 1, override_updated_at = NOW(), override_updated_by = $3 WHERE question_id=$2', [val, questionId, updatedBy]);
     }
+    
+    // Regrade all affected users to recalculate points
+    const affectedUsers = await pool.query('SELECT DISTINCT user_email FROM responses WHERE question_id=$1', [questionId]);
+    for (const user of affectedUsers.rows) {
+      await gradeQuiz(pool, quizId, user.user_email);
+    }
+    
     res.redirect(`/admin/quiz/${quizId}/grade`);
   } catch (e) {
     console.error(e);
