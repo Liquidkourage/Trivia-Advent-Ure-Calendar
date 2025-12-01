@@ -9761,9 +9761,9 @@ app.post('/admin/announcements', requireAdmin, express.urlencoded({ extended: tr
         AND email_announcements = true
     `);
     
-    let sent = 0;
-    let failed = 0;
-    const errors = [];
+    if (players.rows.length === 0) {
+      return res.redirect('/admin/announcements?msg=No recipients found');
+    }
     
     // Create HTML email template
     const htmlContent = `
@@ -9794,18 +9794,24 @@ app.post('/admin/announcements', requireAdmin, express.urlencoded({ extended: tr
       </html>
     `;
     
-    // Send to each player
-    for (const player of players.rows) {
-      try {
-        await sendHTMLEmail(player.email, subject, htmlContent);
-        sent++;
-        // Small delay to avoid rate limiting
-        await new Promise(resolve => setTimeout(resolve, 100));
-      } catch (e) {
-        failed++;
-        errors.push({ email: player.email, error: e.message });
-        console.error('Failed to send announcement to ' + player.email + ':', e);
-      }
+    // Collect all recipient emails for BCC
+    const recipientEmails = players.rows.map(p => p.email).filter(Boolean);
+    
+    // Send single email with all recipients in BCC
+    // Use a dummy "To" address (the from address) since all recipients are in BCC
+    const fromHeader = process.env.EMAIL_FROM || 'no-reply@example.com';
+    let sent = 0;
+    let failed = 0;
+    const errors = [];
+    
+    try {
+      await sendHTMLEmail(fromHeader, subject, htmlContent, { bcc: recipientEmails });
+      sent = recipientEmails.length;
+      console.log(`[announcements] Sent to ${sent} recipients via BCC`);
+    } catch (e) {
+      failed = recipientEmails.length;
+      errors.push({ error: e.message || String(e) });
+      console.error('Failed to send announcement:', e);
     }
     
     const header = await renderHeader(req);
