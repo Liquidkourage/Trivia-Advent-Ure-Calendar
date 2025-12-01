@@ -8501,7 +8501,10 @@ app.get('/admin/quiz/:id/debug-ungraded', requireAdmin, async (req, res) => {
           BOOL_OR(nr.override_correct IS NULL) as has_ungraded,
           BOOL_OR(nr.norm_response = nr.norm_answer) as is_auto_correct,
           COUNT(*) as response_count,
-          STRING_AGG(DISTINCT nr.response_text, ', ') as sample_responses
+          COUNT(*) FILTER (WHERE nr.override_correct = true) as true_count,
+          COUNT(*) FILTER (WHERE nr.override_correct = false) as false_count,
+          COUNT(*) FILTER (WHERE nr.override_correct IS NULL) as null_count,
+          STRING_AGG(DISTINCT SUBSTRING(nr.response_text, 1, 30), ', ' ORDER BY SUBSTRING(nr.response_text, 1, 30)) as sample_responses
         FROM normalized_responses nr
         GROUP BY nr.quiz_id, nr.question_id, nr.question_number, nr.norm_response
       )
@@ -8510,6 +8513,9 @@ app.get('/admin/quiz/:id/debug-ungraded', requireAdmin, async (req, res) => {
         rg.norm_response,
         rg.sample_responses,
         rg.response_count,
+        rg.true_count,
+        rg.false_count,
+        rg.null_count,
         rg.any_flagged,
         rg.is_mixed,
         rg.has_override,
@@ -8559,7 +8565,7 @@ app.get('/admin/quiz/:id/debug-ungraded', requireAdmin, async (req, res) => {
             <tr>
               <td>Q${r.question_number}</td>
               <td><code>${r.norm_response || '(blank)'}</code></td>
-              <td>${r.sample_responses.substring(0, 50)}${r.sample_responses.length > 50 ? '...' : ''}</td>
+              <td>${r.sample_responses ? r.sample_responses.substring(0, 50) + (r.sample_responses.length > 50 ? '...' : '') : ''}</td>
               <td>${r.response_count}</td>
               <td style="color: ${r.true_count > 0 ? '#4CAF50' : '#888'}">${r.true_count || 0}</td>
               <td style="color: ${r.false_count > 0 ? '#f44336' : '#888'}">${r.false_count || 0}</td>
@@ -8576,6 +8582,177 @@ app.get('/admin/quiz/:id/debug-ungraded', requireAdmin, async (req, res) => {
         ${result.rows.length === 0 ? '<p style="color: #4CAF50;">✓ No ungraded groups found by SQL query!</p>' : ''}
       </body></html>
     `);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Error: ' + e.message);
+  }
+});
+
+// --- Admin: Inspect individual responses in a mixed group ---
+app.post('/admin/quiz/:id/inspect-group', requireAdmin, async (req, res) => {
+  try {
+    const quizId = Number(req.params.id);
+    const questionNumber = Number(req.body.question_number);
+    const normResponse = String(req.body.norm_response || '');
+    
+    const question = (await pool.query('SELECT id FROM questions WHERE quiz_id=$1 AND number=$2', [quizId, questionNumber])).rows[0];
+    if (!question) return res.status(404).send('Question not found');
+    
+    // Get all responses for this question and normalize them using JavaScript (same as grading page)
+    const allResponses = await pool.query(
+      'SELECT id, response_text, override_correct, user_email, flagged FROM responses WHERE question_id=$1 AND submitted_at IS NOT NULL',
+      [question.id]
+    );
+    
+    // Group by JavaScript normalization (same as grading page)
+    const normGroups = new Map();
+    for (const r of allResponses.rows) {
+      const norm = normalizeAnswer(r.response_text || '');
+      if (!normGroups.has(norm)) normGroups.set(norm, []);
+      normGroups.get(norm).push(r);
+    }
+    
+    // Find the group matching the SQL-normalized text
+    const matchingGroup = normGroups.get(normResponse);
+    
+    if (!matchingGroup) {
+      return res.type('html').send(`
+        <html><head><title>Inspect Group</title></head>
+        <body style="font-family: system-ui; padding: 24px; background: #0a0a0a; color: #fff;">
+          <h1>Group Not Found</h1>
+          <p>Could not find group with normalized text: "${normResponse}"</p>
+          <p>This suggests a normalization mismatch between SQL and JavaScript.</p>
+          <p><a href="/admin/quiz/${quizId}/debug-ungraded">Back to Debug</a></p>
+          <h2>All normalized groups for Q${questionNumber}:</h2>
+          <ul>
+            ${Array.from(normGroups.keys()).map(norm => `<li><code>${norm}</code> (${normGroups.get(norm).length} responses)</li>`).join('')}
+          </ul>
+        </body></html>
+      `);
+    }
+    
+    const trueResponses = matchingGroup.filter(r => r.override_correct === true);
+    const falseResponses = matchingGroup.filter(r => r.override_correct === false);
+    const nullResponses = matchingGroup.filter(r => r.override_correct === null);
+    
+    res.type('html').send(`
+      <html><head><title>Inspect Group - Q${questionNumber}</title></head>
+      <body style="font-family: system-ui; padding: 24px; background: #0a0a0a; color: #fff;">
+        <h1>Inspecting Q${questionNumber}: "${normResponse}"</h1>
+        <p><a href="/admin/quiz/${quizId}/debug-ungraded">← Back to Debug</a></p>
+        <p><strong>Total:</strong> ${matchingGroup.length} responses</p>
+        <p><strong>True:</strong> ${trueResponses.length} | <strong>False:</strong> ${falseResponses.length} | <strong>NULL:</strong> ${nullResponses.length}</p>
+        
+        ${trueResponses.length > 0 ? `
+          <h2 style="color: #4CAF50;">True Overrides (${trueResponses.length})</h2>
+          <table border="1" cellpadding="8" style="border-collapse: collapse; margin-bottom: 24px; background: #1a1a1a;">
+            <tr style="background: #333;"><th>ID</th><th>User</th><th>Response Text</th><th>JS Normalized</th><th>SQL Normalized</th></tr>
+            ${trueResponses.map(r => {
+              const jsNorm = normalizeAnswer(r.response_text || '');
+              const sqlNorm = (r.response_text || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+              return `<tr>
+                <td>${r.id}</td>
+                <td>${r.user_email}</td>
+                <td><code>${(r.response_text || '').substring(0, 50)}</code></td>
+                <td><code>${jsNorm}</code></td>
+                <td><code>${sqlNorm}</code></td>
+              </tr>`;
+            }).join('')}
+          </table>
+        ` : ''}
+        
+        ${falseResponses.length > 0 ? `
+          <h2 style="color: #f44336;">False Overrides (${falseResponses.length})</h2>
+          <table border="1" cellpadding="8" style="border-collapse: collapse; margin-bottom: 24px; background: #1a1a1a;">
+            <tr style="background: #333;"><th>ID</th><th>User</th><th>Response Text</th><th>JS Normalized</th><th>SQL Normalized</th></tr>
+            ${falseResponses.map(r => {
+              const jsNorm = normalizeAnswer(r.response_text || '');
+              const sqlNorm = (r.response_text || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+              return `<tr>
+                <td>${r.id}</td>
+                <td>${r.user_email}</td>
+                <td><code>${(r.response_text || '').substring(0, 50)}</code></td>
+                <td><code>${jsNorm}</code></td>
+                <td><code>${sqlNorm}</code></td>
+              </tr>`;
+            }).join('')}
+          </table>
+        ` : ''}
+        
+        ${nullResponses.length > 0 ? `
+          <h2 style="color: #ff9800;">NULL Overrides (${nullResponses.length})</h2>
+          <table border="1" cellpadding="8" style="border-collapse: collapse; margin-bottom: 24px; background: #1a1a1a;">
+            <tr style="background: #333;"><th>ID</th><th>User</th><th>Response Text</th><th>JS Normalized</th><th>SQL Normalized</th></tr>
+            ${nullResponses.map(r => {
+              const jsNorm = normalizeAnswer(r.response_text || '');
+              const sqlNorm = (r.response_text || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+              return `<tr>
+                <td>${r.id}</td>
+                <td>${r.user_email}</td>
+                <td><code>${(r.response_text || '').substring(0, 50)}</code></td>
+                <td><code>${jsNorm}</code></td>
+                <td><code>${sqlNorm}</code></td>
+              </tr>`;
+            }).join('')}
+          </table>
+        ` : ''}
+        
+        <form method="post" action="/admin/quiz/${quizId}/fix-group" style="margin-top: 24px; padding: 16px; background: #222; border-radius: 4px;">
+          <input type="hidden" name="question_number" value="${questionNumber}">
+          <input type="hidden" name="norm_response" value="${normResponse}">
+          <p><strong>Fix this group:</strong></p>
+          <button type="submit" name="action" value="accept" style="background: #4CAF50; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; margin-right: 8px;">Set All to TRUE</button>
+          <button type="submit" name="action" value="reject" style="background: #f44336; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; margin-right: 8px;">Set All to FALSE</button>
+          <button type="submit" name="action" value="clear" style="background: #ff9800; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer;">Clear All</button>
+        </form>
+      </body></html>
+    `);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Error: ' + e.message);
+  }
+});
+
+// --- Admin: Fix a specific mixed group ---
+app.post('/admin/quiz/:id/fix-group', requireAdmin, async (req, res) => {
+  try {
+    const quizId = Number(req.params.id);
+    const questionNumber = Number(req.body.question_number);
+    const normResponse = String(req.body.norm_response || '');
+    const action = String(req.body.action || '').toLowerCase();
+    
+    const question = (await pool.query('SELECT id FROM questions WHERE quiz_id=$1 AND number=$2', [quizId, questionNumber])).rows[0];
+    if (!question) return res.status(404).send('Question not found');
+    
+    // Get all responses and normalize using JavaScript (same as grading page)
+    const allResponses = await pool.query(
+      'SELECT id, response_text FROM responses WHERE question_id=$1 AND submitted_at IS NOT NULL',
+      [question.id]
+    );
+    
+    // Find matching IDs using JavaScript normalization
+    const matchingIds = [];
+    for (const r of allResponses.rows) {
+      const norm = normalizeAnswer(r.response_text || '');
+      if (norm === normResponse) {
+        matchingIds.push(r.id);
+      }
+    }
+    
+    if (matchingIds.length === 0) {
+      return res.redirect(`/admin/quiz/${quizId}/debug-ungraded?error=nomatch`);
+    }
+    
+    let val = null;
+    if (action === 'accept') val = true;
+    else if (action === 'reject') val = false;
+    
+    await pool.query(
+      'UPDATE responses SET override_correct = $1, override_version = COALESCE(override_version, 0) + 1, override_updated_at = NOW(), override_updated_by = $3 WHERE id = ANY($2)',
+      [val, matchingIds, getAdminEmail() || 'admin']
+    );
+    
+    return res.redirect(`/admin/quiz/${quizId}/debug-ungraded?fixed=1`);
   } catch (e) {
     console.error(e);
     res.status(500).send('Error: ' + e.message);
