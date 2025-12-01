@@ -9326,6 +9326,15 @@ app.get('/admin/donations', requireAdmin, async (req, res) => {
               </tbody>
             </table>
           </div>
+          
+          <div style="background:#3a1a1a;padding:20px;border-radius:8px;border:1px solid #d32f2f;margin-top:32px;">
+            <h2 style="margin-top:0;margin-bottom:16px;color:#ff6b6b;font-size:20px;">Cleanup Historic Players</h2>
+            <p style="opacity:0.8;margin-bottom:16px;font-size:14px;">Remove player accounts that were created from historic donations (before the cutoff date). These players don't have access for this year's calendar.</p>
+            <p style="opacity:0.7;margin-bottom:16px;font-size:13px;"><strong>Note:</strong> This will only delete player accounts, not donation records. Donation records are preserved for accounting purposes.</p>
+            <form method="post" action="/admin/donations/cleanup-historic-players" onsubmit="return confirm('This will delete all player accounts whose access was granted before the cutoff date. This cannot be undone. Continue?');">
+              <button type="submit" class="ta-btn" style="background:#d32f2f;color:#fff;border:none;padding:10px 20px;border-radius:6px;cursor:pointer;font-weight:bold;">Clean Up Historic Players</button>
+            </form>
+          </div>
         </main>
         ${renderFooter(req)}
       </body></html>
@@ -9574,6 +9583,58 @@ app.post('/admin/donations/delete', requireAdmin, async (req, res) => {
   } catch (e) {
     console.error(e);
     res.redirect('/admin/donations?msg=Failed to delete donation');
+  }
+});
+
+app.post('/admin/donations/cleanup-historic-players', requireAdmin, async (req, res) => {
+  try {
+    // Get cutoff date
+    const cutoffUtcEnv = process.env.KOFI_CUTOFF_UTC || '';
+    const cutoffDate = cutoffUtcEnv ? new Date(cutoffUtcEnv) : new Date('2025-11-01T04:00:00Z');
+    
+    // Count historic players first
+    const countResult = await pool.query(
+      `SELECT COUNT(*) as count FROM players 
+       WHERE access_granted_at < $1 
+       AND email NOT IN (SELECT email FROM admins)`,
+      [cutoffDate]
+    );
+    const count = parseInt(countResult.rows[0]?.count || 0);
+    
+    if (count === 0) {
+      return res.redirect('/admin/donations?msg=No historic players found to clean up');
+    }
+    
+    // Delete historic players (but not admins)
+    // Also delete their responses, magic tokens, etc. for complete cleanup
+    await pool.query(`
+      DELETE FROM responses 
+      WHERE user_email IN (
+        SELECT email FROM players 
+        WHERE access_granted_at < $1 
+        AND email NOT IN (SELECT email FROM admins)
+      )
+    `, [cutoffDate]);
+    
+    await pool.query(`
+      DELETE FROM magic_tokens 
+      WHERE email IN (
+        SELECT email FROM players 
+        WHERE access_granted_at < $1 
+        AND email NOT IN (SELECT email FROM admins)
+      )
+    `, [cutoffDate]);
+    
+    await pool.query(`
+      DELETE FROM players 
+      WHERE access_granted_at < $1 
+      AND email NOT IN (SELECT email FROM admins)
+    `, [cutoffDate]);
+    
+    res.redirect(`/admin/donations?msg=Successfully deleted ${count} historic player account${count !== 1 ? 's' : ''} and their associated data`);
+  } catch (e) {
+    console.error(e);
+    res.redirect('/admin/donations?msg=Failed to clean up historic players: ' + encodeURIComponent(e.message || String(e)));
   }
 });
 
