@@ -1131,14 +1131,19 @@ async function isAcceptedAnswer(pool, questionId, responseText) {
 }
 
 async function gradeQuiz(pool, quizId, userEmail) {
-  const { rows: qs } = await pool.query('SELECT id, number, answer FROM questions WHERE quiz_id=$1 ORDER BY number ASC', [quizId]);
-  const { rows: rs } = await pool.query('SELECT question_id, response_text, locked, override_correct FROM responses WHERE quiz_id=$1 AND user_email=$2', [quizId, userEmail]);
-  const qIdToResp = new Map();
-  rs.forEach(r => qIdToResp.set(Number(r.question_id), r));
-  let streak = 0;
-  let total = 0;
-  const graded = [];
-  for (const q of qs) {
+  try {
+    const { rows: qs } = await pool.query('SELECT id, number, answer FROM questions WHERE quiz_id=$1 ORDER BY number ASC', [quizId]);
+    if (!qs || qs.length === 0) {
+      console.error(`[gradeQuiz] No questions found for quiz ${quizId}`);
+      return { total: 0, graded: [] };
+    }
+    const { rows: rs } = await pool.query('SELECT question_id, response_text, locked, override_correct FROM responses WHERE quiz_id=$1 AND user_email=$2', [quizId, userEmail]);
+    const qIdToResp = new Map();
+    rs.forEach(r => qIdToResp.set(Number(r.question_id), r));
+    let streak = 0;
+    let total = 0;
+    const graded = [];
+    for (const q of qs) {
     const r = qIdToResp.get(q.id);
     const responseText = r ? (r.response_text || '').trim() : '';
     const isBlank = !responseText;
@@ -1187,8 +1192,13 @@ async function gradeQuiz(pool, quizId, userEmail) {
       if (r) await pool.query('UPDATE responses SET points = 0 WHERE quiz_id=$1 AND user_email=$2 AND question_id=$3', [quizId, userEmail, q.id]);
     }
     graded.push({ questionId: q.id, number: q.number, locked: false, correct, points: correct ? streak : 0, given: responseText, answer: q.answer });
+    }
+    console.log(`[gradeQuiz] Quiz ${quizId}, User ${userEmail}: ${graded.length} questions graded, total points: ${total}`);
+    return { total, graded };
+  } catch (error) {
+    console.error(`[gradeQuiz] Error grading quiz ${quizId} for user ${userEmail}:`, error);
+    throw error;
   }
-  return { total, graded };
 }
 
 async function computeAuthorAveragePoints(pool, quizId, authorEmailRaw) {
