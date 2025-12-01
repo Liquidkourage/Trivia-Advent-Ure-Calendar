@@ -3486,33 +3486,62 @@ app.get('/admin', requireAdmin, async (req, res) => {
     stats.totalDonated = parseFloat(donationResult.rows[0]?.total || 0);
     
     // Get last 5 opened (unlocked) quizzes - prioritize those that need grading
-    // Count ungraded items matching the grading page logic: submitted responses that are
-    // flagged OR (override_correct IS NULL AND not auto-correct)
-    // Note: This counts individual responses, matching the nav counter logic (line 7869)
+    // Count ungraded GROUPS matching the grading page logic
+    // The grading page groups responses by normalized text, so we need to count groups, not individual responses
+    // A group is ungraded if: flagged OR mixed OR (!auto && !hasOverride)
+    // Since SQL can't perfectly replicate JavaScript normalization, we approximate by grouping on normalized text
     const recentQuizzes = await pool.query(`
+      WITH normalized_responses AS (
+        SELECT 
+          r.id,
+          r.question_id,
+          r.response_text,
+          r.override_correct,
+          r.flagged,
+          qu.answer,
+          qu.quiz_id,
+          -- Simple normalization: lowercase, remove punctuation/whitespace (approximation)
+          LOWER(REGEXP_REPLACE(TRIM(r.response_text), '[^a-z0-9]', '', 'g')) as norm_response,
+          LOWER(REGEXP_REPLACE(TRIM(qu.answer), '[^a-z0-9]', '', 'g')) as norm_answer
+        FROM responses r
+        JOIN questions qu ON qu.id = r.question_id
+        WHERE r.submitted_at IS NOT NULL
+          AND TRIM(r.response_text) != ''
+      ),
+      response_groups AS (
+        SELECT 
+          nr.quiz_id,
+          nr.question_id,
+          nr.norm_response,
+          -- Check if group has any flagged responses
+          BOOL_OR(nr.flagged = true) as any_flagged,
+          -- Check if group has mixed overrides (some true, some false)
+          CASE 
+            WHEN COUNT(*) FILTER (WHERE nr.override_correct = true) > 0 
+                 AND COUNT(*) FILTER (WHERE nr.override_correct = false) > 0 
+            THEN true 
+            ELSE false 
+          END as is_mixed,
+          -- Check if group has any override
+          BOOL_OR(nr.override_correct IS NOT NULL) as has_override,
+          -- Check if group is auto-correct (any response matches answer)
+          BOOL_OR(nr.norm_response = nr.norm_answer) as is_auto_correct
+        FROM normalized_responses nr
+        GROUP BY nr.quiz_id, nr.question_id, nr.norm_response
+      )
       SELECT 
         q.id, 
         q.title, 
         q.unlock_at, 
         q.author,
         (SELECT COUNT(DISTINCT r.user_email) FROM responses r WHERE r.quiz_id = q.id AND r.submitted_at IS NOT NULL) as response_count,
-        (SELECT COUNT(*) 
-         FROM responses r
-         JOIN questions qu ON qu.id = r.question_id 
-         WHERE qu.quiz_id = q.id 
-           AND r.submitted_at IS NOT NULL
-           AND TRIM(r.response_text) != ''
-           AND r.override_correct IS NULL
+        (SELECT COUNT(DISTINCT rg.question_id || '|' || rg.norm_response)
+         FROM response_groups rg
+         WHERE rg.quiz_id = q.id
            AND (
-             r.flagged = true
-             OR (
-               -- Not auto-correct: response doesn't match answer (simple check)
-               -- Note: This is approximate - full normalization happens in JavaScript
-               LOWER(TRIM(r.response_text)) != LOWER(TRIM(qu.answer))
-               AND NOT (qu.answer LIKE '%|%' AND LOWER(TRIM(r.response_text)) = ANY(
-                 SELECT LOWER(TRIM(unnest(string_to_array(qu.answer, '|'))))
-               ))
-             )
+             rg.any_flagged = true
+             OR rg.is_mixed = true
+             OR (rg.is_auto_correct = false AND rg.has_override = false)
            )
         ) as ungraded_count
       FROM quizzes q
