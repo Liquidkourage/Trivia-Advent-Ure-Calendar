@@ -3438,11 +3438,19 @@ app.get('/admin', requireAdmin, async (req, res) => {
           <div style="display:flex;flex-direction:column;gap:12px;">
             ${stats.recentQuizzes.map(q => {
               const unlockDate = q.unlock_at ? new Date(q.unlock_at).toLocaleDateString() : '';
+              const ungradedCount = parseInt(q.ungraded_count || 0);
+              const needsGrading = ungradedCount > 0;
               return `
-                <div style="background:#1a1a1a;padding:16px;border-radius:8px;border:1px solid #333;display:flex;justify-content:space-between;align-items:center;">
-                  <div>
-                    <div style="font-weight:bold;margin-bottom:4px;"><a href="/admin/quizzes/${q.id}" class="ta-btn ta-btn-small" style="color:#111;text-decoration:none;">${q.title || 'Untitled Quiz'}</a></div>
+                <div style="background:#1a1a1a;padding:16px;border-radius:8px;border:1px solid ${needsGrading ? '#ffd700' : '#333'};display:flex;justify-content:space-between;align-items:center;">
+                  <div style="flex:1;">
+                    <div style="font-weight:bold;margin-bottom:4px;">
+                      <a href="/admin/quiz/${q.id}/grade" class="ta-btn ta-btn-small" style="color:#111;text-decoration:none;">${q.title || 'Untitled Quiz'}</a>
+                      ${needsGrading ? `<span style="background:#ffd700;color:#111;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:bold;margin-left:8px;">${ungradedCount} need grading</span>` : ''}
+                    </div>
                     <div style="font-size:14px;opacity:0.7;">${unlockDate} • ${q.author || 'Unknown'} • ${q.response_count || 0} responses</div>
+                  </div>
+                  <div style="margin-left:16px;">
+                    <a href="/admin/quiz/${q.id}/grade" class="ta-btn ta-btn-small">Grade</a>
                   </div>
                 </div>
               `;
