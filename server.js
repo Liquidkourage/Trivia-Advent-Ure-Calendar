@@ -8420,9 +8420,14 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
           const anyFlagged = arr.some(r => r.flagged === true);
           // Check if this is a "mixed" answer (some overrides are true, some are false)
           const isMixed = overrides.some(v => v === true) && overrides.some(v => v === false);
-          // Show if flagged OR mixed OR truly awaiting review
+          // CRITICAL: Always show mixed answers, flagged answers, and truly awaiting review
+          // Mixed answers indicate inconsistency and must be visible for correction
           return anyFlagged || isMixed || (!auto && !hasOverride);
         });
+      } else {
+        // Even when showing all, prioritize mixed answers by ensuring they're included
+        // (They should already be included, but this makes it explicit)
+        // Mixed answers are already in the list since includeAllForThis shows everything
       }
       // Sort so flagged groups appear first
       list.sort((a, b) => {
@@ -8521,7 +8526,7 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
           <h1 class=\"grader-title\">Grading: ${quiz.title}</h1>
           ${isStale ? '<div style="background:#ffefef;border:1px solid #cc5555;color:#5a1a1a;padding:10px;border-radius:6px;margin-bottom:10px;">Another grader changed one or more items you were viewing. Please refresh to see the latest state.</div>' : ''}
           ${req.query.regraded ? `<div style="background:#efffef;border:1px solid #55cc55;color:#1a5a1a;padding:10px;border-radius:6px;margin-bottom:10px;">✓ Regraded ${req.query.regraded} player${req.query.regraded !== '1' ? 's' : ''}${req.query.email ? ` (${req.query.email})` : ''}</div>` : ''}
-          <div class=\"grader-date\">Viewing: <strong>Awaiting review</strong> by default (🚩 flagged always shown and prioritized). Use "Show graded / Hide graded" in each question section to include graded rows for that question.</div>
+          <div class=\"grader-date\">Viewing: <strong>Awaiting review</strong> by default (🚩 flagged and ⚠️ mixed answers always shown and prioritized). Use "Show graded / Hide graded" in each question section to include graded rows for that question.</div>
           <form method=\"post\" action=\"/admin/quiz/${id}/regrade\" class=\"btn-row\">
             <button class=\"btn-save\" type=\"submit\">Regrade All Players</button>
             <a class=\"ta-btn ta-btn-outline\" href=\"/admin/quiz/${id}\" style=\"margin-left:8px;\">Back</a>
