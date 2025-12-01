@@ -3989,12 +3989,13 @@ app.get('/calendar', async (req, res) => {
                         return false;
                       }
                       // Door is open and not recently opened - let button handle navigation
-                      // Don't call handleDoorClick at all - just return without any event manipulation
+                      // Don't call handleDoorClick - just return without any event manipulation
                       // This allows the link's default navigation to work naturally
+                      // Don't prevent default, don't stop propagation - let browser handle navigation
                       return;
                     }
                     handleDoorClick(e);
-                  }, false); // Use bubble phase instead of capture - let button clicks work naturally first
+                  }, true); // Use capture phase to detect button clicks before they bubble
                 }
               });
             }
