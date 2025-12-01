@@ -6868,7 +6868,8 @@ app.get('/quizmas/leaderboard', async (req, res) => {
        FROM responses r
        JOIN quizzes q ON q.id = r.quiz_id
        LEFT JOIN players p ON p.email = r.user_email
-       WHERE q.quiz_type = 'quizmas' OR (q.unlock_at >= $1 AND q.unlock_at < $2)
+       WHERE (q.quiz_type = 'quizmas' OR (q.unlock_at >= $1 AND q.unlock_at < $2))
+         AND r.submitted_at IS NOT NULL
        GROUP BY r.user_email, handle`,
       [quizmasStart, quizmasEnd]
     );
@@ -6896,7 +6897,9 @@ app.get('/quizmas/leaderboard', async (req, res) => {
       const { rows: authorResponses } = await pool.query(
         `SELECT COUNT(*) as count FROM responses r
          JOIN quizzes q ON q.id = r.quiz_id
-         WHERE r.user_email = $1 AND (q.quiz_type = 'quizmas' OR (q.unlock_at >= $2 AND q.unlock_at < $3))`,
+         WHERE r.user_email = $1 
+           AND (q.quiz_type = 'quizmas' OR (q.unlock_at >= $2 AND q.unlock_at < $3))
+           AND r.submitted_at IS NOT NULL`,
         [authorEmail, quizmasStart, quizmasEnd]
       );
       
@@ -6932,7 +6935,9 @@ app.get('/quizmas/leaderboard', async (req, res) => {
           FROM responses r
           JOIN questions q ON q.id = r.question_id
           JOIN quizzes qu ON qu.id = r.quiz_id
-          WHERE r.user_email = $1 AND (qu.quiz_type = 'quizmas' OR (qu.unlock_at >= $2 AND qu.unlock_at < $3))
+          WHERE r.user_email = $1 
+            AND (qu.quiz_type = 'quizmas' OR (qu.unlock_at >= $2 AND qu.unlock_at < $3))
+            AND r.submitted_at IS NOT NULL
         ),
         accepted_norms AS (
           SELECT DISTINCT
