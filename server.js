@@ -8090,8 +8090,17 @@ app.get('/admin/quiz/:id/responses', requireAdmin, async (req, res) => {
       }
     }
     
+    // Filter out players who have NO actual answers (only blank responses)
+    const playersWithAnswers = Array.from(responsesByPlayer.values()).filter(playerData => {
+      const hasAnyAnswer = playerData.responses.some(r => {
+        const text = (r.response_text || '').trim();
+        return text && text.length > 0;
+      });
+      return hasAnyAnswer;
+    });
+    
     // Build HTML for each player's submission
-    const playerSubmissions = Array.from(responsesByPlayer.values()).map(playerData => {
+    const playerSubmissions = playersWithAnswers.map(playerData => {
       const { player, responses, lockedQuestion, totalPoints } = playerData;
       const displayName = player.username || player.email || player.user_email;
       
@@ -8109,11 +8118,10 @@ app.get('/admin/quiz/:id/responses', requireAdmin, async (req, res) => {
         const isManuallyOverridden = resp && typeof resp.override_correct === 'boolean' && !isEmpty;
         
         // Determine response display
+        // Both "no record" and "empty record" are treated the same - player didn't answer
         let responseDisplay = '';
-        if (!hasResponse) {
+        if (!hasResponse || isEmpty) {
           responseDisplay = '<em style="color:#888;">Not answered</em>';
-        } else if (isEmpty) {
-          responseDisplay = '<em style="color:#ff9800;">(blank)</em>';
         } else {
           responseDisplay = escapeHtml(responseText);
         }
