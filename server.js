@@ -8475,11 +8475,13 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
         // CRITICAL: A group is "ungraded" (needs review) if:
         // - Flagged (needs attention)
         // - Mixed (inconsistent state, needs fixing)
+        // - Has ANY ungraded responses (NULL override_correct) - these ALWAYS need review
         // - NOT auto-correct AND NOT manually accepted AND has NO override (truly awaiting review)
         // 
         // Groups with overrides (even if false/rejected) are NOT ungraded - they've been reviewed
         // Groups that are auto-correct OR manually accepted are NOT ungraded - they're correct
-        const isUngraded = anyFlagged || isMixed || (!auto && !accepted && !hasOverride);
+        const hasUngraded = overrides.some(v => v === null);
+        const isUngraded = anyFlagged || isMixed || hasUngraded || (!auto && !accepted && !hasOverride);
         
         if (isUngraded) {
           ungraded++;
