@@ -1130,6 +1130,69 @@ async function isAcceptedAnswer(pool, questionId, responseText) {
   return false;
 }
 
+// CRITICAL: Get the override_correct value that should be applied to a response based on existing overrides
+// Returns: true (accepted), false (rejected), or null (no override exists)
+async function getOverrideForNormalizedText(pool, questionId, responseText) {
+  if (!responseText) return null;
+  const norm = normalizeAnswer(responseText);
+  if (!norm) return null;
+  
+  // Check if ANY response with this normalized text has an override
+  const { rows } = await pool.query(
+    `SELECT override_correct FROM responses 
+     WHERE question_id=$1 AND submitted_at IS NOT NULL AND override_correct IS NOT NULL
+     LIMIT 1`,
+    [questionId]
+  );
+  
+  // Check all responses to find matching normalized text
+  const allResponses = await pool.query(
+    `SELECT response_text, override_correct FROM responses 
+     WHERE question_id=$1 AND submitted_at IS NOT NULL AND override_correct IS NOT NULL`,
+    [questionId]
+  );
+  
+  for (const row of allResponses.rows) {
+    const rowNorm = normalizeAnswer(row.response_text || '');
+    if (rowNorm === norm) {
+      return row.override_correct; // Return the override value (true or false)
+    }
+  }
+  
+  return null; // No matching override found
+}
+
+// CRITICAL: Automatically sync override_correct for ALL responses with matching normalized text
+async function syncOverrideForNormalizedText(pool, questionId, responseText, overrideValue) {
+  if (!responseText || overrideValue === null) return;
+  const norm = normalizeAnswer(responseText);
+  if (!norm) return;
+  
+  // Find ALL responses with this normalized text and update them
+  const allResponses = await pool.query(
+    `SELECT id, response_text FROM responses 
+     WHERE question_id=$1 AND submitted_at IS NOT NULL`,
+    [questionId]
+  );
+  
+  const matchingIds = [];
+  for (const row of allResponses.rows) {
+    const rowNorm = normalizeAnswer(row.response_text || '');
+    if (rowNorm === norm) {
+      matchingIds.push(row.id);
+    }
+  }
+  
+  if (matchingIds.length > 0) {
+    await pool.query(
+      `UPDATE responses 
+       SET override_correct = $1, override_version = COALESCE(override_version, 0) + 1, override_updated_at = NOW()
+       WHERE id = ANY($2)`,
+      [overrideValue, matchingIds]
+    );
+  }
+}
+
 async function gradeQuiz(pool, quizId, userEmail) {
   try {
     const { rows: qs } = await pool.query('SELECT id, number, answer FROM questions WHERE quiz_id=$1 ORDER BY number ASC', [quizId]);
