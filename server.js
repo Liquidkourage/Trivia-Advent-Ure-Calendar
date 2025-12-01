@@ -1132,7 +1132,7 @@ app.post('/auth/request-link', async (req, res) => {
     
     const token = crypto.randomBytes(24).toString('base64url');
     const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
-    await pool.query('INSERT INTO magic_tokens(token,email,expires_at,used) VALUES($1,$2,$3,false)', [token, email, expiresAt]);
+    await pool.query('INSERT INTO magic_tokens(token,email,expires_at,used,created_at) VALUES($1,$2,$3,false,NOW())', [token, email, expiresAt]);
     const linkUrl = `${process.env.PUBLIC_BASE_URL || ''}/auth/magic?token=${encodeURIComponent(token)}`;
     try {
       await sendMagicLink(email, token, linkUrl);
@@ -1499,7 +1499,7 @@ app.post('/access-choice', requireAuth, express.urlencoded({ extended: true }), 
       await pool.query('DELETE FROM magic_tokens WHERE email = $1 AND used = false', [giftRecipientEmail]);
       const token = crypto.randomBytes(24).toString('base64url');
       const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
-      await pool.query('INSERT INTO magic_tokens(token,email,expires_at,used) VALUES($1,$2,$3,false)', [token, giftRecipientEmail, expiresAt]);
+      await pool.query('INSERT INTO magic_tokens(token,email,expires_at,used,created_at) VALUES($1,$2,$3,false,NOW())', [token, giftRecipientEmail, expiresAt]);
       const linkUrl = `${process.env.PUBLIC_BASE_URL || ''}/auth/magic?token=${encodeURIComponent(token)}`;
       try {
         await sendMagicLink(giftRecipientEmail, token, linkUrl, {
@@ -2225,7 +2225,7 @@ app.get('/auth/dev-link', async (req, res) => {
     
     const token = crypto.randomBytes(24).toString('base64url');
     const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
-    await pool.query('INSERT INTO magic_tokens(token,email,expires_at,used) VALUES($1,$2,$3,false)', [token, email, expiresAt]);
+    await pool.query('INSERT INTO magic_tokens(token,email,expires_at,used,created_at) VALUES($1,$2,$3,false,NOW())', [token, email, expiresAt]);
     const linkUrl = `${process.env.PUBLIC_BASE_URL || ''}/auth/magic?token=${encodeURIComponent(token)}`;
     console.log('[info] Magic link (dev):', linkUrl);
     return res.json({ ok: true, link: linkUrl });
@@ -2567,7 +2567,7 @@ async function processKofiDonation(body, skipSecretCheck = false) {
   
   const token = crypto.randomBytes(24).toString('base64url');
   const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
-  await pool.query('INSERT INTO magic_tokens(token,email,expires_at,used) VALUES($1,$2,$3,false)', [token, email, expiresAt]);
+  await pool.query('INSERT INTO magic_tokens(token,email,expires_at,used,created_at) VALUES($1,$2,$3,false,NOW())', [token, email, expiresAt]);
   console.log('[Ko-fi] Magic token created for:', email);
   
   const linkUrl = `${process.env.PUBLIC_BASE_URL || ''}/auth/magic?token=${encodeURIComponent(token)}`;
@@ -8047,7 +8047,7 @@ app.post('/admin/send-link', requireAdmin, async (req, res) => {
     
     const token = crypto.randomBytes(24).toString('base64url');
     const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
-    await pool.query('INSERT INTO magic_tokens(token,email,expires_at,used) VALUES($1,$2,$3,false)', [token, email, expiresAt]);
+    await pool.query('INSERT INTO magic_tokens(token,email,expires_at,used,created_at) VALUES($1,$2,$3,false,NOW())', [token, email, expiresAt]);
     const linkUrl = `${process.env.PUBLIC_BASE_URL || ''}/auth/magic?token=${encodeURIComponent(token)}`;
     
     // In test mode, return the link without sending email
@@ -8771,7 +8771,7 @@ app.post('/admin/players/bulk/send-link', requireAdmin, async (req, res) => {
         
         const token = crypto.randomBytes(24).toString('base64url');
         const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
-        await pool.query('INSERT INTO magic_tokens(token, email, expires_at, used) VALUES($1, $2, $3, false)', [token, e, expiresAt]);
+        await pool.query('INSERT INTO magic_tokens(token, email, expires_at, used, created_at) VALUES($1, $2, $3, false, NOW())', [token, e, expiresAt]);
         const linkUrl = `${process.env.PUBLIC_BASE_URL || ''}/auth/magic?token=${encodeURIComponent(token)}`;
         await sendMagicLink(e, token, linkUrl);
         sent++;
@@ -8815,7 +8815,7 @@ app.post('/admin/players/bulk/send-reminder', requireAdmin, async (req, res) => 
         
         const token = crypto.randomBytes(24).toString('base64url');
         const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
-        await pool.query('INSERT INTO magic_tokens(token, email, expires_at, used) VALUES($1, $2, $3, false)', [token, e, expiresAt]);
+        await pool.query('INSERT INTO magic_tokens(token, email, expires_at, used, created_at) VALUES($1, $2, $3, false, NOW())', [token, e, expiresAt]);
         const linkUrl = `${process.env.PUBLIC_BASE_URL || ''}/auth/magic?token=${encodeURIComponent(token)}`;
         await sendReminderEmail(e, token, linkUrl);
         sent++;
@@ -9664,7 +9664,7 @@ app.post('/admin/admins/send-links', requireAdmin, async (_req, res) => {
       // Create magic token and send
       const token = crypto.randomBytes(24).toString('base64url');
       const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
-      await pool.query('INSERT INTO magic_tokens(token,email,expires_at,used) VALUES($1,$2,$3,false)', [token, email, expiresAt]);
+      await pool.query('INSERT INTO magic_tokens(token,email,expires_at,used,created_at) VALUES($1,$2,$3,false,NOW())', [token, email, expiresAt]);
       const linkUrl = `${process.env.PUBLIC_BASE_URL || ''}/auth/magic?token=${encodeURIComponent(token)}`;
       try {
         await sendMagicLink(email, token, linkUrl);
