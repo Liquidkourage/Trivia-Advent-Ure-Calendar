@@ -7606,12 +7606,17 @@ app.post('/quiz/:id/submit', requireAuthOrAdmin, async (req, res) => {
       // If so, automatically set override_correct to match
       const existingOverride = await getOverrideForNormalizedText(pool, q.id, val);
       
+      // If we found an existing override, use it; otherwise preserve existing override if present
+      // This ensures new responses inherit the override, but we don't overwrite manual overrides
+      const overrideToUse = existingOverride !== null ? existingOverride : null;
+      
       await pool.query(
-        'INSERT INTO responses(quiz_id, question_id, user_email, response_text, locked, submitted_at, override_correct) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (user_email, question_id) DO UPDATE SET response_text = EXCLUDED.response_text, locked = EXCLUDED.locked, submitted_at = EXCLUDED.submitted_at, override_correct = COALESCE(responses.override_correct, EXCLUDED.override_correct)',
-        [id, q.id, email, val, isLocked, submittedAt, existingOverride]
+        'INSERT INTO responses(quiz_id, question_id, user_email, response_text, locked, submitted_at, override_correct) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (user_email, question_id) DO UPDATE SET response_text = EXCLUDED.response_text, locked = EXCLUDED.locked, submitted_at = EXCLUDED.submitted_at, override_correct = CASE WHEN $7 IS NOT NULL THEN $7 ELSE responses.override_correct END',
+        [id, q.id, email, val, isLocked, submittedAt, overrideToUse]
       );
       
       // CRITICAL: If this response matches an existing override, sync ALL matching responses
+      // This ensures all responses with the same normalized text have the same override value
       if (existingOverride !== null) {
         await syncOverrideForNormalizedText(pool, q.id, val, existingOverride);
       }
