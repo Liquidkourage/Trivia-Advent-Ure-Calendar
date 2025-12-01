@@ -3869,30 +3869,21 @@ app.get('/calendar', async (req, res) => {
               
               var door = e.currentTarget;
               
-              // CRITICAL: If door is NOT open, block ALL clicks from reaching buttons
-              var isOpen = door.classList.contains('is-open');
-              if (!isOpen) {
-                // Door is closed - prevent any clicks from reaching buttons
-                if (e.target.closest('.slot-btn')) {
+              // CRITICAL: If clicking on a slot button, let it handle navigation
+              // Check if the click target is actually a slot button or inside one
+              var clickedButton = e.target.closest && e.target.closest('.slot-btn');
+              if (clickedButton) {
+                var isOpen = door.classList.contains('is-open');
+                // Only block if door is closed or was just opened
+                if (!isOpen || recentlyOpened.has(door)) {
                   e.preventDefault();
                   e.stopPropagation();
                   e.stopImmediatePropagation();
                   return false;
                 }
-              } else {
-                // Door is open - let slot buttons work normally
-                if (e.target && e.target.closest && e.target.closest('.slot-btn')) {
-                  // If door was just opened, prevent immediate navigation
-                  if (recentlyOpened.has(door)) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    e.stopImmediatePropagation();
-                    return false;
-                  }
-                  // Don't prevent navigation - let the link work
-                  // Don't stop propagation here - let the event reach the link naturally
-                  return; // Allow normal button navigation, don't handle door toggle
-                }
+                // Door is open and not recently opened - let the button handle navigation
+                // Don't interfere at all - return immediately without stopping propagation
+                return;
               }
               
               if (!door.classList.contains('is-unlocked')) return;
@@ -3909,11 +3900,11 @@ app.get('/calendar', async (req, res) => {
                 door.classList.add('is-open');
                 // Mark as recently opened to prevent immediate button clicks
                 recentlyOpened.add(door);
-                // Longer delay for mobile to ensure animation completes
+                // Shorter delay - 300ms should be enough for animation
                 setTimeout(function(){
                   recentlyOpened.delete(door);
                   isProcessing = false;
-                }, 800);
+                }, 300);
               } else {
                 isProcessing = false;
               }
@@ -3923,8 +3914,10 @@ app.get('/calendar', async (req, res) => {
               var doors = document.querySelectorAll('.ta-door');
               doors.forEach(function(d){
                 // Block all clicks on slot buttons when door is closed
+                // Add click handlers directly to buttons with higher priority
                 var slotButtons = d.querySelectorAll('.slot-btn');
                 slotButtons.forEach(function(btn){
+                  // Use capture phase with higher priority to intercept before door handler
                   btn.addEventListener('click', function(e){
                     var door = btn.closest('.ta-door');
                     if (!door || !door.classList.contains('is-open')) {
@@ -3941,8 +3934,10 @@ app.get('/calendar', async (req, res) => {
                     }
                     // Door is open and not recently opened - allow navigation
                     // Don't prevent default, let the link work
-                    e.stopPropagation(); // Stop event from bubbling to door handler
-                  }, true);
+                    // Stop propagation to prevent door handler from interfering
+                    e.stopPropagation();
+                    e.stopImmediatePropagation();
+                  }, true); // Use capture phase to run before door handler
                 });
                 
                 // Handle touch events first to prevent double-firing
