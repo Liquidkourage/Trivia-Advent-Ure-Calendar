@@ -1236,7 +1236,7 @@ async function computeAuthorAveragePoints(pool, quizId, authorEmailRaw) {
     }
   }
   const { rows } = await pool.query(
-    'SELECT user_email, SUM(points) AS total_points FROM responses WHERE quiz_id=$1 GROUP BY user_email',
+    'SELECT user_email, SUM(points) AS total_points FROM responses WHERE quiz_id=$1 AND submitted_at IS NOT NULL GROUP BY user_email',
     [quizId]
   );
   const others = rows.filter(r => (r.user_email || '').toLowerCase() !== authorEmail);
