@@ -8982,6 +8982,13 @@ app.post('/admin/quiz/:id/fix-mixed', requireAdmin, async (req, res) => {
         [question.id]
       );
       
+      // Get all accepted answers for this question
+      const acceptedAnswers = await pool.query(
+        'SELECT response_text FROM responses WHERE question_id=$1 AND override_correct=true AND submitted_at IS NOT NULL',
+        [question.id]
+      );
+      const acceptedNorms = new Set(acceptedAnswers.rows.map(r => normalizeAnswer(r.response_text || '')));
+      
       // Group by normalized text
       const normGroups = new Map();
       for (const r of allResponses.rows) {
@@ -8997,10 +9004,20 @@ app.post('/admin/quiz/:id/fix-mixed', requireAdmin, async (req, res) => {
         const hasFalse = overrideValues.some(v => v === false);
         
         if (hasTrue && hasFalse) {
-          // Mixed state detected - fix by setting all to the most common value
-          const trueCount = overrideValues.filter(v => v === true).length;
-          const falseCount = overrideValues.filter(v => v === false).length;
-          const fixValue = trueCount >= falseCount ? true : false;
+          // Mixed state detected - determine the correct value
+          let fixValue;
+          
+          // CRITICAL: If this normalized text has been accepted (is in acceptedNorms),
+          // ALL responses should be true, regardless of the count
+          if (acceptedNorms.has(norm)) {
+            fixValue = true;
+          } else {
+            // Otherwise, use the most common value
+            const trueCount = overrideValues.filter(v => v === true).length;
+            const falseCount = overrideValues.filter(v => v === false).length;
+            fixValue = trueCount >= falseCount ? true : false;
+          }
+          
           const fixIds = group.map(r => r.id);
           
           await pool.query(
@@ -9009,7 +9026,7 @@ app.post('/admin/quiz/:id/fix-mixed', requireAdmin, async (req, res) => {
           );
           
           fixedCount++;
-          console.log(`[fix-mixed] Q${question.number}: Fixed ${fixIds.length} responses with norm "${norm}" to ${fixValue} (${trueCount} true, ${falseCount} false)`);
+          console.log(`[fix-mixed] Q${question.number}: Fixed ${fixIds.length} responses with norm "${norm}" to ${fixValue} (accepted: ${acceptedNorms.has(norm)}, ${overrideValues.filter(v => v === true).length} true, ${overrideValues.filter(v => v === false).length} false)`);
         }
       }
     }
