@@ -7606,19 +7606,55 @@ app.post('/quiz/:id/submit', requireAuthOrAdmin, async (req, res) => {
       // If so, automatically set override_correct to match
       const existingOverride = await getOverrideForNormalizedText(pool, q.id, val);
       
-      // If we found an existing override, use it; otherwise preserve existing override if present
-      // This ensures new responses inherit the override, but we don't overwrite manual overrides
-      const overrideToUse = existingOverride !== null ? existingOverride : null;
-      
-      await pool.query(
-        'INSERT INTO responses(quiz_id, question_id, user_email, response_text, locked, submitted_at, override_correct) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (user_email, question_id) DO UPDATE SET response_text = EXCLUDED.response_text, locked = EXCLUDED.locked, submitted_at = EXCLUDED.submitted_at, override_correct = CASE WHEN $7 IS NOT NULL THEN $7 ELSE responses.override_correct END',
-        [id, q.id, email, val, isLocked, submittedAt, overrideToUse]
-      );
-      
-      // CRITICAL: If this response matches an existing override, sync ALL matching responses
-      // This ensures all responses with the same normalized text have the same override value
+      // If we found an existing override, ensure ALL matching responses have the same value
+      // This prevents mixed states where some responses are TRUE and others are FALSE
       if (existingOverride !== null) {
-        await syncOverrideForNormalizedText(pool, q.id, val, existingOverride);
+        // First, check if there's a mixed state and fix it
+        const allMatching = await pool.query(
+          'SELECT id, response_text, override_correct FROM responses WHERE question_id=$1 AND submitted_at IS NOT NULL',
+          [q.id]
+        );
+        
+        const norm = normalizeAnswer(val);
+        const matchingGroup = [];
+        for (const r of allMatching.rows) {
+          const rNorm = normalizeAnswer(r.response_text || '');
+          if (rNorm === norm) {
+            matchingGroup.push(r);
+          }
+        }
+        
+        // Check for mixed state
+        const overrideValues = matchingGroup.map(r => r.override_correct).filter(v => v !== null);
+        const trueCount = overrideValues.filter(v => v === true).length;
+        const falseCount = overrideValues.filter(v => v === false).length;
+        
+        // If mixed, fix by using the most common value (or the existingOverride value if tied)
+        let overrideToSync = existingOverride;
+        if (trueCount > 0 && falseCount > 0) {
+          overrideToSync = trueCount >= falseCount ? true : false;
+          // Fix the mixed state immediately
+          const matchingIds = matchingGroup.map(r => r.id);
+          await pool.query(
+            'UPDATE responses SET override_correct = $1, override_version = COALESCE(override_version, 0) + 1, override_updated_at = NOW() WHERE id = ANY($2)',
+            [overrideToSync, matchingIds]
+          );
+        }
+        
+        // Insert/update the new response with the correct override value
+        await pool.query(
+          'INSERT INTO responses(quiz_id, question_id, user_email, response_text, locked, submitted_at, override_correct) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (user_email, question_id) DO UPDATE SET response_text = EXCLUDED.response_text, locked = EXCLUDED.locked, submitted_at = EXCLUDED.submitted_at, override_correct = $7',
+          [id, q.id, email, val, isLocked, submittedAt, overrideToSync]
+        );
+        
+        // Sync ALL matching responses to ensure consistency (including the one we just inserted)
+        await syncOverrideForNormalizedText(pool, q.id, val, overrideToSync);
+      } else {
+        // No existing override, insert with NULL
+        await pool.query(
+          'INSERT INTO responses(quiz_id, question_id, user_email, response_text, locked, submitted_at, override_correct) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (user_email, question_id) DO UPDATE SET response_text = EXCLUDED.response_text, locked = EXCLUDED.locked, submitted_at = EXCLUDED.submitted_at, override_correct = responses.override_correct',
+          [id, q.id, email, val, isLocked, submittedAt, null]
+        );
       }
     }
     
