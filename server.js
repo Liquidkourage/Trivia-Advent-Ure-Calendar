@@ -8287,10 +8287,13 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
         list = list.filter(([ans, arr]) => {
           const firstText = arr[0].response_text || '';
           const auto = isCorrectAnswer(firstText, sec.answer);
-          const hasOverride = arr.some(r => typeof r.override_correct === 'boolean');
+          const overrides = arr.map(r => typeof r.override_correct === 'boolean' ? r.override_correct : null);
+          const hasOverride = overrides.some(v => v !== null);
           const anyFlagged = arr.some(r => r.flagged === true);
-          // Show if flagged OR truly awaiting review
-          return anyFlagged || (!auto && !hasOverride);
+          // Check if this is a "mixed" answer (some overrides are true, some are false)
+          const isMixed = overrides.some(v => v === true) && overrides.some(v => v === false);
+          // Show if flagged OR mixed OR truly awaiting review
+          return anyFlagged || isMixed || (!auto && !hasOverride);
         });
       }
       // Sort so flagged groups appear first
