@@ -9168,6 +9168,33 @@ app.post('/admin/quiz/:id/edit-response', requireAdmin, async (req, res) => {
   }
 });
 
+// --- Admin: Clear submission status for a specific player ---
+app.post('/admin/quiz/:id/clear-submission', requireAdmin, express.urlencoded({ extended: true }), async (req, res) => {
+  try {
+    const quizId = Number(req.params.id);
+    const userEmail = String(req.body.email || '').toLowerCase().trim();
+    
+    if (!userEmail) {
+      return res.status(400).send('Email required');
+    }
+    
+    // Verify quiz exists
+    const quiz = (await pool.query('SELECT * FROM quizzes WHERE id=$1', [quizId])).rows[0];
+    if (!quiz) return res.status(404).send('Quiz not found');
+    
+    // Clear submission status for this player
+    await pool.query(
+      'UPDATE responses SET submitted_at = NULL WHERE quiz_id=$1 AND user_email=$2',
+      [quizId, userEmail]
+    );
+    
+    return res.redirect(`/admin/quiz/${quizId}/responses?email=${encodeURIComponent(userEmail)}&cleared=1`);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to clear submission');
+  }
+});
+
 // --- Admin: Clear submission status for all players with empty responses ---
 app.post('/admin/quiz/:id/clear-all-empty-submissions', requireAdmin, async (req, res) => {
   try {
