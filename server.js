@@ -1144,18 +1144,30 @@ async function gradeQuiz(pool, quizId, userEmail) {
     // Check if any question is locked - if not, default to question 1 being locked
     const hasLocked = rs.some(r => r.locked === true);
     let defaultLockedQuestionId = null;
-    if (!hasLocked && qs.length > 0) {
-      // Default to question 1 if no locked question exists
+    let lockedCount = rs.filter(r => r.locked === true).length;
+    
+    // CRITICAL: Ensure exactly ONE question is locked
+    // If multiple are locked, unlock all and default to Q1
+    // If none are locked, default to Q1
+    if (lockedCount !== 1 && qs.length > 0) {
+      // Default to question 1 if no locked question exists or if multiple are locked
       defaultLockedQuestionId = qs.find(q => q.number === 1)?.id || qs[0].id;
-      console.log(`[gradeQuiz] No locked question found, defaulting to Q1 (id=${defaultLockedQuestionId})`);
+      if (lockedCount === 0) {
+        console.log(`[gradeQuiz] No locked question found, defaulting to Q1 (id=${defaultLockedQuestionId})`);
+      } else {
+        console.log(`[gradeQuiz] Multiple locked questions found (${lockedCount}), unlocking all and defaulting to Q1 (id=${defaultLockedQuestionId})`);
+      }
       
       // Actually set the locked flag in the database so it shows correctly in admin interface
-      // First, unlock all questions for this user/quiz
+      // First, unlock ALL questions for this user/quiz (ensures only one is locked)
       await pool.query('UPDATE responses SET locked = FALSE WHERE quiz_id=$1 AND user_email=$2', [quizId, userEmail]);
       // Then lock question 1
       await pool.query('UPDATE responses SET locked = TRUE WHERE quiz_id=$1 AND user_email=$2 AND question_id=$3', [quizId, userEmail, defaultLockedQuestionId]);
       
       // Update the in-memory map to reflect the change
+      // Unlock all in memory
+      rs.forEach(r => r.locked = false);
+      // Lock Q1 in memory
       const q1Resp = qIdToResp.get(defaultLockedQuestionId);
       if (q1Resp) {
         q1Resp.locked = true;
