@@ -6065,6 +6065,9 @@ app.get('/quiz/:id', async (req, res) => {
                 <span class="ta-recap-summary__score">${total}</span>
               </div>
             </div>
+            <div style="background:#1a1a1a;border:1px solid rgba(255,255,255,0.15);border-radius:8px;padding:12px 16px;margin:16px 0;font-size:14px;opacity:0.85;">
+              <strong>Note:</strong> Scores are subject to change based on admin grading decisions. Final scores may differ from initial calculations.
+            </div>
             <div class="ta-table-wrapper">
               <table class="ta-table">
                 <thead>
@@ -6270,6 +6273,7 @@ app.get('/quiz/:id', async (req, res) => {
               <li>Lock exactly one question. If your locked answer is correct, you earn <strong>5 points</strong>; if incorrect, it earns <strong>0</strong>. The locked question <em>does not affect</em> your streak.</li>
               <li>For all other questions, correct answers build a streak: <strong>+1, then +2, then +3…</strong>. A wrong/blank answer resets the streak to 0.</li>
               <li>You may change your lock until grading/finalization.</li>
+              <li><em>Scores are subject to change based on admin grading decisions. Final scores may differ from initial calculations.</em></li>
             </ul>
           </section>
           `}
