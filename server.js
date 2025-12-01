@@ -8442,18 +8442,23 @@ app.get('/admin/quiz/:id/responses', requireAdmin, async (req, res) => {
     // Get all questions for this quiz
     const questions = (await pool.query('SELECT * FROM questions WHERE quiz_id=$1 ORDER BY number ASC', [quizId])).rows;
     
-    // Get all unique players who have SUBMITTED responses (exclude autosave-only)
+    // Get all unique players who have responses for this quiz
+    // Include both submitted (submitted_at IS NOT NULL) and unsubmitted (submitted_at IS NULL) players
+    // This helps catch players who appear on leaderboard but don't have submitted_at set
+    const showAll = req.query.show_all === 'true';
     const players = (await pool.query(`
       SELECT DISTINCT 
         r.user_email,
         p.username,
         p.email,
-        MAX(r.submitted_at) as last_submitted_at
+        MAX(r.submitted_at) as last_submitted_at,
+        COUNT(CASE WHEN r.submitted_at IS NOT NULL THEN 1 END) as submitted_count,
+        COUNT(*) as total_response_count
       FROM responses r
       LEFT JOIN players p ON p.email = r.user_email
-      WHERE r.quiz_id = $1 AND r.submitted_at IS NOT NULL
+      WHERE r.quiz_id = $1 ${showAll ? '' : 'AND r.submitted_at IS NOT NULL'}
       GROUP BY r.user_email, p.username, p.email
-      ORDER BY last_submitted_at DESC
+      ORDER BY last_submitted_at DESC NULLS LAST
     `, [quizId])).rows;
     
     // Get all SUBMITTED responses for this quiz (exclude autosave-only)
