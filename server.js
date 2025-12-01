@@ -3901,11 +3901,11 @@ app.get('/calendar', async (req, res) => {
                 door.classList.add('is-open');
                 // Mark as recently opened to prevent immediate button clicks
                 recentlyOpened.add(door);
-                // Shorter delay - 300ms should be enough for animation
+                // Reduced delay - 100ms should be enough for animation
                 setTimeout(function(){
                   recentlyOpened.delete(door);
                   isProcessing = false;
-                }, 300);
+                }, 100);
               } else {
                 isProcessing = false;
               }
@@ -3914,6 +3914,32 @@ app.get('/calendar', async (req, res) => {
             function setupDoors(){
               var doors = document.querySelectorAll('.ta-door');
               doors.forEach(function(d){
+                // CRITICAL FIX: Attach handlers directly to buttons FIRST (before door handler)
+                // This ensures button clicks are handled at the source before door handler can interfere
+                var slotButtons = d.querySelectorAll('.slot-btn');
+                slotButtons.forEach(function(btn){
+                  btn.addEventListener('click', function(e){
+                    var door = btn.closest('.ta-door');
+                    // Only block if door is closed or was just opened
+                    if (!door || !door.classList.contains('is-open')) {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      e.stopImmediatePropagation();
+                      return false;
+                    }
+                    if (recentlyOpened.has(door)) {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      e.stopImmediatePropagation();
+                      return false;
+                    }
+                    // Door is open and not recently opened - allow navigation
+                    // Stop immediate propagation to prevent door handler from running
+                    // But allow normal propagation so link navigation works
+                    e.stopImmediatePropagation();
+                  }, true); // Capture phase - runs BEFORE door handler
+                });
+                
                 // Handle touch events first to prevent double-firing
                 if ('ontouchstart' in window) {
                   d.addEventListener('touchstart', function(e){
@@ -3974,28 +4000,13 @@ app.get('/calendar', async (req, res) => {
                   }, true);
                 } else {
                   // Use click for desktop
+                  // Button handlers run first in capture phase and stop immediate propagation
+                  // So this handler only runs for non-button clicks (door front/back)
                   d.addEventListener('click', function(e){
-                    // Check if clicking on a slot button (check both target and closest)
-                    var clickedButton = (e.target.classList && e.target.classList.contains('slot-btn')) 
-                      ? e.target 
-                      : (e.target.closest && e.target.closest('.slot-btn'));
-                    if (clickedButton) {
-                      var door = clickedButton.closest('.ta-door');
-                      // Only block if door is closed or was just opened
-                      if (!door || !door.classList.contains('is-open') || recentlyOpened.has(door)) {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        e.stopImmediatePropagation();
-                        return false;
-                      }
-                      // Door is open and not recently opened - let button handle navigation
-                      // Don't call handleDoorClick - just return without any event manipulation
-                      // This allows the link's default navigation to work naturally
-                      // Don't prevent default, don't stop propagation - let browser handle navigation
-                      return;
-                    }
+                    // If this handler runs, it means button handler didn't stop immediate propagation
+                    // So this is a click on the door itself, not a button
                     handleDoorClick(e);
-                  }, true); // Use capture phase to detect button clicks before they bubble
+                  }, false); // Bubble phase - button handlers run first in capture phase
                 }
               });
             }
