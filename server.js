@@ -1148,6 +1148,21 @@ async function gradeQuiz(pool, quizId, userEmail) {
       // Default to question 1 if no locked question exists
       defaultLockedQuestionId = qs.find(q => q.number === 1)?.id || qs[0].id;
       console.log(`[gradeQuiz] No locked question found, defaulting to Q1 (id=${defaultLockedQuestionId})`);
+      
+      // Actually set the locked flag in the database so it shows correctly in admin interface
+      // First, unlock all questions for this user/quiz
+      await pool.query('UPDATE responses SET locked = FALSE WHERE quiz_id=$1 AND user_email=$2', [quizId, userEmail]);
+      // Then lock question 1
+      await pool.query('UPDATE responses SET locked = TRUE WHERE quiz_id=$1 AND user_email=$2 AND question_id=$3', [quizId, userEmail, defaultLockedQuestionId]);
+      
+      // Update the in-memory map to reflect the change
+      const q1Resp = qIdToResp.get(defaultLockedQuestionId);
+      if (q1Resp) {
+        q1Resp.locked = true;
+      } else {
+        // If Q1 response doesn't exist yet, create a placeholder entry
+        qIdToResp.set(defaultLockedQuestionId, { locked: true });
+      }
     }
     
     let streak = 0;
