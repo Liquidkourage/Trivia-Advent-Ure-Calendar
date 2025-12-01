@@ -8549,9 +8549,15 @@ app.post('/admin/quiz/:id/override', requireAdmin, async (req, res) => {
     if (q.rows.length === 0) return res.status(404).send('Question not found');
     const questionId = q.rows[0].id;
     // Find all response ids for this question whose normalized text matches the provided norm key
-    const resp = await pool.query('SELECT id, response_text FROM responses WHERE question_id=$1', [questionId]);
+    // CRITICAL: Only include SUBMITTED responses (submitted_at IS NOT NULL) to match what's shown in the grader
+    // This ensures we only update responses that are actually visible in the grading interface
+    const resp = await pool.query('SELECT id, response_text FROM responses WHERE question_id=$1 AND submitted_at IS NOT NULL', [questionId]);
     const ids = resp.rows.filter(r => normalizeAnswer(r.response_text || '') === norm).map(r => r.id);
     if (ids.length === 0) { return res.redirect(`/admin/quiz/${quizId}/grade`); }
+    
+    // CRITICAL: Ensure ALL responses with this normalized text are updated together
+    // This prevents "Mixed" states where some responses are accepted and others are rejected
+    // All responses with the same normalized text should have the same override_correct value
     // Optimistic check: ensure no one has updated these since the version we rendered
     const ver = await pool.query('SELECT MAX(override_version) AS v FROM responses WHERE id = ANY($1)', [ids]);
     const currentMax = Number(ver.rows[0].v || 0);
