@@ -8624,6 +8624,7 @@ app.get('/admin/quiz/:id/debug-ungraded', requireAdmin, async (req, res) => {
         )
       ORDER BY rg.question_number, rg.norm_response
     `, [id]);
+    */
     
     res.type('html').send(`
       <html><head><title>Debug Ungraded - ${quiz.title}</title></head>
