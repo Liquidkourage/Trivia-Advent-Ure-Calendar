@@ -3374,11 +3374,23 @@ app.get('/admin', requireAdmin, async (req, res) => {
     );
     stats.totalDonated = parseFloat(donationResult.rows[0]?.total || 0);
     
+    // Get last 5 opened (unlocked) quizzes - prioritize those that need grading
     const recentQuizzes = await pool.query(`
-      SELECT id, title, unlock_at, author, 
-        (SELECT COUNT(*) FROM responses WHERE quiz_id = quizzes.id) as response_count
-      FROM quizzes 
-      ORDER BY unlock_at DESC 
+      SELECT 
+        q.id, 
+        q.title, 
+        q.unlock_at, 
+        q.author,
+        (SELECT COUNT(*) FROM responses WHERE quiz_id = q.id) as response_count,
+        (SELECT COUNT(*) FROM responses r 
+         JOIN questions qu ON qu.id = r.question_id 
+         WHERE qu.quiz_id = q.id 
+           AND r.override_correct IS NULL 
+           AND LOWER(TRIM(r.response_text)) != LOWER(TRIM(qu.answer))
+           AND TRIM(r.response_text) != '') as ungraded_count
+      FROM quizzes q
+      WHERE q.unlock_at <= NOW()
+      ORDER BY q.unlock_at DESC 
       LIMIT 5
     `);
     stats.recentQuizzes = recentQuizzes.rows;
