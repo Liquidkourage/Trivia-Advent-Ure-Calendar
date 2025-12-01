@@ -8522,13 +8522,17 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
           const auto = isCorrectAnswer(firstText, sec.answer);
           const overrides = arr.map(r => typeof r.override_correct === 'boolean' ? r.override_correct : null);
           const hasOverride = overrides.some(v => v !== null);
+          const hasUngraded = overrides.some(v => v === null); // Check if ANY response is ungraded (NULL)
           const anyFlagged = arr.some(r => r.flagged === true);
           // Check if this is a "mixed" answer (some overrides are true, some are false)
           const isMixed = overrides.some(v => v === true) && overrides.some(v => v === false);
-          // CRITICAL: Always show mixed answers, flagged answers, and truly awaiting review
-          // Mixed answers indicate inconsistency and must be visible for correction
-          // This check is redundant but ensures mixed is never filtered out
-          return anyFlagged || isMixed || (!auto && !hasOverride);
+          
+          // CRITICAL: Always show:
+          // 1. Flagged answers (need attention)
+          // 2. Mixed answers (inconsistent state, needs fixing)
+          // 3. Groups with ungraded responses (NULL) - these ALWAYS need review
+          // 4. Truly awaiting review (not auto-correct AND no override)
+          return anyFlagged || isMixed || hasUngraded || (!auto && !hasOverride);
         });
       } else {
         // Even when showing all, prioritize mixed answers by ensuring they're included
