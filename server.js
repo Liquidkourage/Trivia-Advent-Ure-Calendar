@@ -7834,7 +7834,7 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
       const nextSet = new Set(showSet);
       if (includeAllForThis) nextSet.delete(sec.number); else nextSet.add(sec.number);
       const param = Array.from(nextSet).sort((a,b)=>a-b).join(',');
-      const toggleUrl = `/admin/quiz/${id}/grade${param ? `?showq=${param}` : ''}`;
+      const toggleUrl = `/admin/quiz/${id}/grade${param ? `?showq=${param}` : ''}#q${sec.number}`;
 
       return `<div class=\"grader-section\" id=\"q${sec.number}\">
         <div class=\"grader-qtitle\">Q${sec.number}</div>
