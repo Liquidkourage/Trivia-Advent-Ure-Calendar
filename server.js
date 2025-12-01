@@ -3426,19 +3426,35 @@ app.get('/admin', requireAdmin, async (req, res) => {
     stats.totalDonated = parseFloat(donationResult.rows[0]?.total || 0);
     
     // Get last 5 opened (unlocked) quizzes - prioritize those that need grading
+    // Count ungraded items matching the grading page logic: submitted responses that are
+    // flagged OR (override_correct IS NULL AND not auto-correct)
+    // Note: This counts individual responses, matching the nav counter logic (line 7869)
     const recentQuizzes = await pool.query(`
       SELECT 
         q.id, 
         q.title, 
         q.unlock_at, 
         q.author,
-        (SELECT COUNT(*) FROM responses WHERE quiz_id = q.id) as response_count,
-        (SELECT COUNT(*) FROM responses r 
+        (SELECT COUNT(DISTINCT r.user_email) FROM responses r WHERE r.quiz_id = q.id AND r.submitted_at IS NOT NULL) as response_count,
+        (SELECT COUNT(*) 
+         FROM responses r
          JOIN questions qu ON qu.id = r.question_id 
          WHERE qu.quiz_id = q.id 
-           AND r.override_correct IS NULL 
-           AND LOWER(TRIM(r.response_text)) != LOWER(TRIM(qu.answer))
-           AND TRIM(r.response_text) != '') as ungraded_count
+           AND r.submitted_at IS NOT NULL
+           AND TRIM(r.response_text) != ''
+           AND r.override_correct IS NULL
+           AND (
+             r.flagged = true
+             OR (
+               -- Not auto-correct: response doesn't match answer (simple check)
+               -- Note: This is approximate - full normalization happens in JavaScript
+               LOWER(TRIM(r.response_text)) != LOWER(TRIM(qu.answer))
+               AND NOT (qu.answer LIKE '%|%' AND LOWER(TRIM(r.response_text)) = ANY(
+                 SELECT LOWER(TRIM(unnest(string_to_array(qu.answer, '|'))))
+               ))
+             )
+           )
+        ) as ungraded_count
       FROM quizzes q
       WHERE q.unlock_at <= NOW()
       ORDER BY q.unlock_at DESC 
@@ -6641,23 +6657,51 @@ app.get('/quiz/:id/leaderboard', async (req, res) => {
     if (qr.length === 0) return res.status(404).send('Quiz not found');
     const freezeUtc = new Date(qr[0].freeze_at);
     const { rows } = await pool.query(
-      `SELECT r.user_email, COALESCE(p.username, r.user_email) AS handle, SUM(r.points) AS points, MIN(r.created_at) AS first_time
+      `SELECT r.user_email, COALESCE(p.username, r.user_email) AS handle, SUM(r.points) AS points, MIN(r.submitted_at) AS first_time
        FROM responses r
        LEFT JOIN players p ON p.email = r.user_email
-       WHERE r.quiz_id = $1 AND r.created_at <= $2
+       WHERE r.quiz_id = $1 AND r.submitted_at IS NOT NULL AND r.submitted_at <= $2
        GROUP BY r.user_email, handle`,
       [id, freezeUtc]
     );
-    const normalized = rows.map(r => ({
-      user_email: (r.user_email || '').toLowerCase(),
-      handle: r.handle,
-      points: Number(r.points || 0),
-      first_time: r.first_time ? new Date(r.first_time) : null,
-      synthetic: false,
-      player_count: null,
-      source: 'player',
-      email: (r.user_email || '').toLowerCase()
-    }));
+    
+    // Get stats for all players in one query (correct answers, avg per correct)
+    const statsRows = await pool.query(`
+      SELECT 
+        r.user_email,
+        COUNT(CASE WHEN (r.override_correct = true AND r.response_text IS NOT NULL AND TRIM(r.response_text) != '') OR (r.override_correct IS NULL AND r.response_text IS NOT NULL AND TRIM(r.response_text) != '' AND LOWER(TRIM(r.response_text)) = LOWER(TRIM(q.answer))) THEN 1 END) as correct_count,
+        SUM(r.points) as total_points
+      FROM responses r
+      JOIN questions q ON q.id = r.question_id
+      WHERE r.quiz_id = $1 AND r.submitted_at IS NOT NULL AND r.submitted_at <= $2
+      GROUP BY r.user_email
+    `, [id, freezeUtc]);
+    
+    const statsMap = new Map();
+    statsRows.rows.forEach(stat => {
+      const email = (stat.user_email || '').toLowerCase();
+      const correctCount = parseInt(stat.correct_count) || 0;
+      const totalPoints = parseFloat(stat.total_points) || 0;
+      const avgPerCorrect = correctCount > 0 ? (totalPoints / correctCount) : 0;
+      statsMap.set(email, { correctCount, avgPerCorrect });
+    });
+    
+    const normalized = rows.map(r => {
+      const email = (r.user_email || '').toLowerCase();
+      const stats = statsMap.get(email) || { correctCount: 0, avgPerCorrect: 0 };
+      return {
+        user_email: email,
+        handle: r.handle,
+        points: Number(r.points || 0),
+        first_time: r.first_time ? new Date(r.first_time) : null,
+        synthetic: false,
+        player_count: null,
+        source: 'player',
+        email: email,
+        correctCount: stats.correctCount,
+        avgPerCorrect: stats.avgPerCorrect
+      };
+    });
     const authorEmail = (qr[0].author_email || '').toLowerCase();
     if (authorEmail) {
       const avgInfo = await computeAuthorAveragePoints(pool, id, authorEmail);
@@ -7300,6 +7344,7 @@ app.get('/admin/quizzes', requireAdmin, async (req, res) => {
           <a href="/admin/quiz/${q.id}/analytics" class="ta-btn ta-btn-small" style="margin-right:4px;">Analytics</a>
           <a href="/admin/quiz/${q.id}/grade" class="ta-btn ta-btn-small" style="margin-right:4px;">Grade</a>
           <a href="/admin/quiz/${q.id}/responses" class="ta-btn ta-btn-small" style="margin-right:4px;">Responses</a>
+          <a href="/quiz/${q.id}/leaderboard" class="ta-btn ta-btn-small" style="margin-right:4px;">Leaderboard</a>
           <a href="/quiz/${q.id}?preview=player" class="ta-btn ta-btn-small" style="margin-right:4px;">Preview</a>
           <a href="/quiz/${q.id}" class="ta-btn ta-btn-small">Open</a>
         </td>
