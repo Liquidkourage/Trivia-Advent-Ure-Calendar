@@ -9228,8 +9228,21 @@ app.get('/admin/donations', requireAdmin, async (req, res) => {
           </div>
           
           <div style="background:#1a1a1a;padding:20px;border-radius:8px;border:1px solid #333;margin-bottom:24px;">
-            <h2 style="margin-top:0;margin-bottom:16px;color:#ffd700;font-size:20px;">Add Historical Donation</h2>
-            <p style="opacity:0.8;margin-bottom:16px;font-size:14px;">Use this form to backfill donations that were received before donation tracking was implemented.</p>
+            <h2 style="margin-top:0;margin-bottom:16px;color:#ffd700;font-size:20px;">Import CSV from Ko-fi</h2>
+            <p style="opacity:0.8;margin-bottom:16px;font-size:14px;">Paste CSV content from Ko-fi export. The CSV should have columns for email, amount, date, and optionally currency and transaction ID. We'll try to auto-detect column names.</p>
+            <form method="post" action="/admin/donations/import-csv" style="margin-bottom:24px;">
+              <div style="margin-bottom:12px;">
+                <label style="display:block;margin-bottom:4px;font-weight:600;">CSV Content *</label>
+                <textarea name="csv" required rows="8" style="width:100%;padding:8px;border-radius:6px;border:1px solid #555;background:#0a0a0a;color:#fff;font-family:monospace;font-size:12px;" placeholder="Paste CSV content here..."></textarea>
+                <div style="font-size:12px;opacity:0.7;margin-top:4px;">Include the header row. We'll detect columns like: email, amount, date, currency, transaction_id, etc.</div>
+              </div>
+              <button type="submit" class="ta-btn ta-btn-primary">Import CSV</button>
+            </form>
+            
+            <hr style="border:none;border-top:1px solid #333;margin:24px 0;" />
+            
+            <h2 style="margin-top:0;margin-bottom:16px;color:#ffd700;font-size:20px;">Add Single Historical Donation</h2>
+            <p style="opacity:0.8;margin-bottom:16px;font-size:14px;">Use this form to backfill individual donations that were received before donation tracking was implemented.</p>
             <form method="post" action="/admin/donations/add" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:16px;align-items:end;">
               <div>
                 <label style="display:block;margin-bottom:4px;font-weight:600;">Email *</label>
@@ -9342,6 +9355,165 @@ app.post('/admin/donations/add', requireAdmin, async (req, res) => {
     res.redirect('/admin/donations?msg=Failed to add donation: ' + (e.message || String(e)));
   }
 });
+
+app.post('/admin/donations/import-csv', requireAdmin, express.urlencoded({ extended: true }), async (req, res) => {
+  try {
+    const csvContent = String(req.body.csv || '').trim();
+    if (!csvContent) {
+      return res.redirect('/admin/donations?msg=No CSV content provided');
+    }
+    
+    // Parse CSV - handle quoted fields and commas
+    const lines = csvContent.split('\n').filter(line => line.trim());
+    if (lines.length < 2) {
+      return res.redirect('/admin/donations?msg=CSV must have at least a header row and one data row');
+    }
+    
+    // Parse header row
+    const headerLine = lines[0];
+    const headers = parseCSVLine(headerLine).map(h => h.toLowerCase().trim());
+    
+    // Find column indices
+    const emailIdx = findColumnIndex(headers, ['email', 'e-mail', 'donor email', 'donor_email']);
+    const amountIdx = findColumnIndex(headers, ['amount', 'donation amount', 'donation_amount', 'value', 'total']);
+    const dateIdx = findColumnIndex(headers, ['date', 'created_at', 'created at', 'timestamp', 'time', 'donation date', 'donation_date']);
+    const currencyIdx = findColumnIndex(headers, ['currency', 'curr', 'currency code']);
+    const kofiIdIdx = findColumnIndex(headers, ['transaction_id', 'transaction id', 'id', 'kofi_id', 'kofi id', 'transaction']);
+    
+    if (emailIdx === -1 || amountIdx === -1) {
+      return res.redirect('/admin/donations?msg=CSV must have email and amount columns');
+    }
+    
+    let imported = 0;
+    let skipped = 0;
+    let errors = [];
+    
+    // Process data rows
+    for (let i = 1; i < lines.length; i++) {
+      try {
+        const values = parseCSVLine(lines[i]);
+        if (values.length < Math.max(emailIdx, amountIdx) + 1) continue;
+        
+        const emailRaw = String(values[emailIdx] || '').trim().toLowerCase();
+        const amountRaw = String(values[amountIdx] || '').trim();
+        const dateRaw = dateIdx >= 0 ? String(values[dateIdx] || '').trim() : '';
+        const currencyRaw = currencyIdx >= 0 ? String(values[currencyIdx] || '').trim().toUpperCase() : 'USD';
+        const kofiIdRaw = kofiIdIdx >= 0 ? String(values[kofiIdIdx] || '').trim() : null;
+        
+        if (!emailRaw || !amountRaw) {
+          skipped++;
+          continue;
+        }
+        
+        // Validate email
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(emailRaw)) {
+          errors.push(`Row ${i + 1}: Invalid email "${emailRaw}"`);
+          skipped++;
+          continue;
+        }
+        
+        // Parse amount (remove currency symbols, commas)
+        const amount = parseFloat(amountRaw.replace(/[^0-9.-]/g, ''));
+        if (isNaN(amount) || amount <= 0) {
+          errors.push(`Row ${i + 1}: Invalid amount "${amountRaw}"`);
+          skipped++;
+          continue;
+        }
+        
+        // Parse date
+        let createdAt = new Date();
+        if (dateRaw) {
+          // Try various date formats
+          const parsedDate = new Date(dateRaw);
+          if (!isNaN(parsedDate.getTime())) {
+            createdAt = parsedDate;
+          }
+        }
+        
+        const currency = currencyRaw || 'USD';
+        
+        // Ensure player exists
+        await pool.query('INSERT INTO players(email, access_granted_at) VALUES($1, $2) ON CONFLICT (email) DO NOTHING', [emailRaw, createdAt]);
+        
+        // Insert donation (skip if duplicate transaction ID exists)
+        if (kofiIdRaw) {
+          const existing = await pool.query('SELECT id FROM donations WHERE kofi_id = $1', [kofiIdRaw]);
+          if (existing.rows.length > 0) {
+            skipped++;
+            continue;
+          }
+        }
+        
+        await pool.query(
+          'INSERT INTO donations(email, amount, currency, kofi_id, created_at, processed_at) VALUES($1, $2, $3, $4, $5, NOW())',
+          [emailRaw, amount, currency, kofiIdRaw, createdAt]
+        );
+        
+        imported++;
+      } catch (rowErr) {
+        errors.push(`Row ${i + 1}: ${rowErr.message || String(rowErr)}`);
+        skipped++;
+      }
+    }
+    
+    let msg = `Imported ${imported} donation${imported !== 1 ? 's' : ''}`;
+    if (skipped > 0) msg += `, skipped ${skipped}`;
+    if (errors.length > 0 && errors.length <= 10) {
+      msg += `. Errors: ${errors.join('; ')}`;
+    } else if (errors.length > 10) {
+      msg += `. ${errors.length} errors (showing first 10): ${errors.slice(0, 10).join('; ')}`;
+    }
+    
+    res.redirect(`/admin/donations?msg=${encodeURIComponent(msg)}`);
+  } catch (e) {
+    console.error(e);
+    res.redirect('/admin/donations?msg=Failed to import CSV: ' + encodeURIComponent(e.message || String(e)));
+  }
+});
+
+// Helper function to parse CSV line (handles quoted fields)
+function parseCSVLine(line) {
+  const result = [];
+  let current = '';
+  let inQuotes = false;
+  
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    const nextChar = line[i + 1];
+    
+    if (char === '"') {
+      if (inQuotes && nextChar === '"') {
+        // Escaped quote
+        current += '"';
+        i++; // Skip next quote
+      } else {
+        // Toggle quote state
+        inQuotes = !inQuotes;
+      }
+    } else if (char === ',' && !inQuotes) {
+      // End of field
+      result.push(current);
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+  
+  // Add last field
+  result.push(current);
+  
+  return result.map(f => f.trim());
+}
+
+// Helper function to find column index by possible names
+function findColumnIndex(headers, possibleNames) {
+  for (const name of possibleNames) {
+    const idx = headers.indexOf(name);
+    if (idx !== -1) return idx;
+  }
+  return -1;
+}
 
 app.post('/admin/donations/delete', requireAdmin, async (req, res) => {
   try {
