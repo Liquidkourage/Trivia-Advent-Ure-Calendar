@@ -8663,11 +8663,15 @@ app.get('/admin/quiz/:id/responses', requireAdmin, async (req, res) => {
             <a href="/admin/quiz/${quizId}/grade" class="ta-btn ta-btn-primary" style="margin-right:8px;">Grade Responses</a>
             <a href="/admin/quiz/${quizId}" class="ta-btn ta-btn-outline" style="margin-right:8px;">Edit Quiz</a>
             <a href="/admin/quizzes" class="ta-btn ta-btn-outline">Back to Quizzes</a>
+            <a href="/admin/quiz/${quizId}/responses?show_all=${showAll ? 'false' : 'true'}" class="ta-btn ta-btn-outline" style="background:${showAll ? '#2a4a1a' : '#1a1a1a'};border-color:${showAll ? '#55cc55' : '#444'};">
+              ${showAll ? '✓ Showing All Players' : 'Show All Players'}
+            </a>
           </div>
           <div style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:16px;margin-bottom:24px;">
             <div style="display:flex;gap:24px;flex-wrap:wrap;">
               <div><strong>Players with Answers:</strong> ${playersWithAnswers.length}</div>
-              <div><strong>Total Response Records:</strong> ${players.length}</div>
+              <div><strong>Total Players:</strong> ${players.length} ${showAll ? '(including unsubmitted)' : '(submitted only)'}</div>
+              <div><strong>Players with All Empty:</strong> ${playersWithAllEmpty.length}</div>
               <div><strong>Total Questions:</strong> ${questions.length}</div>
               ${playersWithoutLocks.length > 0 ? `<div style="color:#ff9800;"><strong>⚠️ Players without locks:</strong> ${playersWithoutLocks.length}</div>` : ''}
             </div>
