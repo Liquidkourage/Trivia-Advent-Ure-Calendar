@@ -8429,11 +8429,20 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
         // (They should already be included, but this makes it explicit)
         // Mixed answers are already in the list since includeAllForThis shows everything
       }
-      // Sort so flagged groups appear first
+      // Sort so flagged groups and mixed answers appear first (prioritize items needing attention)
       list.sort((a, b) => {
         const aFlag = a[1].some(r => r.flagged === true) ? 1 : 0;
         const bFlag = b[1].some(r => r.flagged === true) ? 1 : 0;
-        return bFlag - aFlag;
+        if (aFlag !== bFlag) return bFlag - aFlag;
+        
+        // If both have same flag status, prioritize mixed answers
+        const aOverrides = a[1].map(r => typeof r.override_correct === 'boolean' ? r.override_correct : null);
+        const bOverrides = b[1].map(r => typeof r.override_correct === 'boolean' ? r.override_correct : null);
+        const aMixed = aOverrides.some(v => v === true) && aOverrides.some(v => v === false);
+        const bMixed = bOverrides.some(v => v === true) && bOverrides.some(v => v === false);
+        if (aMixed !== bMixed) return bMixed ? 1 : -1;
+        
+        return 0;
       });
       const items = list.map(([ans, arr]) => {
         const auto = arr.length && isCorrectAnswer(arr[0].response_text || '', sec.answer);
