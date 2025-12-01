@@ -72,6 +72,7 @@ import dotenv from 'dotenv';
 import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
+import multer from 'multer';
 // Avoid timezone library; store UTC in DB and compare in UTC
 
 dotenv.config();
@@ -9229,14 +9230,24 @@ app.get('/admin/donations', requireAdmin, async (req, res) => {
           
           <div style="background:#1a1a1a;padding:20px;border-radius:8px;border:1px solid #333;margin-bottom:24px;">
             <h2 style="margin-top:0;margin-bottom:16px;color:#ffd700;font-size:20px;">Import CSV from Ko-fi</h2>
-            <p style="opacity:0.8;margin-bottom:16px;font-size:14px;">Paste CSV content from Ko-fi export. The CSV should have columns for email, amount, date, and optionally currency and transaction ID. We'll try to auto-detect column names.</p>
-            <form method="post" action="/admin/donations/import-csv" style="margin-bottom:24px;">
+            <p style="opacity:0.8;margin-bottom:16px;font-size:14px;">Upload a CSV file from Ko-fi export. The CSV should have columns for email, amount, date, and optionally currency and transaction ID. We'll try to auto-detect column names.</p>
+            <form method="post" action="/admin/donations/import-csv" enctype="multipart/form-data" style="margin-bottom:24px;">
               <div style="margin-bottom:12px;">
-                <label style="display:block;margin-bottom:4px;font-weight:600;">CSV Content *</label>
-                <textarea name="csv" required rows="8" style="width:100%;padding:8px;border-radius:6px;border:1px solid #555;background:#0a0a0a;color:#fff;font-family:monospace;font-size:12px;" placeholder="Paste CSV content here..."></textarea>
-                <div style="font-size:12px;opacity:0.7;margin-top:4px;">Include the header row. We'll detect columns like: email, amount, date, currency, transaction_id, etc.</div>
+                <label style="display:block;margin-bottom:4px;font-weight:600;">CSV File *</label>
+                <input type="file" name="csvfile" accept=".csv,text/csv" required style="width:100%;padding:8px;border-radius:6px;border:1px solid #555;background:#0a0a0a;color:#fff;"/>
+                <div style="font-size:12px;opacity:0.7;margin-top:4px;">Select a CSV file. Include the header row. We'll detect columns like: email, amount, date, currency, transaction_id, etc.</div>
               </div>
               <button type="submit" class="ta-btn ta-btn-primary">Import CSV</button>
+            </form>
+            <hr style="border:none;border-top:1px solid #333;margin:24px 0;" />
+            <p style="opacity:0.8;margin-bottom:16px;font-size:14px;">Or paste CSV content directly:</p>
+            <form method="post" action="/admin/donations/import-csv" style="margin-bottom:24px;">
+              <div style="margin-bottom:12px;">
+                <label style="display:block;margin-bottom:4px;font-weight:600;">CSV Content</label>
+                <textarea name="csv" rows="8" style="width:100%;padding:8px;border-radius:6px;border:1px solid #555;background:#0a0a0a;color:#fff;font-family:monospace;font-size:12px;" placeholder="Paste CSV content here..."></textarea>
+                <div style="font-size:12px;opacity:0.7;margin-top:4px;">Include the header row. We'll detect columns like: email, amount, date, currency, transaction_id, etc.</div>
+              </div>
+              <button type="submit" class="ta-btn ta-btn-outline">Import from Text</button>
             </form>
             
             <hr style="border:none;border-top:1px solid #333;margin:24px 0;" />
@@ -9356,9 +9367,31 @@ app.post('/admin/donations/add', requireAdmin, async (req, res) => {
   }
 });
 
-app.post('/admin/donations/import-csv', requireAdmin, express.urlencoded({ extended: true, limit: '10mb' }), async (req, res) => {
+// Configure multer for file uploads (memory storage for CSV)
+const upload = multer({ 
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype === 'text/csv' || file.originalname.endsWith('.csv')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only CSV files are allowed'));
+    }
+  }
+});
+
+app.post('/admin/donations/import-csv', requireAdmin, upload.single('csvfile'), express.urlencoded({ extended: true, limit: '10mb' }), async (req, res) => {
   try {
-    const csvContent = String(req.body.csv || '').trim();
+    // Get CSV content from file upload or textarea
+    let csvContent = '';
+    if (req.file) {
+      // File was uploaded
+      csvContent = req.file.buffer.toString('utf8');
+    } else {
+      // Text was pasted
+      csvContent = String(req.body.csv || '').trim();
+    }
+    
     if (!csvContent) {
       return res.redirect('/admin/donations?msg=No CSV content provided');
     }
