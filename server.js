@@ -8409,12 +8409,38 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
     }
     // Build nav and sections
     const qList = Array.from(byQ.values()).sort((a,b)=>a.number-b.number);
+    
+    // Pre-fetch all question IDs and accepted answers to avoid async in map
+    const questionIds = new Map();
+    const acceptedAnswersCache = new Map(); // questionId -> Set of normalized accepted answers
+    for (const sec of qList) {
+      const qIdResult = await pool.query('SELECT id FROM questions WHERE quiz_id=$1 AND number=$2', [id, sec.number]);
+      if (qIdResult.rows.length > 0) {
+        const questionId = qIdResult.rows[0].id;
+        questionIds.set(sec.number, questionId);
+        
+        // Pre-fetch all accepted answers for this question
+        const acceptedRows = await pool.query(
+          'SELECT response_text FROM responses WHERE question_id=$1 AND override_correct=true',
+          [questionId]
+        );
+        const acceptedNorms = new Set();
+        for (const row of acceptedRows.rows) {
+          const norm = normalizeAnswer(row.response_text || '');
+          if (norm) acceptedNorms.add(norm);
+        }
+        acceptedAnswersCache.set(questionId, acceptedNorms);
+      }
+    }
+    
     const nav = qList.map(sec => {
       // count ungraded groups (matching the display filter logic)
       // Count groups that would be shown in "awaiting review" mode
       let ungraded = 0;
       let flaggedCount = 0;
       const allGroups = Array.from(sec.answers.entries());
+      const questionId = questionIds.get(sec.number);
+      const acceptedNorms = questionId ? acceptedAnswersCache.get(questionId) : new Set();
       
       for (const [ans, arr] of allGroups) {
         if (arr.length === 0) continue;
@@ -8433,17 +8459,20 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
         if (anyFlagged) flaggedCount++;
         
         // Check if this group would be shown in "awaiting review" mode
+        // CRITICAL: Must check BOTH auto-correct AND manually accepted answers
         const auto = isCorrectAnswer(firstText, sec.answer);
+        const normText = normalizeAnswer(firstText);
+        const accepted = acceptedNorms.has(normText);
         const hasOverride = overrides.some(v => v !== null);
         
         // CRITICAL: A group is "ungraded" (needs review) if:
         // - Flagged (needs attention)
         // - Mixed (inconsistent state, needs fixing)
-        // - NOT auto-correct AND has NO override (truly awaiting review)
+        // - NOT auto-correct AND NOT manually accepted AND has NO override (truly awaiting review)
         // 
         // Groups with overrides (even if false/rejected) are NOT ungraded - they've been reviewed
-        // Groups that are auto-correct are NOT ungraded - they're automatically correct
-        const isUngraded = anyFlagged || isMixed || (!auto && !hasOverride);
+        // Groups that are auto-correct OR manually accepted are NOT ungraded - they're correct
+        const isUngraded = anyFlagged || isMixed || (!auto && !accepted && !hasOverride);
         
         if (isUngraded) {
           ungraded++;
