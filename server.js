@@ -9355,6 +9355,11 @@ app.post('/admin/quiz/:id/edit-response', requireAdmin, async (req, res) => {
     // Only preserve existing submitted_at, never set it to a new date
     const submittedAt = existing && existing.submitted_at ? existing.submitted_at : null;
     
+    // Get old response text to check if normalized text changed
+    const oldResponseText = existing ? (existing.response_text || '').trim() : '';
+    const oldNorm = normalizeAnswer(oldResponseText);
+    const newNorm = normalizeAnswer(responseText);
+    
     if (existing) {
       // Update existing response
       await pool.query(
@@ -9370,6 +9375,40 @@ app.post('/admin/quiz/:id/edit-response', requireAdmin, async (req, res) => {
          VALUES ($1, $2, $3, $4, $5, $6)`,
         [quizId, questionId, userEmail, responseText, isLocked, null]
       );
+    }
+    
+    // CRITICAL: If response text changed and this is a submitted response, ensure consistency
+    // If the new normalized text matches other responses with overrides, apply the same override
+    if (submittedAt && newNorm !== oldNorm && newNorm) {
+      // Find all responses with the same normalized text for this question
+      const allMatching = await pool.query(
+        'SELECT id, response_text, override_correct FROM responses WHERE question_id=$1 AND submitted_at IS NOT NULL',
+        [questionId]
+      );
+      
+      const matchingGroup = [];
+      for (const r of allMatching.rows) {
+        const rNorm = normalizeAnswer(r.response_text || '');
+        if (rNorm === newNorm) {
+          matchingGroup.push(r);
+        }
+      }
+      
+      // Check if any in the group have an override
+      const overrideValues = matchingGroup.map(r => r.override_correct).filter(v => v !== null);
+      if (overrideValues.length > 0) {
+        // Use the most common override value, or true if tied
+        const trueCount = overrideValues.filter(v => v === true).length;
+        const falseCount = overrideValues.filter(v => v === false).length;
+        const targetOverride = trueCount >= falseCount ? true : false;
+        
+        // Update ALL responses with this normalized text to have the same override
+        const matchingIds = matchingGroup.map(r => r.id);
+        await pool.query(
+          'UPDATE responses SET override_correct = $1, override_version = COALESCE(override_version, 0) + 1, override_updated_at = NOW(), override_updated_by = $3 WHERE id = ANY($2)',
+          [targetOverride, matchingIds, getAdminEmail() || 'admin']
+        );
+      }
     }
     
     // If locking this question, unlock all other questions for this user/quiz
