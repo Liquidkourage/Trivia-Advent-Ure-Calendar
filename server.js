@@ -9004,11 +9004,15 @@ app.post('/admin/quiz/:id/fix-mixed', requireAdmin, async (req, res) => {
       }
       
       // Check each group for mixed states and fix them
+      // Also fix groups where some are accepted (true) and some are ungraded (NULL)
       for (const [norm, group] of normGroups.entries()) {
         const overrideValues = group.map(r => r.override_correct).filter(v => v !== null);
+        const nullValues = group.filter(r => r.override_correct === null);
         const hasTrue = overrideValues.some(v => v === true);
         const hasFalse = overrideValues.some(v => v === false);
+        const hasNull = nullValues.length > 0;
         
+        // Fix mixed states: some TRUE and some FALSE
         if (hasTrue && hasFalse) {
           // Mixed state detected - determine the correct value
           let fixValue;
@@ -9036,6 +9040,19 @@ app.post('/admin/quiz/:id/fix-mixed', requireAdmin, async (req, res) => {
           
           fixedCount++;
           console.log(`[fix-mixed] Q${question.number}: Fixed ${fixIds.length} responses with norm "${norm}" to ${fixValue} (accepted: ${acceptedNorms.has(norm)}, hasTrue: ${hasTrue}, ${overrideValues.filter(v => v === true).length} true, ${overrideValues.filter(v => v === false).length} false)`);
+        }
+        // Fix groups where some are accepted (true) and some are ungraded (NULL)
+        // If the normalized text is accepted, all NULL responses should be set to TRUE
+        else if (hasTrue && hasNull && (acceptedNorms.has(norm) || hasTrue)) {
+          const nullIds = nullValues.map(r => r.id);
+          
+          await pool.query(
+            'UPDATE responses SET override_correct = TRUE, override_version = COALESCE(override_version, 0) + 1, override_updated_at = NOW(), override_updated_by = $2 WHERE id = ANY($1)',
+            [nullIds, getAdminEmail() || 'admin']
+          );
+          
+          fixedCount++;
+          console.log(`[fix-mixed] Q${question.number}: Fixed ${nullIds.length} ungraded responses with norm "${norm}" to TRUE (accepted answer)`);
         }
       }
     }
