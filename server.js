@@ -7243,6 +7243,7 @@ app.get('/admin/quizzes', requireAdmin, async (req, res) => {
           <a href="/admin/quiz/${q.id}" class="ta-btn ta-btn-small" style="margin-right:4px;">View/Edit</a>
           <a href="/admin/quiz/${q.id}/analytics" class="ta-btn ta-btn-small" style="margin-right:4px;">Analytics</a>
           <a href="/admin/quiz/${q.id}/grade" class="ta-btn ta-btn-small" style="margin-right:4px;">Grade</a>
+          <a href="/admin/quiz/${q.id}/responses" class="ta-btn ta-btn-small" style="margin-right:4px;">Responses</a>
           <a href="/quiz/${q.id}?preview=player" class="ta-btn ta-btn-small" style="margin-right:4px;">Preview</a>
           <a href="/quiz/${q.id}" class="ta-btn ta-btn-small">Open</a>
         </td>
