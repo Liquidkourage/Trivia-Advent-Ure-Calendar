@@ -1164,6 +1164,7 @@ async function gradeQuiz(pool, quizId, userEmail) {
       // Only allow manual override if NOT blank
       const correctLocked = (r && typeof r.override_correct === 'boolean' && !isBlank) ? r.override_correct : (auto || accepted);
       const pts = correctLocked ? 5 : 0;
+      console.log(`[gradeQuiz] Q${q.number} (LOCKED): correct=${correctLocked}, points=${pts}, streak=${streak} (unchanged), total before=${total}, total after=${total + pts}`);
       graded.push({ questionId: q.id, number: q.number, locked: true, correct: correctLocked, points: pts, given: responseText, answer: q.answer });
       total += pts;
       await pool.query('UPDATE responses SET points = $4 WHERE quiz_id=$1 AND user_email=$2 AND question_id=$3', [quizId, userEmail, q.id, pts]);
@@ -1188,6 +1189,7 @@ async function gradeQuiz(pool, quizId, userEmail) {
     if (correct) {
       streak += 1;
       total += streak;
+      console.log(`[gradeQuiz] Q${q.number} (non-locked): correct=true, streak=${streak}, points=${streak}, total before=${total - streak}, total after=${total}`);
       const updateResult = await pool.query('UPDATE responses SET points = $4 WHERE quiz_id=$1 AND user_email=$2 AND question_id=$3', [quizId, userEmail, q.id, streak]);
       if (updateResult.rowCount === 0) {
         console.warn(`[gradeQuiz] Failed to update points for quiz ${quizId}, user ${userEmail}, question ${q.id} - no rows affected`);
