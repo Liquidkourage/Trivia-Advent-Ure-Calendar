@@ -1060,8 +1060,14 @@ function normalizeAnswer(s) {
 }
 
 function isCorrectAnswer(given, correct) {
+  // Blank responses are NEVER correct
+  const givenStr = String(given || '').trim();
+  if (!givenStr) return false;
+  
   const raw = String(correct || '');
   const gNorm = normalizeAnswer(given);
+  if (!gNorm) return false; // Double-check normalized is not blank
+  
   const variants = raw.split('|').map(v => v.trim()).filter(Boolean);
   for (const v of variants) {
     // regex variant: /pattern/i
@@ -1110,22 +1116,43 @@ async function gradeQuiz(pool, quizId, userEmail) {
   const graded = [];
   for (const q of qs) {
     const r = qIdToResp.get(q.id);
+    const responseText = r ? (r.response_text || '').trim() : '';
+    const isBlank = !responseText;
     const locked = !!(r && r.locked);
+    
     if (locked) {
-      const auto = r ? isCorrectAnswer(r.response_text, q.answer) : false;
+      // Blank locked responses are NEVER correct, even with manual override
+      if (isBlank) {
+        const pts = 0;
+        graded.push({ questionId: q.id, number: q.number, locked: true, correct: false, points: pts, given: '', answer: q.answer });
+        await pool.query('UPDATE responses SET points = $4, override_correct = FALSE WHERE quiz_id=$1 AND user_email=$2 AND question_id=$3', [quizId, userEmail, q.id, pts]);
+        continue;
+      }
+      const auto = isCorrectAnswer(responseText, q.answer);
       // Check if this normalized answer has been manually accepted before
-      const accepted = r ? await isAcceptedAnswer(pool, q.id, r.response_text) : false;
-      const correctLocked = (r && typeof r.override_correct === 'boolean') ? r.override_correct : (auto || accepted);
+      const accepted = await isAcceptedAnswer(pool, q.id, responseText);
+      // Only allow manual override if NOT blank
+      const correctLocked = (r && typeof r.override_correct === 'boolean' && !isBlank) ? r.override_correct : (auto || accepted);
       const pts = correctLocked ? 5 : 0;
-      graded.push({ questionId: q.id, number: q.number, locked: true, correct: correctLocked, points: pts, given: r ? r.response_text : '', answer: q.answer });
+      graded.push({ questionId: q.id, number: q.number, locked: true, correct: correctLocked, points: pts, given: responseText, answer: q.answer });
       total += pts;
       await pool.query('UPDATE responses SET points = $4 WHERE quiz_id=$1 AND user_email=$2 AND question_id=$3', [quizId, userEmail, q.id, pts]);
       // streak unchanged
       continue;
     }
-    const auto = r ? isCorrectAnswer(r.response_text, q.answer) : false;
+    
+    // Blank non-locked responses are NEVER correct
+    if (isBlank) {
+      streak = 0;
+      if (r) await pool.query('UPDATE responses SET points = 0, override_correct = FALSE WHERE quiz_id=$1 AND user_email=$2 AND question_id=$3', [quizId, userEmail, q.id]);
+      graded.push({ questionId: q.id, number: q.number, locked: false, correct: false, points: 0, given: '', answer: q.answer });
+      continue;
+    }
+    
+    const auto = isCorrectAnswer(responseText, q.answer);
     // Check if this normalized answer has been manually accepted before
-    const accepted = r ? await isAcceptedAnswer(pool, q.id, r.response_text) : false;
+    const accepted = await isAcceptedAnswer(pool, q.id, responseText);
+    // Only allow manual override if NOT blank (already checked above)
     const correct = (r && typeof r.override_correct === 'boolean') ? r.override_correct : (auto || accepted);
     if (correct) {
       streak += 1;
@@ -1135,7 +1162,7 @@ async function gradeQuiz(pool, quizId, userEmail) {
       streak = 0;
       if (r) await pool.query('UPDATE responses SET points = 0 WHERE quiz_id=$1 AND user_email=$2 AND question_id=$3', [quizId, userEmail, q.id]);
     }
-    graded.push({ questionId: q.id, number: q.number, locked: false, correct, points: correct ? streak : 0, given: r ? r.response_text : '', answer: q.answer });
+    graded.push({ questionId: q.id, number: q.number, locked: false, correct, points: correct ? streak : 0, given: responseText, answer: q.answer });
   }
   return { total, graded };
 }
@@ -1320,7 +1347,7 @@ app.get('/account', requireAuth, async (req, res) => {
         SELECT 
           COUNT(DISTINCT r.quiz_id) as total_quizzes,
           COUNT(DISTINCT r.question_id) as total_questions,
-          SUM(CASE WHEN r.override_correct = true OR (r.override_correct IS NULL AND LOWER(TRIM(r.response_text)) = LOWER(TRIM(qq.answer))) THEN 1 ELSE 0 END) as correct_answers
+          SUM(CASE WHEN (r.override_correct = true AND r.response_text IS NOT NULL AND TRIM(r.response_text) != '') OR (r.override_correct IS NULL AND r.response_text IS NOT NULL AND TRIM(r.response_text) != '' AND LOWER(TRIM(r.response_text)) = LOWER(TRIM(qq.answer))) THEN 1 ELSE 0 END) as correct_answers
         FROM responses r
         JOIN questions qq ON qq.id = r.question_id
         WHERE r.user_email = $1
@@ -1946,7 +1973,7 @@ app.get('/account/history', requireAuth, async (req, res) => {
         q.author,
         COUNT(DISTINCT r.question_id) as questions_answered,
         COUNT(DISTINCT qq.id) as total_questions,
-        SUM(CASE WHEN r.override_correct = true OR (r.override_correct IS NULL AND LOWER(TRIM(r.response_text)) = LOWER(TRIM(qq.answer))) THEN 1 ELSE 0 END) as correct_count,
+        SUM(CASE WHEN (r.override_correct = true AND r.response_text IS NOT NULL AND TRIM(r.response_text) != '') OR (r.override_correct IS NULL AND r.response_text IS NOT NULL AND TRIM(r.response_text) != '' AND LOWER(TRIM(r.response_text)) = LOWER(TRIM(qq.answer))) THEN 1 ELSE 0 END) as correct_count,
         SUM(r.points) as total_points,
         MIN(r.created_at) as first_response,
         MAX(r.created_at) as last_response
@@ -2070,7 +2097,7 @@ app.get('/account/export', requireAuth, async (req, res) => {
         q.author,
         COUNT(DISTINCT r.question_id) as questions_answered,
         COUNT(DISTINCT qq.id) as total_questions,
-        SUM(CASE WHEN r.override_correct = true OR (r.override_correct IS NULL AND LOWER(TRIM(r.response_text)) = LOWER(TRIM(qq.answer))) THEN 1 ELSE 0 END) as correct_count,
+        SUM(CASE WHEN (r.override_correct = true AND r.response_text IS NOT NULL AND TRIM(r.response_text) != '') OR (r.override_correct IS NULL AND r.response_text IS NOT NULL AND TRIM(r.response_text) != '' AND LOWER(TRIM(r.response_text)) = LOWER(TRIM(qq.answer))) THEN 1 ELSE 0 END) as correct_count,
         SUM(r.points) as total_points
       FROM quizzes q
       LEFT JOIN questions qq ON qq.quiz_id = q.id
@@ -3234,7 +3261,7 @@ app.get('/player', requireAuth, async (req, res) => {
       SELECT 
         COUNT(DISTINCT r.quiz_id) as total_quizzes,
         COUNT(DISTINCT r.question_id) as total_questions,
-        SUM(CASE WHEN r.override_correct = true OR (r.override_correct IS NULL AND LOWER(TRIM(r.response_text)) = LOWER(TRIM(qq.answer))) THEN 1 ELSE 0 END) as correct_answers,
+        SUM(CASE WHEN (r.override_correct = true AND r.response_text IS NOT NULL AND TRIM(r.response_text) != '') OR (r.override_correct IS NULL AND r.response_text IS NOT NULL AND TRIM(r.response_text) != '' AND LOWER(TRIM(r.response_text)) = LOWER(TRIM(qq.answer))) THEN 1 ELSE 0 END) as correct_answers,
         COALESCE(SUM(r.points), 0) as total_points
       FROM responses r
       JOIN questions qq ON qq.id = r.question_id
@@ -3255,7 +3282,7 @@ app.get('/player', requireAuth, async (req, res) => {
         q.unlock_at,
         COUNT(DISTINCT r.question_id) as questions_answered,
         COUNT(DISTINCT qq.id) as total_questions,
-        SUM(CASE WHEN r.override_correct = true OR (r.override_correct IS NULL AND LOWER(TRIM(r.response_text)) = LOWER(TRIM(qq.answer))) THEN 1 ELSE 0 END) as correct_count,
+        SUM(CASE WHEN (r.override_correct = true AND r.response_text IS NOT NULL AND TRIM(r.response_text) != '') OR (r.override_correct IS NULL AND r.response_text IS NOT NULL AND TRIM(r.response_text) != '' AND LOWER(TRIM(r.response_text)) = LOWER(TRIM(qq.answer))) THEN 1 ELSE 0 END) as correct_count,
         SUM(r.points) as points
       FROM quizzes q
       LEFT JOIN questions qq ON qq.quiz_id = q.id
@@ -6802,7 +6829,7 @@ app.get('/quizmas/leaderboard', async (req, res) => {
       const statsResult = await pool.query(`
         SELECT 
           COUNT(DISTINCT r.quiz_id) as quizzes_submitted,
-          COUNT(CASE WHEN r.override_correct = true OR (r.override_correct IS NULL AND LOWER(TRIM(r.response_text)) = LOWER(TRIM(q.answer))) THEN 1 END) as correct_count,
+          COUNT(CASE WHEN (r.override_correct = true AND r.response_text IS NOT NULL AND TRIM(r.response_text) != '') OR (r.override_correct IS NULL AND r.response_text IS NOT NULL AND TRIM(r.response_text) != '' AND LOWER(TRIM(r.response_text)) = LOWER(TRIM(q.answer))) THEN 1 END) as correct_count,
           SUM(r.points) as total_points
         FROM responses r
         JOIN questions q ON q.id = r.question_id
@@ -7024,7 +7051,7 @@ app.get('/leaderboard', async (req, res) => {
       const statsResult = await pool.query(`
         SELECT 
           COUNT(DISTINCT r.quiz_id) as quizzes_submitted,
-          COUNT(CASE WHEN r.override_correct = true OR (r.override_correct IS NULL AND LOWER(TRIM(r.response_text)) = LOWER(TRIM(q.answer))) THEN 1 END) as correct_count,
+          COUNT(CASE WHEN (r.override_correct = true AND r.response_text IS NOT NULL AND TRIM(r.response_text) != '') OR (r.override_correct IS NULL AND r.response_text IS NOT NULL AND TRIM(r.response_text) != '' AND LOWER(TRIM(r.response_text)) = LOWER(TRIM(q.answer))) THEN 1 END) as correct_count,
           SUM(r.points) as total_points
         FROM responses r
         JOIN questions q ON q.id = r.question_id
@@ -7783,11 +7810,17 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
       // Build rows: awaiting only (default) or all (when show=all)
       let list = Array.from(sec.answers.entries());
       const includeAllForThis = showSet.has(sec.number);
-      if (!includeAllForThis) {
+      // ALWAYS filter out blank responses - they should never appear on grading page
         list = list.filter(([ans, arr]) => {
           if (arr.length === 0) return false;
+        const firstText = (arr[0].response_text || '').trim();
+        if (!firstText || normalizeAnswer(firstText) === '') return false; // blanks NEVER shown
+        return true;
+      });
+      
+      if (!includeAllForThis) {
+        list = list.filter(([ans, arr]) => {
           const firstText = arr[0].response_text || '';
-          if (normalizeAnswer(firstText) === '') return false; // blanks auto-rejected, do not show
           const auto = isCorrectAnswer(firstText, sec.answer);
           const hasOverride = arr.some(r => typeof r.override_correct === 'boolean');
           const anyFlagged = arr.some(r => r.flagged === true);
@@ -7953,12 +7986,16 @@ app.post('/admin/quiz/:id/override-all', requireAdmin, async (req, res) => {
     if (q.rows.length === 0) return res.status(404).send('Question not found');
     const questionId = q.rows[0].id;
     let val = null;
-    if (action === 'accept') val = true;
-    else if (action === 'reject') val = false;
-    const updatedBy = getAdminEmail() || 'admin';
-    if (action === 'accept' || action === 'reject') {
-      await pool.query('UPDATE responses SET override_correct = $1, flagged = FALSE, override_version = override_version + 1, override_updated_at = NOW(), override_updated_by = $3 WHERE question_id=$2', [val, questionId, updatedBy]);
+    if (action === 'accept') {
+      val = true;
+      // When accepting all, exclude blank responses - they can NEVER be correct
+      await pool.query(`UPDATE responses SET override_correct = $1, flagged = FALSE, override_version = override_version + 1, override_updated_at = NOW(), override_updated_by = $3 
+        WHERE question_id=$2 AND response_text IS NOT NULL AND TRIM(response_text) != ''`, [val, questionId, getAdminEmail() || 'admin']);
+    } else if (action === 'reject') {
+      val = false;
+      await pool.query('UPDATE responses SET override_correct = $1, flagged = FALSE, override_version = override_version + 1, override_updated_at = NOW(), override_updated_by = $3 WHERE question_id=$2', [val, questionId, getAdminEmail() || 'admin']);
     } else {
+      const updatedBy = getAdminEmail() || 'admin';
       await pool.query('UPDATE responses SET override_correct = $1, override_version = override_version + 1, override_updated_at = NOW(), override_updated_by = $3 WHERE question_id=$2', [val, questionId, updatedBy]);
     }
     res.redirect(`/admin/quiz/${quizId}/grade`);
@@ -7986,6 +8023,12 @@ app.post('/admin/quiz/:id/regrade', requireAdmin, async (req, res) => {
 app.get('/admin/quiz/:id/responses', requireAdmin, async (req, res) => {
   try {
     const quizId = Number(req.params.id);
+    
+    // Helper function to escape HTML
+    const escapeHtml = (text) => {
+      return String(text || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+    };
+    
     const quiz = (await pool.query('SELECT * FROM quizzes WHERE id=$1', [quizId])).rows[0];
     if (!quiz) return res.status(404).send('Quiz not found');
     
@@ -8055,18 +8098,45 @@ app.get('/admin/quiz/:id/responses', requireAdmin, async (req, res) => {
       // Build response rows
       const responseRows = questions.map(q => {
         const resp = responses.find(r => r.question_number === q.number);
+        const hasResponse = !!resp;
+        const responseText = resp ? (resp.response_text || '').trim() : '';
+        const isEmpty = hasResponse && !responseText;
         const isLocked = resp && resp.locked;
-        const isCorrect = resp ? (resp.override_correct === true || 
-          (resp.override_correct === null && resp.response_text && 
-           normalizeAnswer(resp.response_text) === normalizeAnswer(q.answer))) : false;
+        // Blank responses are NEVER correct, even with manual override
+        const isCorrect = isEmpty ? false : (resp ? (resp.override_correct === true || 
+          (resp.override_correct === null && responseText && 
+           normalizeAnswer(responseText) === normalizeAnswer(q.answer))) : false);
+        const isManuallyOverridden = resp && typeof resp.override_correct === 'boolean' && !isEmpty;
+        
+        // Determine response display
+        let responseDisplay = '';
+        if (!hasResponse) {
+          responseDisplay = '<em style="color:#888;">Not answered</em>';
+        } else if (isEmpty) {
+          responseDisplay = '<em style="color:#ff9800;">(blank)</em>';
+        } else {
+          responseDisplay = escapeHtml(responseText);
+        }
+        
+        // Determine correctness display with override indicator
+        let correctnessDisplay = '-';
+        if (hasResponse) {
+          const symbol = isCorrect ? '✓' : '✗';
+          const color = isCorrect ? '#4caf50' : '#f44336';
+          if (isManuallyOverridden) {
+            correctnessDisplay = `<span style="color:${color};">${symbol}</span> <span style="font-size:10px;color:#888;">(manual)</span>`;
+          } else {
+            correctnessDisplay = `<span style="color:${color};">${symbol}</span>`;
+          }
+        }
         
         return `
-          <tr${isLocked ? ' style="background:rgba(255,215,0,0.1);"' : ''}>
+          <tr${isLocked ? ' style="background:rgba(255,215,0,0.15);border-left:3px solid #ffd700;"' : ''}>
             <td style="font-weight:bold;">Q${q.number}${isLocked ? ' 🔒' : ''}</td>
-            <td>${q.text.substring(0, 100)}${q.text.length > 100 ? '...' : ''}</td>
-            <td>${resp ? (resp.response_text || '<em>No answer</em>') : '<em>Not answered</em>'}</td>
-            <td>${q.answer}</td>
-            <td style="color:${isCorrect ? '#4caf50' : '#f44336'};">${resp ? (isCorrect ? '✓' : '✗') : '-'}</td>
+            <td>${escapeHtml(q.text.substring(0, 100))}${q.text.length > 100 ? '...' : ''}</td>
+            <td>${responseDisplay}</td>
+            <td>${escapeHtml(q.answer)}</td>
+            <td>${correctnessDisplay}</td>
             <td>${resp ? (resp.points || 0) : 0}</td>
           </tr>
         `;
@@ -8079,7 +8149,7 @@ app.get('/admin/quiz/:id/responses', requireAdmin, async (req, res) => {
               <h3 style="margin:0 0 8px 0;color:#ffd700;">${displayName}</h3>
               <div style="font-size:14px;opacity:0.7;">
                 ${player.email || player.user_email}
-                ${lockedQuestion ? ` • Locked Q${lockedQuestion}` : ''}
+                ${lockedQuestion ? ` • <strong style="color:#ffd700;">🔒 Locked Q${lockedQuestion}</strong>` : ''}
                 • Total: ${totalPoints} pts
               </div>
             </div>
@@ -8209,7 +8279,7 @@ app.get('/admin/quiz/:id/analytics', requireAdmin, async (req, res) => {
       SELECT 
         r.user_email,
         COUNT(DISTINCT r.question_id) as questions_answered,
-        SUM(CASE WHEN r.override_correct = true OR (r.override_correct IS NULL AND LOWER(TRIM(r.response_text)) = LOWER(TRIM(q.answer))) THEN 1 ELSE 0 END) as correct_count
+        SUM(CASE WHEN (r.override_correct = true AND r.response_text IS NOT NULL AND TRIM(r.response_text) != '') OR (r.override_correct IS NULL AND r.response_text IS NOT NULL AND TRIM(r.response_text) != '' AND LOWER(TRIM(r.response_text)) = LOWER(TRIM(q.answer))) THEN 1 ELSE 0 END) as correct_count
       FROM responses r
       JOIN questions q ON q.id = r.question_id
       WHERE r.quiz_id=$1
@@ -9254,7 +9324,7 @@ app.get('/admin/players/:email', requireAdmin, async (req, res) => {
         q.author,
         COUNT(DISTINCT r.question_id) as questions_answered,
         COUNT(DISTINCT qq.id) as total_questions,
-        SUM(CASE WHEN r.override_correct = true OR (r.override_correct IS NULL AND LOWER(TRIM(r.response_text)) = LOWER(TRIM(qq.answer))) THEN 1 ELSE 0 END) as correct_count,
+        SUM(CASE WHEN (r.override_correct = true AND r.response_text IS NOT NULL AND TRIM(r.response_text) != '') OR (r.override_correct IS NULL AND r.response_text IS NOT NULL AND TRIM(r.response_text) != '' AND LOWER(TRIM(r.response_text)) = LOWER(TRIM(qq.answer))) THEN 1 ELSE 0 END) as correct_count,
         SUM(r.points) as total_points,
         MIN(r.created_at) as first_response,
         MAX(r.created_at) as last_response
@@ -10079,7 +10149,7 @@ app.post('/admin/announcements', requireAdmin, express.urlencoded({ extended: tr
       await sendHTMLEmail(fromHeader, subject, htmlContent, { bcc: recipientEmails });
       sent = recipientEmails.length;
       console.log(`[announcements] Sent to ${sent} recipients via BCC`);
-    } catch (e) {
+      } catch (e) {
       failed = recipientEmails.length;
       errors.push({ error: e.message || String(e) });
       console.error('Failed to send announcement:', e);
