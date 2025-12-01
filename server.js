@@ -3914,100 +3914,25 @@ app.get('/calendar', async (req, res) => {
             function setupDoors(){
               var doors = document.querySelectorAll('.ta-door');
               doors.forEach(function(d){
-                // CRITICAL FIX: Attach handlers directly to buttons FIRST (before door handler)
-                // This ensures button clicks are handled at the source before door handler can interfere
-                var slotButtons = d.querySelectorAll('.slot-btn');
-                slotButtons.forEach(function(btn){
-                  btn.addEventListener('click', function(e){
-                    var door = btn.closest('.ta-door');
-                    // Only block if door is closed or was just opened
+                // SIMPLIFIED: Only handle clicks on the door itself, NOT on buttons
+                // Buttons are links - let them work naturally when door is open
+                d.addEventListener('click', function(e){
+                  // If clicking on a button/link, let it work naturally - don't interfere
+                  if (e.target.closest('.slot-btn')) {
+                    var door = e.target.closest('.ta-door');
+                    // Only block if door is closed
                     if (!door || !door.classList.contains('is-open')) {
                       e.preventDefault();
                       e.stopPropagation();
-                      e.stopImmediatePropagation();
                       return false;
                     }
-                    if (recentlyOpened.has(door)) {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      e.stopImmediatePropagation();
-                      return false;
-                    }
-                    // Door is open and not recently opened - allow navigation
-                    // Stop immediate propagation to prevent door handler from running
-                    // But allow normal propagation so link navigation works
-                    e.stopImmediatePropagation();
-                  }, true); // Capture phase - runs BEFORE door handler
-                });
-                
-                // Handle touch events first to prevent double-firing
-                if ('ontouchstart' in window) {
-                  d.addEventListener('touchstart', function(e){
-                    // Block touch on buttons when door is closed
-                    if (e.target.closest('.slot-btn')) {
-                      var door = e.target.closest('.ta-door');
-                      if (!door || !door.classList.contains('is-open')) {
-                        return;
-                      }
-                    }
-                    if (!e.target.closest('.slot-btn')) {
-                      touchStartDoor = d;
-                      touchStartTime = Date.now();
-                    }
-                  }, { passive: true });
-                  
-                  d.addEventListener('touchend', function(e){
-                    // Block touch on buttons when door is closed
-                    if (e.target.closest('.slot-btn')) {
-                      var door = e.target.closest('.ta-door');
-                      if (!door || !door.classList.contains('is-open')) {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        return false;
-                      }
-                      if (recentlyOpened.has(door)) {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        return false;
-                      }
-                      return; // Let button handle its own navigation
-                    }
-                    
-                    var touchDuration = Date.now() - touchStartTime;
-                    // Only handle quick taps (not long press or swipe)
-                    if (touchStartDoor === d && touchDuration < 300) {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      e.stopImmediatePropagation();
-                      handleDoorClick(e);
-                      // Block click event for longer
-                      setTimeout(function(){
-                        touchStartDoor = null;
-                      }, 300);
-                    } else {
-                      touchStartDoor = null;
-                    }
-                  }, { passive: false });
-                  
-                  // Also prevent click on touch devices
-                  d.addEventListener('click', function(e){
-                    if (touchStartDoor === d || recentlyOpened.has(d)) {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      e.stopImmediatePropagation();
-                      return false;
-                    }
-                  }, true);
-                } else {
-                  // Use click for desktop
-                  // Button handlers run first in capture phase and stop immediate propagation
-                  // So this handler only runs for non-button clicks (door front/back)
-                  d.addEventListener('click', function(e){
-                    // If this handler runs, it means button handler didn't stop immediate propagation
-                    // So this is a click on the door itself, not a button
-                    handleDoorClick(e);
-                  }, false); // Bubble phase - button handlers run first in capture phase
-                }
+                    // Door is open - let the link navigate naturally
+                    // Don't call handleDoorClick, don't prevent default, don't stop propagation
+                    return;
+                  }
+                  // Not clicking on a button - handle door toggle
+                  handleDoorClick(e);
+                }, false); // Bubble phase - let link navigation work first
               });
             }
             
