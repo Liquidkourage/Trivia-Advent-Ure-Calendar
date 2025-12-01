@@ -3349,7 +3349,7 @@ app.get('/player', requireAuth, async (req, res) => {
         COALESCE(SUM(r.points), 0) as total_points
       FROM responses r
       JOIN questions qq ON qq.id = r.question_id
-      WHERE r.user_email = $1
+      WHERE r.user_email = $1 AND r.submitted_at IS NOT NULL
     `, [email]);
     if (statsResult.rows.length) {
       stats.totalQuizzes = parseInt(statsResult.rows[0].total_quizzes) || 0;
@@ -3370,8 +3370,8 @@ app.get('/player', requireAuth, async (req, res) => {
         SUM(r.points) as points
       FROM quizzes q
       LEFT JOIN questions qq ON qq.quiz_id = q.id
-      LEFT JOIN responses r ON r.quiz_id = q.id AND r.user_email = $1 AND r.question_id = qq.id
-      WHERE EXISTS (SELECT 1 FROM responses r2 WHERE r2.quiz_id = q.id AND r2.user_email = $1)
+      LEFT JOIN responses r ON r.quiz_id = q.id AND r.user_email = $1 AND r.question_id = qq.id AND r.submitted_at IS NOT NULL
+      WHERE EXISTS (SELECT 1 FROM responses r2 WHERE r2.quiz_id = q.id AND r2.user_email = $1 AND r2.submitted_at IS NOT NULL)
       GROUP BY q.id, q.title, q.unlock_at
       ORDER BY q.unlock_at DESC
       LIMIT 5
@@ -9297,7 +9297,7 @@ app.get('/admin/quiz/:id/analytics', requireAdmin, async (req, res) => {
     const participants = (await pool.query(`
       SELECT COUNT(DISTINCT user_email) as count
       FROM responses
-      WHERE quiz_id=$1
+      WHERE quiz_id=$1 AND submitted_at IS NOT NULL
     `, [quizId])).rows[0].count;
     const participationRate = totalPlayers > 0 ? ((participants / totalPlayers) * 100).toFixed(1) : 0;
     
@@ -9310,7 +9310,7 @@ app.get('/admin/quiz/:id/analytics', requireAdmin, async (req, res) => {
           r.created_at,
           COUNT(*) as response_count
         FROM responses r
-        WHERE r.question_id=$1
+        WHERE r.question_id=$1 AND r.submitted_at IS NOT NULL
         GROUP BY r.response_text, r.override_correct, r.created_at
         ORDER BY response_count DESC
       `, [q.id])).rows;
