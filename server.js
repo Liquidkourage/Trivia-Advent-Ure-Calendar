@@ -10918,6 +10918,7 @@ app.get('/admin/quiz/:id/responses', requireAdmin, async (req, res) => {
           <div style="margin-bottom:24px;">
             <a href="/admin/quiz/${quizId}/grade" class="ta-btn ta-btn-primary" style="margin-right:8px;">Grade Responses</a>
             <a href="/admin/quiz/${quizId}" class="ta-btn ta-btn-outline" style="margin-right:8px;">Edit Quiz</a>
+            <a href="/admin/responses?quiz_id=${quizId}" class="ta-btn ta-btn-outline" style="margin-right:8px;">Browse All Responses</a>
             <a href="/admin/quizzes" class="ta-btn ta-btn-outline">Back to Quizzes</a>
             <a href="/admin/quiz/${quizId}/responses?show_all=${showAll ? 'false' : 'true'}${req.query.show_submitted_only ? '&show_submitted_only=' + req.query.show_submitted_only : ''}" class="ta-btn ta-btn-outline" style="background:${showAll ? '#2a4a1a' : '#1a1a1a'};border-color:${showAll ? '#55cc55' : '#444'};">
               ${showAll ? '✓ Showing All Players' : 'Show All Players'}
