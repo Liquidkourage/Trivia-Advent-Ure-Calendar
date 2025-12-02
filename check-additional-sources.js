@@ -2,8 +2,11 @@
 // 1. Session table (sessions expire after 30 days)
 // 2. Server logs (if accessible)
 
-const { Pool } = require('pg');
-require('dotenv').config();
+import pg from 'pg';
+import dotenv from 'dotenv';
+
+const { Pool } = pg;
+dotenv.config();
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
