@@ -8994,6 +8994,40 @@ app.post('/admin/quiz/:id', requireAdmin, async (req, res) => {
 app.post('/admin/quiz/:id/questions', requireAdmin, async (req, res) => {
   try {
     const id = Number(req.params.id);
+    
+    // CRITICAL SAFETY CHECK: Warn if this quiz has submitted responses
+    const responseCount = await pool.query(
+      'SELECT COUNT(*) as count FROM responses WHERE quiz_id=$1 AND submitted_at IS NOT NULL',
+      [id]
+    );
+    const submittedCount = parseInt(responseCount.rows[0].count || 0);
+    if (submittedCount > 0 && req.body.confirm_edit !== 'true') {
+      const header = await renderHeader(req);
+      return res.type('html').send(`
+        ${renderHead('⚠️ Warning: Quiz Has Responses', true)}
+        <body class="ta-body">
+          ${header}
+          <main class="ta-main ta-container" style="max-width:600px;">
+            ${renderBreadcrumb([ADMIN_CRUMB, { label: 'Quizzes', href: '/admin/quizzes' }, { label: `Quiz #${id}` }])}
+            <h1 style="color:#ff9800;">⚠️ Warning</h1>
+            <div style="background:#2a1a0a;border:2px solid #ff9800;border-radius:8px;padding:20px;margin:24px 0;">
+              <p style="font-size:18px;margin-bottom:16px;"><strong>This quiz has ${submittedCount} submitted response${submittedCount !== 1 ? 's' : ''}.</strong></p>
+              <p style="margin-bottom:12px;">Editing questions will update them safely (preserving question IDs), but if you're removing questions, responses for those questions will be permanently deleted.</p>
+              <p style="margin-bottom:0;"><strong>Are you sure you want to continue?</strong></p>
+            </div>
+            <form method="post" action="/admin/quiz/${id}/questions" style="margin-top:24px;">
+              ${Object.entries(req.body).map(([key, value]) => 
+                `<input type="hidden" name="${key}" value="${typeof value === 'string' ? value.replace(/"/g, '&quot;') : value}">`
+              ).join('')}
+              <input type="hidden" name="confirm_edit" value="true">
+              <button type="submit" class="ta-btn ta-btn-primary" style="background:#ff9800;border-color:#ff9800;">Yes, Continue Editing</button>
+              <a href="/admin/quiz/${id}" class="ta-btn ta-btn-outline" style="margin-left:12px;">Cancel</a>
+            </form>
+          </main>
+          ${renderFooter(req)}
+        </body></html>
+      `);
+    }
     const payload = String(req.body.json || '').trim();
     
     let questions = [];
@@ -10918,7 +10952,6 @@ app.get('/admin/quiz/:id/responses', requireAdmin, async (req, res) => {
           <div style="margin-bottom:24px;">
             <a href="/admin/quiz/${quizId}/grade" class="ta-btn ta-btn-primary" style="margin-right:8px;">Grade Responses</a>
             <a href="/admin/quiz/${quizId}" class="ta-btn ta-btn-outline" style="margin-right:8px;">Edit Quiz</a>
-            <a href="/admin/responses?quiz_id=${quizId}" class="ta-btn ta-btn-outline" style="margin-right:8px;">Browse All Responses</a>
             <a href="/admin/quizzes" class="ta-btn ta-btn-outline">Back to Quizzes</a>
             <a href="/admin/quiz/${quizId}/responses?show_all=${showAll ? 'false' : 'true'}${req.query.show_submitted_only ? '&show_submitted_only=' + req.query.show_submitted_only : ''}" class="ta-btn ta-btn-outline" style="background:${showAll ? '#2a4a1a' : '#1a1a1a'};border-color:${showAll ? '#55cc55' : '#444'};">
               ${showAll ? '✓ Showing All Players' : 'Show All Players'}
