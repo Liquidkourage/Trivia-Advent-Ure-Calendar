@@ -9673,10 +9673,12 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
         // Groups that are auto-correct OR manually accepted are NOT ungraded - they're correct
         // Blank groups with NULL override_correct are NOT ungraded - they're auto-rejected
         const hasUngraded = overrides.some(v => v === null);
-        const hasAnyOverride = overrides.some(v => v !== null);
+        // hasOverride already declared above
         
-        // Flagged: needs intervention only if not already correct/incorrect
-        const flaggedNeedsIntervention = anyFlagged && !hasAnyOverride;
+        // Flagged: needs intervention only if flagged responses are ungraded (NULL override)
+        const flaggedResponses = arr.filter(r => r.flagged === true);
+        const flaggedHasUngraded = flaggedResponses.length > 0 && flaggedResponses.some(r => r.override_correct === null);
+        const flaggedNeedsIntervention = flaggedHasUngraded;
         
         // Ungraded: needs review if NULL override and not blank
         const ungradedNeedsReview = hasUngraded && !isBlank;
@@ -9714,16 +9716,17 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
         const overrides = arr.map(r => typeof r.override_correct === 'boolean' ? r.override_correct : null);
         const isMixed = overrides.some(v => v === true) && overrides.some(v => v === false);
         const anyFlagged = arr.some(r => r.flagged === true);
-        const hasOverride = overrides.some(v => v !== null);
         
         // CRITICAL: Show mixed states if they exist (shouldn't happen, but need to fix them)
         if (isMixed) return true;
         
         // Flagged responses: show only if they need intervention (not already correct/incorrect)
         if (anyFlagged) {
-          // If flagged but already has override (correct/incorrect), no intervention needed
-          // Only show if ungraded (NULL override)
-          return !hasOverride;
+          // Check if ANY flagged response is ungraded (NULL override)
+          // If all flagged responses have overrides (TRUE/FALSE), no intervention needed
+          const flaggedResponses = arr.filter(r => r.flagged === true);
+          const flaggedHasUngraded = flaggedResponses.some(r => r.override_correct === null);
+          return flaggedHasUngraded; // Show if any flagged response is ungraded
         }
         
         // Filter out blanks
@@ -9757,7 +9760,10 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
           const isBlank = !firstText || normalizeAnswer(firstText) === '';
           
           // Flagged: show only if ungraded (needs intervention)
-          const flaggedNeedsIntervention = anyFlagged && !hasOverride;
+          // Check if ANY flagged response is ungraded (NULL override)
+          const flaggedResponses = arr.filter(r => r.flagged === true);
+          const flaggedHasUngraded = flaggedResponses.length > 0 && flaggedResponses.some(r => r.override_correct === null);
+          const flaggedNeedsIntervention = flaggedHasUngraded;
           
           // Ungraded: show if NULL override and not blank
           const ungradedNeedsReview = hasUngraded && !isBlank;
