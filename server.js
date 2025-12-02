@@ -4452,11 +4452,12 @@ app.get('/calendar', async (req, res) => {
       function qStatus(q){
         if (!q) return { label:'Missing', finalized:false, unlocked:false, completed:false, id:null, title:'' };
         const unlockUtc = new Date(q.unlock_at);
-        const freezeUtc = new Date(q.freeze_at);
         const unlocked = nowUtc >= unlockUtc;
-        const finalized = nowUtc >= freezeUtc;
+        // freeze_at is only for leaderboard filtering, not for door status
+        // Doors remain open indefinitely after unlock
+        const finalized = false; // Never finalized - quizzes stay open
         const completed = completedSet.has(q.id);
-        const label = finalized ? 'Finalized' : (unlocked ? 'Unlocked' : 'Locked');
+        const label = unlocked ? 'Unlocked' : 'Locked';
         return { label, finalized, unlocked, completed, id:q.id, title:q.title };
       }
       let sAm = qStatus(am), sPm = qStatus(pm);
@@ -4692,11 +4693,12 @@ app.get('/quizmas', async (req, res) => {
       function qStatus(q){
         if (!q) return { label:'Missing', finalized:false, unlocked:false, completed:false, id:null, title:'' };
         const unlockUtc = new Date(q.unlock_at);
-        const freezeUtc = new Date(q.freeze_at);
         const unlocked = nowUtc >= unlockUtc;
-        const finalized = nowUtc >= freezeUtc;
+        // freeze_at is only for leaderboard filtering, not for door status
+        // Doors remain open indefinitely after unlock
+        const finalized = false; // Never finalized - quizzes stay open
         const completed = completedSet.has(q.id);
-        const label = finalized ? 'Finalized' : (unlocked ? 'Unlocked' : 'Locked');
+        const label = unlocked ? 'Unlocked' : 'Locked';
         return { label, finalized, unlocked, completed, id:q.id, title:q.title };
       }
       const s = qStatus(q);
