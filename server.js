@@ -4027,6 +4027,44 @@ app.get('/admin', requireAdmin, async (req, res) => {
     );
     stats.totalDonated = parseFloat(donationResult.rows[0]?.total || 0);
     
+    // Get quizzes with zero-answer submissions (submitted but all responses are empty)
+    const zeroAnswerSubmissions = await pool.query(`
+      WITH quiz_questions AS (
+        SELECT quiz_id, COUNT(*) as total_questions
+        FROM questions
+        GROUP BY quiz_id
+      ),
+      player_responses AS (
+        SELECT 
+          r.quiz_id,
+          r.user_email,
+          CASE WHEN r.response_text IS NULL OR TRIM(r.response_text) = '' THEN 1 ELSE 0 END as is_empty
+        FROM responses r
+        WHERE r.submitted_at IS NOT NULL
+      ),
+      empty_submissions AS (
+        SELECT 
+          pr.quiz_id,
+          pr.user_email,
+          COUNT(*) as response_count,
+          SUM(pr.is_empty) as empty_count,
+          qq.total_questions
+        FROM player_responses pr
+        JOIN quiz_questions qq ON qq.quiz_id = pr.quiz_id
+        GROUP BY pr.quiz_id, pr.user_email, qq.total_questions
+        HAVING COUNT(*) = qq.total_questions AND SUM(pr.is_empty) = COUNT(*)
+      )
+      SELECT 
+        q.id,
+        q.title,
+        COUNT(DISTINCT es.user_email) as zero_answer_count
+      FROM empty_submissions es
+      JOIN quizzes q ON q.id = es.quiz_id
+      GROUP BY q.id, q.title
+      ORDER BY zero_answer_count DESC
+    `);
+    stats.zeroAnswerSubmissions = zeroAnswerSubmissions.rows;
+    
     // Get quizzes that need grading - only those with at least one ungraded response
     // Pagination parameters
     const page = Math.max(1, parseInt(req.query.page || 1));
@@ -4222,6 +4260,33 @@ app.get('/admin', requireAdmin, async (req, res) => {
           <h2 style="margin-bottom:16px;color:#ffd700;">Grading Needs</h2>
           <div style="background:#1a1a1a;padding:24px;border-radius:8px;border:1px solid #333;text-align:center;">
             <p style="opacity:0.7;font-size:16px;">🎉 All quizzes are fully graded!</p>
+          </div>
+        </div>
+        ` : ''}
+        
+        ${stats.zeroAnswerSubmissions && stats.zeroAnswerSubmissions.length > 0 ? `
+        <div style="margin:24px 0;">
+          <h2 style="margin-bottom:16px;color:#ff9800;">⚠️ Zero-Answer Submissions <span style="font-size:16px;opacity:0.7;font-weight:normal;">(${stats.zeroAnswerSubmissions.reduce((sum, q) => sum + parseInt(q.zero_answer_count || 0), 0)} total)</span></h2>
+          <div style="background:#2a1a0a;border:2px solid #ff9800;border-radius:8px;padding:16px;margin-bottom:16px;">
+            <p style="color:#ffcc88;margin-bottom:16px;">Found quizzes with submissions that have zero answers. These players submitted but all their responses are empty.</p>
+            <div style="display:flex;flex-direction:column;gap:12px;">
+              ${stats.zeroAnswerSubmissions.map(q => {
+                const count = parseInt(q.zero_answer_count || 0);
+                return `
+                  <div style="background:#1a0a0a;padding:12px;border-radius:6px;border:1px solid #664400;display:flex;justify-content:space-between;align-items:center;">
+                    <div style="flex:1;">
+                      <div style="font-weight:bold;margin-bottom:4px;">
+                        <a href="/admin/quiz/${q.id}/responses" class="ta-btn ta-btn-small" style="color:#111;text-decoration:none;">${q.title || 'Untitled Quiz'}</a>
+                        <span style="background:#ff9800;color:#111;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:bold;margin-left:8px;">${count} player${count !== 1 ? 's' : ''}</span>
+                      </div>
+                    </div>
+                    <div style="margin-left:16px;">
+                      <a href="/admin/quiz/${q.id}/responses" class="ta-btn ta-btn-small" style="background:#2a4a1a;border-color:#55cc55;color:#88ff88;">View & Fix</a>
+                    </div>
+                  </div>
+                `;
+              }).join('')}
+            </div>
           </div>
         </div>
         ` : ''}
@@ -10910,11 +10975,28 @@ app.post('/admin/quiz/:id/clear-submission', requireAdmin, express.urlencoded({ 
     const quiz = (await pool.query('SELECT * FROM quizzes WHERE id=$1', [quizId])).rows[0];
     if (!quiz) return res.status(404).send('Quiz not found');
     
+    // Get player info for email
+    const player = (await pool.query('SELECT username, email FROM players WHERE email=$1', [userEmail])).rows[0];
+    const playerName = player?.username || userEmail;
+    
     // Clear submission status for this player
     await pool.query(
       'UPDATE responses SET submitted_at = NULL WHERE quiz_id=$1 AND user_email=$2',
       [quizId, userEmail]
     );
+    
+    // Send email notification
+    try {
+      const quizTitle = quiz.title || `Quiz #${quizId}`;
+      const subject = `Your ${quizTitle} submission has been reopened`;
+      const emailText = `Hi ${playerName},\n\nWe noticed that your submission for "${quizTitle}" was submitted but didn't contain any answers. We've reopened the quiz for you so you can resubmit with your actual answers.\n\nPlease visit the quiz page and submit your answers again. We apologize for any inconvenience.\n\nThank you,\nTrivia Advent-ure Team`;
+      
+      await sendPlainEmail(userEmail, subject, emailText);
+      console.log(`[clear-submission] Sent reopening email to ${userEmail} for quiz ${quizId}`);
+    } catch (emailError) {
+      console.error(`[clear-submission] Failed to send email to ${userEmail}:`, emailError);
+      // Don't fail the request if email fails
+    }
     
     return res.redirect(`/admin/quiz/${quizId}/responses?email=${encodeURIComponent(userEmail)}&cleared=1`);
   } catch (e) {
@@ -10961,11 +11043,31 @@ app.post('/admin/quiz/:id/clear-all-empty-submissions', requireAdmin, async (req
     `, [quizId]);
     
     let cleared = 0;
+    const quizTitle = quiz.title || `Quiz #${quizId}`;
+    
     for (const row of emptySubmissions.rows) {
+      // Get player info for email
+      const player = (await pool.query('SELECT username, email FROM players WHERE email=$1', [row.user_email])).rows[0];
+      const playerName = player?.username || row.user_email;
+      
+      // Clear submission status
       await pool.query(
         'UPDATE responses SET submitted_at = NULL WHERE quiz_id=$1 AND user_email=$2',
         [quizId, row.user_email]
       );
+      
+      // Send email notification
+      try {
+        const subject = `Your ${quizTitle} submission has been reopened`;
+        const emailText = `Hi ${playerName},\n\nWe noticed that your submission for "${quizTitle}" was submitted but didn't contain any answers. We've reopened the quiz for you so you can resubmit with your actual answers.\n\nPlease visit the quiz page and submit your answers again. We apologize for any inconvenience.\n\nThank you,\nTrivia Advent-ure Team`;
+        
+        await sendPlainEmail(row.user_email, subject, emailText);
+        console.log(`[clear-all-empty-submissions] Sent reopening email to ${row.user_email} for quiz ${quizId}`);
+      } catch (emailError) {
+        console.error(`[clear-all-empty-submissions] Failed to send email to ${row.user_email}:`, emailError);
+        // Don't fail the request if email fails
+      }
+      
       cleared++;
     }
     
