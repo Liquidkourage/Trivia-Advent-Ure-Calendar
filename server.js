@@ -7748,7 +7748,31 @@ app.post('/quiz/:id/submit', requireAuthOrAdmin, async (req, res) => {
       if (hasExistingTrue) {
         // CRITICAL: If ANY response with this normalized text is TRUE, ALL must be TRUE
         // This is the most reliable check and prevents mixed states
+        // Proactively fix any FALSE responses in this group BEFORE inserting
         finalOverride = true;
+        
+        // Find and fix any FALSE responses with this normalized text immediately
+        const allResponsesForSync = await pool.query(
+          `SELECT id, response_text, override_correct FROM responses 
+           WHERE question_id=$1 AND submitted_at IS NOT NULL`,
+          [q.id]
+        );
+        const falseIdsToFix = [];
+        for (const row of allResponsesForSync.rows) {
+          const rowNorm = normalizeAnswer(row.response_text || '');
+          if (rowNorm === norm && row.override_correct === false) {
+            falseIdsToFix.push(row.id);
+          }
+        }
+        if (falseIdsToFix.length > 0) {
+          // Fix any FALSE responses to TRUE immediately
+          await pool.query(
+            `UPDATE responses 
+             SET override_correct = TRUE, override_version = COALESCE(override_version, 0) + 1, override_updated_at = NOW()
+             WHERE id = ANY($1)`,
+            [falseIdsToFix]
+          );
+        }
       } else if (matchesCorrect) {
         // Correct answers are ALWAYS TRUE
         finalOverride = true;
