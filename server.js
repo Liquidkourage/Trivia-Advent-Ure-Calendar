@@ -2584,9 +2584,13 @@ app.get('/auth/magic', async (req, res) => {
         'SELECT COUNT(*) FILTER (WHERE used = true) as used_count, COUNT(*) FILTER (WHERE expires_at <= NOW()) as expired_count, COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL \'5 seconds\') as too_new_count FROM magic_tokens WHERE token = $1',
         [token]
       );
-      const allUsed = statusCheck[0]?.used_count === rows.length;
-      const allExpired = statusCheck[0]?.expired_count === rows.length;
-      const tooNew = statusCheck[0]?.too_new_count > 0;
+      // CRITICAL: PostgreSQL COUNT returns a string, so convert to number for comparison
+      const usedCount = Number(statusCheck[0]?.used_count || 0);
+      const expiredCount = Number(statusCheck[0]?.expired_count || 0);
+      const tooNewCount = Number(statusCheck[0]?.too_new_count || 0);
+      const allUsed = usedCount === rows.length && rows.length > 0;
+      const allExpired = expiredCount === rows.length && rows.length > 0;
+      const tooNew = tooNewCount > 0;
       
       console.log('[auth/magic] Token issue - All used:', allUsed, 'All expired:', allExpired, 'Too new:', tooNew, 'Email:', rows[0]?.email);
       console.log('[auth/magic] Token details:', rows.map(r => ({ 
