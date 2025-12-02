@@ -7715,27 +7715,47 @@ app.post('/quiz/:id/submit', requireAuthOrAdmin, async (req, res) => {
       // Rule: ALL matching normalized responses MUST have the same override_correct value
       const norm = normalizeAnswer(val);
       
-      // Check 1: Does it match the correct answer? (auto-correct)
-      // CRITICAL: This check MUST take precedence over everything else
+      // CRITICAL: First check - if ANY existing response with this normalized text is TRUE,
+      // then ALL responses with this normalized text MUST be TRUE (prevents mixed states)
+      // This is the most reliable check - it doesn't depend on answer matching logic
+      const allTrueResponses = await pool.query(
+        `SELECT response_text FROM responses 
+         WHERE question_id=$1 AND submitted_at IS NOT NULL AND override_correct=true`,
+        [q.id]
+      );
+      let hasExistingTrue = false;
+      for (const row of allTrueResponses.rows) {
+        if (normalizeAnswer(row.response_text || '') === norm) {
+          hasExistingTrue = true;
+          break;
+        }
+      }
+      
+      // Check if it matches the correct answer (auto-correct)
       const matchesCorrect = isCorrectAnswer(val, q.answer);
       
-      // Check 2: Does it match any previously accepted answer?
+      // Check if it matches any previously accepted answer
       const matchesAccepted = await isAcceptedAnswer(pool, q.id, val);
       
-      // Determine final override value:
-      // Priority 1: If matches correct answer → ALWAYS TRUE (correct answers can NEVER be false)
-      // Priority 2: If matches accepted answer → TRUE
-      // Priority 3: Check if matches rejected answer → FALSE
-      // Priority 4: If unique → NULL (ungraded, will show as needing grading)
+      // Determine final override value with clear priority:
+      // Priority 1: If ANY existing response with same normalized text is TRUE → ALWAYS TRUE
+      // Priority 2: If matches correct answer → TRUE
+      // Priority 3: If matches accepted answer → TRUE
+      // Priority 4: Check if matches rejected answer → FALSE
+      // Priority 5: If unique → NULL (ungraded, will show as needing grading)
       let finalOverride = null; // Default to ungraded (unique answers)
       
-      if (matchesCorrect) {
-        // CRITICAL: Correct answers are ALWAYS TRUE, no exceptions
+      if (hasExistingTrue) {
+        // CRITICAL: If ANY response with this normalized text is TRUE, ALL must be TRUE
+        // This is the most reliable check and prevents mixed states
+        finalOverride = true;
+      } else if (matchesCorrect) {
+        // Correct answers are ALWAYS TRUE
         finalOverride = true;
       } else if (matchesAccepted) {
         finalOverride = true; // Accepted answer
       } else {
-        // Only check rejected if it doesn't match correct/accepted
+        // Only check rejected if it doesn't match correct/accepted/existing-true
         const rejectedResponsesResult = await pool.query(
           `SELECT response_text FROM responses 
            WHERE question_id=$1 AND override_correct=false AND submitted_at IS NOT NULL`,
@@ -7762,7 +7782,7 @@ app.post('/quiz/:id/submit', requireAuthOrAdmin, async (req, res) => {
       
       // CRITICAL: Sync ALL matching responses to the same override value
       // This ensures no mixed states - all matching normalized responses have the same value
-      // Only sync if we have a definitive override value (true or false), not null
+      // Always sync if we have a definitive override value (true or false), not null
       if (finalOverride !== null) {
         await syncOverrideForNormalizedText(pool, q.id, val, finalOverride);
       }
