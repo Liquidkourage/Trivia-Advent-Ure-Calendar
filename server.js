@@ -9348,6 +9348,179 @@ app.post('/admin/quiz/:id/restore-submitted', requireAdmin, async (req, res) => 
   }
 });
 
+// Diagnostic endpoint to find traces of deleted submissions
+app.get('/admin/quiz/:id/find-deleted-submissions', requireAdmin, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    
+    const quiz = await pool.query('SELECT id, title, unlock_at, freeze_at FROM quizzes WHERE id=$1', [id]);
+    if (quiz.rows.length === 0) {
+      return res.status(404).send('Quiz not found');
+    }
+    
+    const quizData = quiz.rows[0];
+    const freezeDate = new Date(quizData.freeze_at);
+    const windowStart = new Date(freezeDate.getTime() - 48 * 60 * 60 * 1000);
+    const windowEnd = new Date(freezeDate.getTime() + 24 * 60 * 60 * 1000);
+    
+    // Find players who submitted OTHER quizzes around the same time
+    const activePlayers = await pool.query(`
+      SELECT DISTINCT r.user_email, p.username, COUNT(DISTINCT r.quiz_id) as quiz_count
+      FROM responses r
+      LEFT JOIN players p ON p.email = r.user_email
+      WHERE r.submitted_at >= $1 AND r.submitted_at <= $2
+        AND r.quiz_id != $3
+      GROUP BY r.user_email, p.username
+      ORDER BY quiz_count DESC
+    `, [windowStart, windowEnd, id]);
+    
+    // Find nearby quizzes
+    const nearbyQuizzes = await pool.query(`
+      SELECT id, title, unlock_at FROM quizzes 
+      WHERE unlock_at >= (SELECT unlock_at FROM quizzes WHERE id=$1) - INTERVAL '7 days'
+        AND unlock_at <= (SELECT unlock_at FROM quizzes WHERE id=$1) + INTERVAL '7 days'
+      ORDER BY unlock_at
+    `, [id]);
+    
+    // Find players who submitted nearby quizzes but NOT quiz 4
+    const nearbyQuizIds = nearbyQuizzes.rows.map(q => q.id);
+    let likelySubmitters = [];
+    if (nearbyQuizIds.length > 0) {
+      const playersNearby = await pool.query(`
+        SELECT DISTINCT r.user_email, p.username, 
+               COUNT(DISTINCT CASE WHEN r.quiz_id = $1 THEN r.quiz_id END) as submitted_quiz4,
+               COUNT(DISTINCT CASE WHEN r.quiz_id != $1 THEN r.quiz_id END) as submitted_others
+        FROM responses r
+        LEFT JOIN players p ON p.email = r.user_email
+        WHERE r.quiz_id = ANY($2::int[]) AND r.submitted_at IS NOT NULL
+        GROUP BY r.user_email, p.username
+        ORDER BY submitted_others DESC
+      `, [id, nearbyQuizIds]);
+      
+      likelySubmitters = playersNearby.rows.filter(p => {
+        const quiz4Count = parseInt(p.submitted_quiz4 || '0');
+        const othersCount = parseInt(p.submitted_others || '0');
+        return quiz4Count === 0 && othersCount > 0;
+      });
+    }
+    
+    const escapeHtml = (text) => {
+      return String(text || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+    };
+    
+    const header = await renderHeader(req);
+    res.type('html').send(`
+      ${renderHead('Find Deleted Submissions • Admin', true)}
+      <body class="ta-body">
+        ${header}
+        <main class="ta-main ta-container">
+          ${renderBreadcrumb([ADMIN_CRUMB, { label: 'Quizzes', href: '/admin/quizzes' }, { label: `Quiz #${id}` }, { label: 'Find Deleted Submissions' }])}
+          <h1 class="ta-page-title">Find Deleted Submissions: ${escapeHtml(quizData.title || `Quiz #${id}`)}</h1>
+          
+          <div style="background:#2a1a0a;border:2px solid #ff9800;border-radius:8px;padding:20px;margin-bottom:24px;">
+            <p style="font-size:16px;margin-bottom:12px;"><strong>⚠️ This quiz's responses were deleted due to CASCADE DELETE when questions were edited.</strong></p>
+            <p style="margin-bottom:0;">The following analysis attempts to identify likely submitters based on activity patterns.</p>
+          </div>
+          
+          <div style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:20px;margin-bottom:24px;">
+            <h2 style="color:#ffd700;margin-top:0;">Quiz Info</h2>
+            <ul style="list-style:none;padding:0;">
+              <li><strong>Unlocked:</strong> ${quizData.unlock_at}</li>
+              <li><strong>Freeze at:</strong> ${quizData.freeze_at}</li>
+            </ul>
+          </div>
+          
+          <div style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:20px;margin-bottom:24px;">
+            <h2 style="color:#ffd700;margin-top:0;">⚠️ Likely Submitters</h2>
+            <p style="opacity:0.8;margin-bottom:16px;">These players submitted nearby quizzes but NOT quiz ${id} - they likely had their submissions deleted:</p>
+            ${likelySubmitters.length > 0 ? `
+              <table class="ta-table" style="margin-top:12px;">
+                <thead>
+                  <tr>
+                    <th>Email</th>
+                    <th>Username</th>
+                    <th>Nearby Quizzes Submitted</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${likelySubmitters.map(p => `
+                    <tr>
+                      <td><a href="/admin/players/${encodeURIComponent(p.user_email)}" style="color:#ffd700;">${escapeHtml(p.user_email)}</a></td>
+                      <td>${escapeHtml(p.username || '-')}</td>
+                      <td>${parseInt(p.submitted_others || '0')}</td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            ` : `
+              <p style="opacity:0.7;font-style:italic;">No likely submitters found. All players who submitted nearby quizzes also have responses for quiz ${id}.</p>
+            `}
+          </div>
+          
+          <div style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:20px;margin-bottom:24px;">
+            <h2 style="color:#ffd700;margin-top:0;">Active Players During Time Window</h2>
+            <p style="opacity:0.8;margin-bottom:16px;">Players who submitted OTHER quizzes during the 48 hours before freeze (likely active during quiz ${id}'s submission window):</p>
+            ${activePlayers.rows.length > 0 ? `
+              <table class="ta-table" style="margin-top:12px;">
+                <thead>
+                  <tr>
+                    <th>Email</th>
+                    <th>Username</th>
+                    <th>Other Quizzes Submitted</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${activePlayers.rows.map(p => `
+                    <tr>
+                      <td><a href="/admin/players/${encodeURIComponent(p.user_email)}" style="color:#ffd700;">${escapeHtml(p.user_email)}</a></td>
+                      <td>${escapeHtml(p.username || '-')}</td>
+                      <td>${parseInt(p.quiz_count || '0')}</td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            ` : `
+              <p style="opacity:0.7;font-style:italic;">No active players found in that time window.</p>
+            `}
+          </div>
+          
+          <div style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:20px;margin-bottom:24px;">
+            <h2 style="color:#ffd700;margin-top:0;">Nearby Quizzes</h2>
+            <p style="opacity:0.8;margin-bottom:16px;">Quizzes within 7 days of quiz ${id}:</p>
+            <ul style="list-style:none;padding:0;">
+              ${nearbyQuizzes.rows.map(q => `
+                <li style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.1);">
+                  <a href="/admin/quiz/${q.id}" style="color:#ffd700;">Quiz ${q.id}: ${escapeHtml(q.title || 'Untitled')}</a>
+                  <span style="opacity:0.7;margin-left:12px;">(${q.unlock_at})</span>
+                </li>
+              `).join('')}
+            </ul>
+          </div>
+          
+          <div style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:20px;">
+            <h2 style="color:#ffd700;margin-top:0;">Other Sources to Check</h2>
+            <ul style="opacity:0.9;">
+              <li><strong>Server logs:</strong> Check for POST requests to <code>/quiz/${id}/submit</code></li>
+              <li><strong>Application logs:</strong> Look for <code>[gradeQuiz]</code> entries for quiz ${id}</li>
+              <li><strong>Database logs:</strong> If PostgreSQL query logging is enabled, check for DELETE operations</li>
+              <li><strong>Email notifications:</strong> Check if any emails were sent related to quiz ${id}</li>
+            </ul>
+          </div>
+          
+          <div style="margin-top:24px;">
+            <a href="/admin/quiz/${id}" class="ta-btn ta-btn-outline">Back to Quiz</a>
+            <a href="/admin/responses?quiz_id=${id}" class="ta-btn ta-btn-outline" style="margin-left:12px;">Browse Responses</a>
+          </div>
+        </main>
+        ${renderFooter(req)}
+      </body></html>
+    `);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Error: ' + e.message);
+  }
+});
+
 // Fix orphaned responses by matching them to questions
 app.post('/admin/quiz/:id/fix-orphaned', requireAdmin, async (req, res) => {
   try {
