@@ -7308,13 +7308,48 @@ app.post('/quiz/:id/edit', requireAuth, express.urlencoded({ extended: true }), 
       return res.status(400).send('At least one question is required');
     }
     
-    // Delete existing questions and insert new ones
-    await pool.query('DELETE FROM questions WHERE quiz_id = $1', [id]);
+    // Get existing questions to preserve IDs (critical for active quizzes with responses)
+    const existingQuestions = await pool.query('SELECT id, number FROM questions WHERE quiz_id=$1', [id]);
+    const existingByNumber = new Map();
+    existingQuestions.rows.forEach(q => {
+      existingByNumber.set(q.number, q.id);
+    });
+    
+    // Track which question numbers are being updated
+    const updatedNumbers = new Set();
+    
+    // Update existing questions or insert new ones (preserve IDs when possible)
     for (const q of questions) {
-      await pool.query(
-        'INSERT INTO questions(quiz_id, number, text, answer, category, ask) VALUES($1,$2,$3,$4,$5,$6)',
-        [id, q.number, q.text, q.answer, q.category, q.ask]
+      if (existingByNumber.has(q.number)) {
+        // Update existing question (preserves ID, so responses remain linked)
+        await pool.query(
+          'UPDATE questions SET text=$1, answer=$2, category=$3, ask=$4 WHERE id=$5',
+          [q.text, q.answer, q.category, q.ask, existingByNumber.get(q.number)]
+        );
+      } else {
+        // Insert new question (only if number doesn't exist)
+        await pool.query(
+          'INSERT INTO questions(quiz_id, number, text, answer, category, ask) VALUES($1,$2,$3,$4,$5,$6)',
+          [id, q.number, q.text, q.answer, q.category, q.ask]
+        );
+      }
+      updatedNumbers.add(q.number);
+    }
+    
+    // Delete questions that are no longer in the updated list (only if safe - no responses)
+    const questionsToDelete = Array.from(existingByNumber.keys()).filter(num => !updatedNumbers.has(num));
+    if (questionsToDelete.length > 0) {
+      const idsToDelete = questionsToDelete.map(num => existingByNumber.get(num));
+      // Only delete if no responses exist for these questions
+      const responsesCheck = await pool.query(
+        'SELECT COUNT(*) as count FROM responses WHERE question_id = ANY($1)',
+        [idsToDelete]
       );
+      if (parseInt(responsesCheck.rows[0].count) === 0) {
+        await pool.query('DELETE FROM questions WHERE id = ANY($1)', [idsToDelete]);
+      } else {
+        console.warn(`[edit-quiz] Cannot delete questions ${idsToDelete.join(',')} - they have responses`);
+      }
     }
     
     res.redirect(`/quiz/${id}?msg=Quiz updated successfully`);
@@ -8989,17 +9024,216 @@ app.post('/admin/quiz/:id/questions', requireAdmin, async (req, res) => {
       return res.status(400).send('No valid questions provided');
     }
     
-    // Delete existing questions and insert new ones
-    await pool.query('DELETE FROM questions WHERE quiz_id = $1', [id]);
+    // Get existing questions to preserve IDs (critical for active quizzes with responses)
+    const existingQuestions = await pool.query('SELECT id, number FROM questions WHERE quiz_id=$1', [id]);
+    const existingByNumber = new Map();
+    existingQuestions.rows.forEach(q => {
+      existingByNumber.set(q.number, q.id);
+    });
+    
+    // Track which question numbers are being updated
+    const updatedNumbers = new Set();
+    
+    // Update existing questions or insert new ones (preserve IDs when possible)
     for (const item of questions) {
       const n = Number(item.number || 0);
       if (!n || !item.text || !item.answer) continue;
-      await pool.query('INSERT INTO questions(quiz_id, number, text, answer, category, ask) VALUES($1,$2,$3,$4,$5,$6)', [id, n, String(item.text), String(item.answer), String(item.category || 'General'), item.ask ? String(item.ask) : null]);
+      
+      if (existingByNumber.has(n)) {
+        // Update existing question (preserves ID, so responses remain linked)
+        await pool.query(
+          'UPDATE questions SET text=$1, answer=$2, category=$3, ask=$4 WHERE id=$5',
+          [String(item.text), String(item.answer), String(item.category || 'General'), item.ask ? String(item.ask) : null, existingByNumber.get(n)]
+        );
+      } else {
+        // Insert new question (only if number doesn't exist)
+        await pool.query(
+          'INSERT INTO questions(quiz_id, number, text, answer, category, ask) VALUES($1,$2,$3,$4,$5,$6)',
+          [id, n, String(item.text), String(item.answer), String(item.category || 'General'), item.ask ? String(item.ask) : null]
+        );
+      }
+      updatedNumbers.add(n);
+    }
+    
+    // Delete questions that are no longer in the updated list (only if safe - no responses)
+    // For active quizzes, we should probably NOT delete questions that have responses
+    // So we'll only delete if they have no responses
+    const questionsToDelete = Array.from(existingByNumber.keys()).filter(num => !updatedNumbers.has(num));
+    if (questionsToDelete.length > 0) {
+      const idsToDelete = questionsToDelete.map(num => existingByNumber.get(num));
+      // Only delete if no responses exist for these questions
+      const responsesCheck = await pool.query(
+        'SELECT COUNT(*) as count FROM responses WHERE question_id = ANY($1)',
+        [idsToDelete]
+      );
+      if (parseInt(responsesCheck.rows[0].count) === 0) {
+        await pool.query('DELETE FROM questions WHERE id = ANY($1)', [idsToDelete]);
+      } else {
+        console.warn(`[edit-questions] Cannot delete questions ${idsToDelete.join(',')} - they have responses`);
+      }
     }
     res.redirect(`/admin/quiz/${id}`);
   } catch (e) {
     console.error(e);
     res.status(500).send('Failed to replace questions: ' + (e?.message || String(e)));
+  }
+});
+
+// Diagnostic endpoint to check for orphaned responses
+app.get('/admin/quiz/:id/check-responses', requireAdmin, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    
+    // Get all responses for this quiz
+    const allResponses = await pool.query(
+      'SELECT id, question_id, user_email, response_text, submitted_at FROM responses WHERE quiz_id=$1',
+      [id]
+    );
+    
+    // Get all questions for this quiz
+    const allQuestions = await pool.query(
+      'SELECT id, number FROM questions WHERE quiz_id=$1',
+      [id]
+    );
+    
+    const questionIds = new Set(allQuestions.rows.map(q => q.id));
+    
+    // Find orphaned responses (question_id doesn't match any question)
+    const orphaned = allResponses.rows.filter(r => !questionIds.has(r.question_id));
+    
+    // Group orphaned responses by user to try to match them
+    const byUser = new Map();
+    orphaned.forEach(r => {
+      if (!byUser.has(r.user_email)) {
+        byUser.set(r.user_email, []);
+      }
+      byUser.get(r.user_email).push(r);
+    });
+    
+    // Get valid responses grouped by user
+    const validByUser = new Map();
+    allResponses.rows.filter(r => questionIds.has(r.question_id)).forEach(r => {
+      if (!validByUser.has(r.user_email)) {
+        validByUser.set(r.user_email, []);
+      }
+      validByUser.get(r.user_email).push(r);
+    });
+    
+    res.type('html').send(`
+      <html><head><title>Response Check - Quiz ${id}</title></head>
+      <body style="font-family: system-ui; padding: 24px; background: #0a0a0a; color: #fff;">
+        <h1>Response Check for Quiz ${id}</h1>
+        <p><a href="/admin/quiz/${id}/grade">← Back to Grader</a></p>
+        
+        <h2>Summary</h2>
+        <ul>
+          <li>Total responses: ${allResponses.rows.length}</li>
+          <li>Valid responses: ${allResponses.rows.length - orphaned.length}</li>
+          <li>Orphaned responses: ${orphaned.length}</li>
+          <li>Questions: ${allQuestions.rows.length}</li>
+        </ul>
+        
+        ${orphaned.length > 0 ? `
+          <h2 style="color: #ff9800;">⚠️ Orphaned Responses Found</h2>
+          <p>These responses have question_ids that don't match any current question.</p>
+          
+          <h3>By User:</h3>
+          ${Array.from(byUser.entries()).map(([email, responses]) => {
+            const validForUser = validByUser.get(email) || [];
+            const validQuestionIds = new Set(validForUser.map(r => r.question_id));
+            const availableQuestions = allQuestions.rows.filter(q => !validQuestionIds.has(q.id));
+            
+            return `
+              <div style="margin: 16px 0; padding: 12px; background: #1a1a1a; border-radius: 6px;">
+                <strong>${email}</strong><br>
+                Orphaned: ${responses.length} | Valid: ${validForUser.length}<br>
+                Available questions: ${availableQuestions.map(q => `Q${q.number}`).join(', ')}<br>
+                <form method="post" action="/admin/quiz/${id}/fix-orphaned" style="margin-top: 8px;">
+                  <input type="hidden" name="email" value="${email}">
+                  <button type="submit" style="background: #4CAF50; color: white; padding: 6px 12px; border: none; border-radius: 4px; cursor: pointer;">
+                    Try to Auto-Fix (Match by Position)
+                  </button>
+                </form>
+              </div>
+            `;
+          }).join('')}
+          
+          <h3>All Orphaned Responses:</h3>
+          <table border="1" cellpadding="8" style="border-collapse: collapse; background: #1a1a1a;">
+            <tr style="background: #333;"><th>ID</th><th>User</th><th>Question ID</th><th>Response Text</th><th>Submitted</th></tr>
+            ${orphaned.map(r => `
+              <tr>
+                <td>${r.id}</td>
+                <td>${r.user_email}</td>
+                <td>${r.question_id} (invalid)</td>
+                <td><code>${(r.response_text || '').substring(0, 50)}</code></td>
+                <td>${r.submitted_at ? 'Yes' : 'No'}</td>
+              </tr>
+            `).join('')}
+          </table>
+        ` : `
+          <h2 style="color: #4CAF50;">✓ No Orphaned Responses</h2>
+          <p>All responses are properly linked to questions.</p>
+        `}
+      </body></html>
+    `);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Error: ' + e.message);
+  }
+});
+
+// Fix orphaned responses by matching them to questions
+app.post('/admin/quiz/:id/fix-orphaned', requireAdmin, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const userEmail = String(req.body.email || '').toLowerCase().trim();
+    
+    if (!userEmail) {
+      return res.status(400).send('Email required');
+    }
+    
+    // Get all questions
+    const allQuestions = await pool.query(
+      'SELECT id, number FROM questions WHERE quiz_id=$1 ORDER BY number',
+      [id]
+    );
+    
+    // Get all responses for this user
+    const allResponses = await pool.query(
+      'SELECT id, question_id, response_text FROM responses WHERE quiz_id=$1 AND user_email=$2',
+      [id, userEmail]
+    );
+    
+    const questionIds = new Set(allQuestions.rows.map(q => q.id));
+    
+    // Find orphaned responses
+    const orphaned = allResponses.rows.filter(r => !questionIds.has(r.question_id));
+    
+    // Get valid responses to see which question numbers are already used
+    const valid = allResponses.rows.filter(r => questionIds.has(r.question_id));
+    const usedQuestionIds = new Set(valid.map(r => r.question_id));
+    
+    // Match orphaned responses to available questions by position
+    // This is a best-effort match - may not be perfect
+    const availableQuestions = allQuestions.rows.filter(q => !usedQuestionIds.has(q.id));
+    
+    let fixed = 0;
+    for (let i = 0; i < Math.min(orphaned.length, availableQuestions.length); i++) {
+      const response = orphaned[i];
+      const question = availableQuestions[i];
+      
+      await pool.query(
+        'UPDATE responses SET question_id=$1 WHERE id=$2',
+        [question.id, response.id]
+      );
+      fixed++;
+    }
+    
+    res.redirect(`/admin/quiz/${id}/check-responses?fixed=${fixed}`);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Error: ' + e.message);
   }
 });
 

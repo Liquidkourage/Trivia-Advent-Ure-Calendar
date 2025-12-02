@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quiz Recap - Flag Reason Mock-up</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      background: #0e0e0e;
+      color: #e0e0e0;
+      padding: 20px;
+      line-height: 1.6;
+    }
+    .container { max-width: 1200px; margin: 0 auto; }
+    h1 { color: #ffd700; margin-bottom: 20px; }
+    .summary {
+      display: flex;
+      gap: 24px;
+      margin-bottom: 24px;
+      padding: 16px;
+      background: #1a1a1a;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.15);
+    }
+    .summary-item { flex: 1; }
+    .summary-label { font-size: 14px; opacity: 0.7; margin-bottom: 4px; }
+    .summary-value { font-size: 24px; font-weight: bold; color: #ffd700; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: #1a1a1a;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    th {
+      background: #2a2a2a;
+      padding: 12px;
+      text-align: left;
+      font-weight: 600;
+      border-bottom: 2px solid rgba(255,255,255,0.1);
+    }
+    td {
+      padding: 12px;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    tr.is-flagged { background: rgba(255,152,0,0.1); }
+    .status-badge {
+      display: inline-block;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .status-mixed {
+      background: rgba(255,152,0,0.2);
+      color: #ff9800;
+      border: 1px solid #ff9800;
+    }
+    .btn-chip {
+      background: rgba(255,255,255,0.1);
+      border: 1px solid rgba(255,255,255,0.2);
+      color: #e0e0e0;
+      padding: 6px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+      transition: all 0.2s;
+    }
+    .btn-chip:hover {
+      background: rgba(255,255,255,0.15);
+      border-color: rgba(255,255,255,0.3);
+    }
+    .flag-form {
+      margin-top: 8px;
+      padding: 12px;
+      background: rgba(0,0,0,0.3);
+      border-radius: 6px;
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+    .flag-checkbox {
+      margin-bottom: 12px;
+    }
+    .flag-checkbox input[type="checkbox"] {
+      margin-right: 8px;
+      width: 18px;
+      height: 18px;
+      cursor: pointer;
+    }
+    .flag-checkbox label {
+      cursor: pointer;
+      font-weight: 600;
+      color: #ffd700;
+    }
+    .reason-field {
+      margin-top: 12px;
+      display: none;
+    }
+    .reason-field.active {
+      display: block;
+    }
+    .reason-field textarea {
+      width: 100%;
+      min-height: 80px;
+      padding: 10px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 6px;
+      color: #e0e0e0;
+      font-family: inherit;
+      font-size: 14px;
+      resize: vertical;
+    }
+    .reason-field textarea:focus {
+      outline: none;
+      border-color: #ffd700;
+      background: rgba(255,255,255,0.08);
+    }
+    .char-count {
+      font-size: 11px;
+      opacity: 0.6;
+      margin-top: 4px;
+      text-align: right;
+    }
+    .instruction-text {
+      font-size: 12px;
+      color: #ffcc88;
+      margin-top: 8px;
+      padding: 8px;
+      background: rgba(255,152,0,0.1);
+      border-left: 3px solid #ff9800;
+      border-radius: 4px;
+    }
+    .submit-btn {
+      margin-top: 12px;
+      background: linear-gradient(90deg, #ffd700 0%, #ffb300 100%);
+      color: #111;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-weight: 700;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    .submit-btn:hover {
+      filter: brightness(1.1);
+    }
+    .already-flagged {
+      color: #4caf50;
+      font-weight: 600;
+      font-size: 13px;
+    }
+    .note-box {
+      background: #1a1a1a;
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 8px;
+      padding: 12px 16px;
+      margin: 16px 0;
+      font-size: 14px;
+      opacity: 0.85;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Quiz Title (Quiz #123)</h1>
+    
+    <div class="summary">
+      <div class="summary-item">
+        <div class="summary-label">Status</div>
+        <div class="summary-value">Open</div>
+      </div>
+      <div class="summary-item">
+        <div class="summary-label">Score</div>
+        <div class="summary-value">15</div>
+      </div>
+    </div>
+
+    <div class="note-box">
+      <strong>Note:</strong> Scores are subject to change based on admin grading decisions. Final scores may differ from initial calculations.
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Question</th>
+          <th>Your answer</th>
+          <th>Correct answer</th>
+          <th>Points</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        <!-- Row 1: Already flagged (simple flag, no reason) -->
+        <tr class="is-flagged">
+          <td>1 🔒</td>
+          <td>What is the capital of France?</td>
+          <td>Paris</td>
+          <td>Paris</td>
+          <td>5</td>
+          <td>
+            <span class="status-badge status-mixed">🚩 flagged</span>
+            <div style="margin-top: 8px; font-size: 12px; opacity: 0.7;">
+              (Flagged for typo/misspelling review)
+            </div>
+          </td>
+        </tr>
+
+        <!-- Row 2: Already flagged WITH appeal reason -->
+        <tr class="is-flagged">
+          <td>2</td>
+          <td>Name a famous painting by Leonardo da Vinci.</td>
+          <td>Mona Lisa</td>
+          <td>The Mona Lisa</td>
+          <td>0</td>
+          <td>
+            <span class="status-badge status-mixed">🚩 flagged</span>
+            <div style="margin-top: 8px; padding: 10px; background: rgba(255,152,0,0.15); border-left: 3px solid #ff9800; border-radius: 4px;">
+              <div style="font-weight: 600; color: #ff9800; margin-bottom: 6px;">📝 Appeal Reason:</div>
+              <div style="font-size: 13px; line-height: 1.5;">
+                "I believe 'Mona Lisa' should be accepted as correct. The question asks for a famous painting, and 'Mona Lisa' is the common name for 'The Mona Lisa'. This is equivalent and should be graded as correct."
+              </div>
+            </div>
+          </td>
+        </tr>
+
+        <!-- Row 3: Not flagged - showing flag form -->
+        <tr>
+          <td>3</td>
+          <td>What year did World War II end?</td>
+          <td>1945</td>
+          <td>1945</td>
+          <td>5</td>
+          <td>
+            <form class="flag-form" onsubmit="event.preventDefault(); alert('Flag submitted!');">
+              <div class="flag-checkbox">
+                <input type="checkbox" id="flag3" onchange="toggleReason(this, 'reason3')">
+                <label for="flag3">🚩 Flag for review</label>
+              </div>
+              
+              <div id="reason3" class="reason-field">
+                <label for="reason-text3" style="display: block; margin-bottom: 6px; font-size: 13px; font-weight: 600;">
+                  Reason for appeal (optional):
+                </label>
+                <textarea 
+                  id="reason-text3" 
+                  placeholder="Only use if you believe your answer was incorrectly graded..."
+                  maxlength="500"
+                  oninput="updateCharCount(this, 'count3')"
+                ></textarea>
+                <div id="count3" class="char-count">0 / 500 characters</div>
+                
+                <div class="instruction-text">
+                  <strong>ℹ️ Important:</strong> Only use this field if you believe your answer was incorrectly graded (not counting typos, misspellings, or formatting differences). For simple typos or misspellings, just check the flag box above without adding a reason.
+                </div>
+                
+                <button type="submit" class="submit-btn">🚩 Flag for review</button>
+              </div>
+            </form>
+          </td>
+        </tr>
+
+        <!-- Row 4: Not flagged - flag form collapsed -->
+        <tr>
+          <td>4</td>
+          <td>Name the largest planet in our solar system.</td>
+          <td>Jupiter</td>
+          <td>Jupiter</td>
+          <td>5</td>
+          <td>
+            <form class="flag-form" onsubmit="event.preventDefault(); alert('Flag submitted!');">
+              <div class="flag-checkbox">
+                <input type="checkbox" id="flag4" onchange="toggleReason(this, 'reason4')">
+                <label for="flag4">🚩 Flag for review</label>
+              </div>
+              
+              <div id="reason4" class="reason-field">
+                <label for="reason-text4" style="display: block; margin-bottom: 6px; font-size: 13px; font-weight: 600;">
+                  Reason for appeal (optional):
+                </label>
+                <textarea 
+                  id="reason-text4" 
+                  placeholder="Only use if you believe your answer was incorrectly graded..."
+                  maxlength="500"
+                  oninput="updateCharCount(this, 'count4')"
+                ></textarea>
+                <div id="count4" class="char-count">0 / 500 characters</div>
+                
+                <div class="instruction-text">
+                  <strong>ℹ️ Important:</strong> Only use this field if you believe your answer was incorrectly graded (not counting typos, misspellings, or formatting differences). For simple typos or misspellings, just check the flag box above without adding a reason.
+                </div>
+                
+                <button type="submit" class="submit-btn">🚩 Flag for review</button>
+              </div>
+            </form>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <script>
+    function toggleReason(checkbox, reasonId) {
+      const reasonField = document.getElementById(reasonId);
+      if (checkbox.checked) {
+        reasonField.classList.add('active');
+      } else {
+        reasonField.classList.remove('active');
+      }
+    }
+
+    function updateCharCount(textarea, countId) {
+      const count = document.getElementById(countId);
+      const length = textarea.value.length;
+      count.textContent = `${length} / 500 characters`;
+      if (length > 450) {
+        count.style.color = '#ff9800';
+      } else {
+        count.style.color = '';
+      }
+    }
+  </script>
+</body>
+</html>
+

@@ -179,3 +179,4 @@ After implementing fixes:
 
 After implementing Fixes 1-3, button clicks should work reliably on the first click. The direct button handlers ensure clicks are handled at the source before the door handler can interfere.
 
+

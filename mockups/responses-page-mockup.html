@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Responses - Flag Reason Mock-up</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      background: #0e0e0e;
+      color: #e0e0e0;
+      padding: 20px;
+      line-height: 1.6;
+    }
+    .container { max-width: 1400px; margin: 0 auto; }
+    h1 { color: #ffd700; margin-bottom: 20px; }
+    h3 {
+      color: #ffd700;
+      margin: 24px 0 12px 0;
+    }
+    .player-info {
+      font-size: 14px;
+      opacity: 0.7;
+      margin-bottom: 16px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: #1a1a1a;
+      border-radius: 8px;
+      overflow: hidden;
+      margin-bottom: 32px;
+    }
+    th {
+      background: #2a2a2a;
+      padding: 12px;
+      text-align: left;
+      font-weight: 600;
+      border-bottom: 2px solid rgba(255,255,255,0.1);
+    }
+    td {
+      padding: 12px;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    .flag-indicator {
+      color: #ff9800;
+      font-weight: 600;
+      margin-left: 8px;
+    }
+    .appeal-toggle {
+      margin-top: 8px;
+      font-size: 12px;
+      color: #ff9800;
+      cursor: pointer;
+      text-decoration: underline;
+      user-select: none;
+    }
+    .appeal-toggle:hover {
+      color: #ffcc88;
+    }
+    .appeal-box {
+      margin-top: 12px;
+      padding: 12px;
+      background: rgba(255,152,0,0.1);
+      border-left: 3px solid #ff9800;
+      border-radius: 4px;
+      display: none;
+    }
+    .appeal-box.show {
+      display: block;
+    }
+    .appeal-box-header {
+      font-weight: 600;
+      color: #ff9800;
+      margin-bottom: 8px;
+      font-size: 13px;
+    }
+    .appeal-reason {
+      font-size: 13px;
+      line-height: 1.6;
+      color: #e0e0e0;
+      white-space: pre-wrap;
+    }
+    .correct-symbol {
+      font-size: 18px;
+      font-weight: bold;
+    }
+    .correct-yes { color: #4caf50; }
+    .correct-no { color: #f44336; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Player Responses: Quiz Title (Quiz #123)</h1>
+
+    <div style="background: #1a1a1a; border: 1px solid rgba(255,255,255,0.15); border-radius: 8px; padding: 20px; margin-bottom: 24px;">
+      <h3>username@example.com</h3>
+      <div class="player-info">
+        username@example.com • 🔒 Locked Q1 • Total: 10 pts • ✓ Submitted: 12/15/2024, 3:45 PM
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Q#</th>
+            <th>Question</th>
+            <th>Response</th>
+            <th>Correct Answer</th>
+            <th>Correct?</th>
+            <th>Points</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <!-- Row with simple flag -->
+          <tr>
+            <td style="font-weight: bold;">Q1 🔒</td>
+            <td>What is the capital of France?</td>
+            <td>Paris</td>
+            <td>Paris</td>
+            <td>
+              <span class="correct-symbol correct-yes">✓</span>
+              <span class="flag-indicator">🚩</span>
+            </td>
+            <td>5</td>
+            <td>
+              <a href="#" style="color: #ffd700; text-decoration: none;">Edit</a>
+            </td>
+          </tr>
+
+          <!-- Row with appeal flag -->
+          <tr>
+            <td style="font-weight: bold;">Q2</td>
+            <td>Name a famous painting by Leonardo da Vinci.</td>
+            <td>Mona Lisa</td>
+            <td>The Mona Lisa</td>
+            <td>
+              <span class="correct-symbol correct-no">✗</span>
+              <span class="flag-indicator">🚩</span>
+            </td>
+            <td>0</td>
+            <td>
+              <a href="#" style="color: #ffd700; text-decoration: none;">Edit</a>
+              <div class="appeal-toggle" onclick="toggleAppeal(this)">
+                ▼ Show appeal reason
+              </div>
+              <div class="appeal-box">
+                <div class="appeal-box-header">📝 Appeal Reason:</div>
+                <div class="appeal-reason">
+I believe my answer "Mona Lisa" should be accepted as correct. The question asks for a famous painting by Leonardo da Vinci, and "Mona Lisa" is the common name for "The Mona Lisa". This is equivalent and should be graded as correct.
+                </div>
+              </div>
+            </td>
+          </tr>
+
+          <!-- Row with appeal flag (expanded) -->
+          <tr>
+            <td style="font-weight: bold;">Q3</td>
+            <td>What year did World War II end?</td>
+            <td>1946</td>
+            <td>1945</td>
+            <td>
+              <span class="correct-symbol correct-no">✗</span>
+              <span class="flag-indicator">🚩</span>
+            </td>
+            <td>0</td>
+            <td>
+              <a href="#" style="color: #ffd700; text-decoration: none;">Edit</a>
+              <div class="appeal-toggle" onclick="toggleAppeal(this)">
+                ▲ Hide appeal reason
+              </div>
+              <div class="appeal-box show">
+                <div class="appeal-box-header">📝 Appeal Reason:</div>
+                <div class="appeal-reason">
+I understand the war officially ended in 1945, but I answered 1946 because that's when the last Japanese holdouts surrendered. I believe this should be considered correct as it's technically accurate, even if not the most common answer.
+                </div>
+              </div>
+            </td>
+          </tr>
+
+          <!-- Row without flag -->
+          <tr>
+            <td style="font-weight: bold;">Q4</td>
+            <td>Name the largest planet in our solar system.</td>
+            <td>Jupiter</td>
+            <td>Jupiter</td>
+            <td>
+              <span class="correct-symbol correct-yes">✓</span>
+            </td>
+            <td>5</td>
+            <td>
+              <a href="#" style="color: #ffd700; text-decoration: none;">Edit</a>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div style="background: #1a1a1a; border: 1px solid rgba(255,255,255,0.15); border-radius: 8px; padding: 20px; margin-bottom: 24px;">
+      <h3>player2@example.com</h3>
+      <div class="player-info">
+        player2@example.com • 🔒 Locked Q2 • Total: 8 pts • ✓ Submitted: 12/15/2024, 4:20 PM
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Q#</th>
+            <th>Question</th>
+            <th>Response</th>
+            <th>Correct Answer</th>
+            <th>Correct?</th>
+            <th>Points</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style="font-weight: bold;">Q1</td>
+            <td>What is the capital of France?</td>
+            <td>Paris</td>
+            <td>Paris</td>
+            <td>
+              <span class="correct-symbol correct-yes">✓</span>
+            </td>
+            <td>5</td>
+            <td>
+              <a href="#" style="color: #ffd700; text-decoration: none;">Edit</a>
+            </td>
+          </tr>
+          <tr>
+            <td style="font-weight: bold;">Q2 🔒</td>
+            <td>Name a famous painting by Leonardo da Vinci.</td>
+            <td>The Mona Lisa</td>
+            <td>The Mona Lisa</td>
+            <td>
+              <span class="correct-symbol correct-yes">✓</span>
+            </td>
+            <td>5</td>
+            <td>
+              <a href="#" style="color: #ffd700; text-decoration: none;">Edit</a>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    function toggleAppeal(element) {
+      const appealBox = element.nextElementSibling;
+      const isShowing = appealBox.classList.contains('show');
+      
+      if (isShowing) {
+        appealBox.classList.remove('show');
+        element.textContent = '▼ Show appeal reason';
+      } else {
+        appealBox.classList.add('show');
+        element.textContent = '▲ Hide appeal reason';
+      }
+    }
+  </script>
+</body>
+</html>
+

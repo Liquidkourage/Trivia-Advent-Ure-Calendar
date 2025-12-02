@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Flag Reason Feature - Mock-ups</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      background: #0e0e0e;
+      color: #e0e0e0;
+      padding: 40px 20px;
+      line-height: 1.6;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    h1 {
+      color: #ffd700;
+      margin-bottom: 8px;
+    }
+    .subtitle {
+      opacity: 0.7;
+      margin-bottom: 32px;
+    }
+    .mockup-list {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .mockup-card {
+      background: #1a1a1a;
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 8px;
+      padding: 20px;
+      transition: all 0.2s;
+    }
+    .mockup-card:hover {
+      border-color: #ffd700;
+      transform: translateY(-2px);
+    }
+    .mockup-card h2 {
+      color: #ffd700;
+      margin-bottom: 8px;
+      font-size: 20px;
+    }
+    .mockup-card p {
+      opacity: 0.8;
+      margin-bottom: 12px;
+    }
+    .mockup-card a {
+      display: inline-block;
+      background: linear-gradient(90deg, #ffd700 0%, #ffb300 100%);
+      color: #111;
+      padding: 10px 20px;
+      border-radius: 6px;
+      text-decoration: none;
+      font-weight: 700;
+      transition: filter 0.2s;
+    }
+    .mockup-card a:hover {
+      filter: brightness(1.1);
+    }
+    .features {
+      margin-top: 32px;
+      padding: 20px;
+      background: rgba(255,152,0,0.1);
+      border-left: 3px solid #ff9800;
+      border-radius: 6px;
+    }
+    .features h3 {
+      color: #ff9800;
+      margin-bottom: 12px;
+    }
+    .features ul {
+      margin-left: 20px;
+      opacity: 0.9;
+    }
+    .features li {
+      margin-bottom: 8px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Flag Reason Feature - Mock-ups</h1>
+    <p class="subtitle">Interactive mock-ups showing how the flag reason feature would appear on each page</p>
+
+    <div class="mockup-list">
+      <div class="mockup-card">
+        <h2>1. Quiz Recap Page (Player View)</h2>
+        <p>Shows how players would flag responses with optional appeal reasons. Includes examples of already-flagged responses and the expandable flag form.</p>
+        <a href="recap-page-mockup.html" target="_blank">View Mock-up →</a>
+      </div>
+
+      <div class="mockup-card">
+        <h2>2. Admin Grader Page</h2>
+        <p>Shows how flagged responses appear in the grader, with clear distinction between simple flags (typos) and appeals (with reasons).</p>
+        <a href="grader-page-mockup.html" target="_blank">View Mock-up →</a>
+      </div>
+
+      <div class="mockup-card">
+        <h2>3. Admin Responses Page</h2>
+        <p>Shows how flag reasons appear in the player responses view, with expandable sections to view appeal reasons.</p>
+        <a href="responses-page-mockup.html" target="_blank">View Mock-up →</a>
+      </div>
+    </div>
+
+    <div class="features">
+      <h3>Key Features Shown:</h3>
+      <ul>
+        <li><strong>Optional reason field</strong> - Only appears when flag checkbox is checked</li>
+        <li><strong>Clear instructions</strong> - Explains when to use reason field vs. simple flag</li>
+        <li><strong>Visual distinction</strong> - Appeals (with reasons) are highlighted differently than simple flags</li>
+        <li><strong>Character limit</strong> - 500 characters with live counter</li>
+        <li><strong>Player context</strong> - Shows player info with appeal reasons in grader</li>
+      </ul>
+    </div>
+  </div>
+</body>
+</html>
+
