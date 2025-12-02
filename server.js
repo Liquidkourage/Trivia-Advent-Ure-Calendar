@@ -3663,7 +3663,7 @@ app.get('/admin', requireAdmin, async (req, res) => {
     totalSubmissions: 0,
     activeInvites: 0,
     totalDonated: 0,
-    recentQuizzes: []
+    gradingNeeds: null
   };
   
   try {
@@ -3688,9 +3688,14 @@ app.get('/admin', requireAdmin, async (req, res) => {
     );
     stats.totalDonated = parseFloat(donationResult.rows[0]?.total || 0);
     
-    // Get last 5 opened (unlocked) quizzes - prioritize those that need grading
-    // Count ungraded GROUPS using JavaScript normalization (same as grading page and debug query)
-    const recentQuizzesRaw = await pool.query(`
+    // Get quizzes that need grading - only those with at least one ungraded response
+    // Pagination parameters
+    const page = Math.max(1, parseInt(req.query.page || 1));
+    const perPage = 10;
+    const offset = (page - 1) * perPage;
+    
+    // Get all unlocked quizzes first
+    const allQuizzesRaw = await pool.query(`
       SELECT 
         q.id, 
         q.title, 
@@ -3698,12 +3703,11 @@ app.get('/admin', requireAdmin, async (req, res) => {
         q.author
       FROM quizzes q
       WHERE q.unlock_at <= NOW()
-      ORDER BY q.unlock_at DESC 
-      LIMIT 5
+      ORDER BY q.unlock_at DESC
     `);
     
     // For each quiz, count ungraded groups using JavaScript normalization (same as grading page)
-    stats.recentQuizzes = await Promise.all(recentQuizzesRaw.rows.map(async (q) => {
+    const quizzesWithUngraded = await Promise.all(allQuizzesRaw.rows.map(async (q) => {
       // Get all responses for this quiz
       const allResponses = await pool.query(`
         SELECT 
@@ -3793,6 +3797,18 @@ app.get('/admin', requireAdmin, async (req, res) => {
         ungraded_count: ungradedCount
       };
     }));
+    
+    // Filter to only quizzes with ungraded responses, then paginate
+    const quizzesNeedingGrading = quizzesWithUngraded.filter(q => q.ungraded_count > 0);
+    const totalQuizzesNeedingGrading = quizzesNeedingGrading.length;
+    const totalPages = Math.ceil(totalQuizzesNeedingGrading / perPage);
+    stats.gradingNeeds = {
+      quizzes: quizzesNeedingGrading.slice(offset, offset + perPage),
+      page,
+      perPage,
+      totalPages,
+      total: totalQuizzesNeedingGrading
+    };
   } catch (e) {
     console.error('Error fetching admin stats:', e);
   }
@@ -3831,20 +3847,19 @@ app.get('/admin', requireAdmin, async (req, res) => {
           </div>
         </div>
         
-        ${stats.recentQuizzes.length > 0 ? `
+        ${stats.gradingNeeds && stats.gradingNeeds.quizzes.length > 0 ? `
         <div style="margin:24px 0;">
-          <h2 style="margin-bottom:16px;color:#ffd700;">Recent Quizzes</h2>
+          <h2 style="margin-bottom:16px;color:#ffd700;">Grading Needs <span style="font-size:16px;opacity:0.7;font-weight:normal;">(${stats.gradingNeeds.total} total)</span></h2>
           <div style="display:flex;flex-direction:column;gap:12px;">
-            ${stats.recentQuizzes.map(q => {
+            ${stats.gradingNeeds.quizzes.map(q => {
               const unlockDate = q.unlock_at ? new Date(q.unlock_at).toLocaleDateString() : '';
               const ungradedCount = parseInt(q.ungraded_count || 0);
-              const needsGrading = ungradedCount > 0;
               return `
-                <div style="background:#1a1a1a;padding:16px;border-radius:8px;border:1px solid ${needsGrading ? '#ffd700' : '#333'};display:flex;justify-content:space-between;align-items:center;">
+                <div style="background:#1a1a1a;padding:16px;border-radius:8px;border:1px solid #ffd700;display:flex;justify-content:space-between;align-items:center;">
                   <div style="flex:1;">
                     <div style="font-weight:bold;margin-bottom:4px;">
                       <a href="/admin/quiz/${q.id}/grade" class="ta-btn ta-btn-small" style="color:#111;text-decoration:none;">${q.title || 'Untitled Quiz'}</a>
-                      ${needsGrading ? `<span style="background:#ffd700;color:#111;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:bold;margin-left:8px;">${ungradedCount} need grading</span>` : ''}
+                      <span style="background:#ffd700;color:#111;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:bold;margin-left:8px;">${ungradedCount} need grading</span>
                     </div>
                     <div style="font-size:14px;opacity:0.7;">${unlockDate} • ${q.author || 'Unknown'} • ${q.response_count || 0} responses</div>
                   </div>
@@ -3854,6 +3869,20 @@ app.get('/admin', requireAdmin, async (req, res) => {
                 </div>
               `;
             }).join('')}
+          </div>
+          ${stats.gradingNeeds.totalPages > 1 ? `
+          <div style="display:flex;justify-content:center;align-items:center;gap:8px;margin-top:16px;">
+            ${stats.gradingNeeds.page > 1 ? `<a href="/admin?page=${stats.gradingNeeds.page - 1}" class="ta-btn ta-btn-outline">← Previous</a>` : '<span class="ta-btn ta-btn-outline" style="opacity:0.5;cursor:not-allowed;">← Previous</span>'}
+            <span style="opacity:0.7;">Page ${stats.gradingNeeds.page} of ${stats.gradingNeeds.totalPages}</span>
+            ${stats.gradingNeeds.page < stats.gradingNeeds.totalPages ? `<a href="/admin?page=${stats.gradingNeeds.page + 1}" class="ta-btn ta-btn-outline">Next →</a>` : '<span class="ta-btn ta-btn-outline" style="opacity:0.5;cursor:not-allowed;">Next →</span>'}
+          </div>
+          ` : ''}
+        </div>
+        ` : stats.gradingNeeds && stats.gradingNeeds.total === 0 ? `
+        <div style="margin:24px 0;">
+          <h2 style="margin-bottom:16px;color:#ffd700;">Grading Needs</h2>
+          <div style="background:#1a1a1a;padding:24px;border-radius:8px;border:1px solid #333;text-align:center;">
+            <p style="opacity:0.7;font-size:16px;">🎉 All quizzes are fully graded!</p>
           </div>
         </div>
         ` : ''}
