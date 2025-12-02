@@ -1130,6 +1130,29 @@ async function isAcceptedAnswer(pool, questionId, responseText) {
   return false;
 }
 
+// Check if a normalized answer has been manually rejected for a question
+async function isRejectedAnswer(pool, questionId, responseText) {
+  if (!responseText) return false;
+  const norm = normalizeAnswer(responseText);
+  if (!norm) return false;
+  
+  // Get all manually rejected responses for this question
+  // CRITICAL: Only check submitted responses to avoid checking draft/unsubmitted responses
+  const { rows } = await pool.query(
+    `SELECT response_text FROM responses 
+     WHERE question_id=$1 AND override_correct=false AND submitted_at IS NOT NULL`,
+    [questionId]
+  );
+  
+  // Check if any rejected response normalizes to the same value
+  for (const row of rows) {
+    if (normalizeAnswer(row.response_text) === norm) {
+      return true;
+    }
+  }
+  return false;
+}
+
 // CRITICAL: Get the override_correct value that should be applied to a response based on existing overrides
 // Returns: true (accepted), false (rejected), or null (no override exists)
 async function getOverrideForNormalizedText(pool, questionId, responseText) {
@@ -1193,7 +1216,7 @@ async function syncOverrideForNormalizedText(pool, questionId, responseText, ove
   }
 }
 
-// Fix mixed states for all questions in a quiz using majority-vote logic
+// Fix mixed states for all questions in a quiz using intended grading logic
 async function fixMixedStatesForQuiz(pool, quizId) {
   try {
     // Get all questions for this quiz
@@ -1222,73 +1245,47 @@ async function fixMixedStatesForQuiz(pool, quizId) {
         byNormalized.get(norm).push(response);
       }
       
-      // For each normalized text group, check for mixed states and fix using majority vote
+      // For each normalized text group, check for mixed states and fix using intended logic
       for (const [norm, responses] of byNormalized) {
         if (responses.length === 0) continue;
         
-        // Count correct vs incorrect
-        let correctCount = 0;
-        let incorrectCount = 0;
-        let hasExplicitTrue = false;
-        const responseIds = [];
+        // Check for mixed states (some TRUE, some FALSE)
+        const overrideValues = responses.map(r => r.override_correct);
+        const hasTrue = overrideValues.some(v => v === true);
+        const hasFalse = overrideValues.some(v => v === false);
+        const isMixed = hasTrue && hasFalse;
         
-        for (const response of responses) {
-          responseIds.push(response.id);
-          
-          // Determine if this response is correct:
-          // - override_correct = TRUE → correct
-          // - override_correct = FALSE → incorrect
-          // - override_correct = NULL → check auto-correct
-          if (response.override_correct === true) {
-            correctCount++;
-            hasExplicitTrue = true; // Track if ANY response is explicitly TRUE
-          } else if (response.override_correct === false) {
-            incorrectCount++;
-          } else {
-            // NULL override: check if it matches the correct answer (auto-correct)
-            const isAutoCorrect = isCorrectAnswer(response.response_text, question.answer);
-            if (isAutoCorrect) {
-              correctCount++;
-            } else {
-              incorrectCount++;
-            }
-          }
-        }
+        if (!isMixed) continue; // No mixed state, skip
         
-        // Determine the correct override value using majority vote
-        // PRIORITY: If ANY response is explicitly TRUE, ALL must be TRUE (prevents mixed states)
+        // Determine correct value using intended logic
+        const sampleResponse = responses[0].response_text;
+        const matchesCorrect = isCorrectAnswer(sampleResponse, question.answer);
+        const matchesAccepted = await isAcceptedAnswer(pool, question.id, sampleResponse);
+        const matchesRejected = await isRejectedAnswer(pool, question.id, sampleResponse);
+        
         let targetOverride = null;
-        if (hasExplicitTrue) {
-          // If ANY response is TRUE, ALL must be TRUE - this is the highest priority
+        if (matchesCorrect || matchesAccepted) {
           targetOverride = true;
-        } else if (correctCount > incorrectCount) {
-          targetOverride = true;
-        } else if (incorrectCount > correctCount) {
+        } else if (matchesRejected) {
           targetOverride = false;
         } else {
-          // Tie: use auto-correct as tiebreaker
-          const sampleResponse = responses[0].response_text;
-          targetOverride = isCorrectAnswer(sampleResponse, question.answer) ? true : null;
+          // Matches none - if any response is TRUE, prefer TRUE; otherwise prefer FALSE
+          // This handles edge cases where mixed states exist for ungraded responses
+          targetOverride = hasTrue ? true : false;
         }
         
-        // If we have a determined value, sync all responses to that value
-        // This ensures all responses with the same normalized text have the same override_correct
+        // Sync all responses to the determined value
+        const responseIds = responses.map(r => r.id);
         if (targetOverride !== null && responseIds.length > 0) {
-          // Check current state to see if we need to update
-          const currentStates = responses.map(r => r.override_correct);
-          const hasMixedStates = new Set(currentStates).size > 1 || currentStates.some(s => s !== targetOverride);
-          
-          if (hasMixedStates) {
-            const updated = await pool.query(
-              `UPDATE responses 
-               SET override_correct = $1, override_version = COALESCE(override_version, 0) + 1, override_updated_at = NOW()
-               WHERE id = ANY($2) AND override_correct IS DISTINCT FROM $1
-               RETURNING id`,
-              [targetOverride, responseIds]
-            );
-            if (updated.rows.length > 0) {
-              console.log(`[fixMixedStatesForQuiz] Fixed ${updated.rows.length} mixed states for Q${question.id}, norm="${norm}", target=${targetOverride}, correctCount=${correctCount}, incorrectCount=${incorrectCount}`);
-            }
+          const updated = await pool.query(
+            `UPDATE responses 
+             SET override_correct = $1, override_version = COALESCE(override_version, 0) + 1, override_updated_at = NOW()
+             WHERE id = ANY($2) AND override_correct IS DISTINCT FROM $1
+             RETURNING id`,
+            [targetOverride, responseIds]
+          );
+          if (updated.rows.length > 0) {
+            console.log(`[fixMixedStatesForQuiz] Fixed ${updated.rows.length} mixed states for Q${question.id}, norm="${norm}", target=${targetOverride}`);
           }
         }
       }
@@ -1364,20 +1361,52 @@ async function gradeQuiz(pool, quizId, userEmail) {
         // streak unchanged - locked blank doesn't affect streak
         continue;
       }
-      const auto = isCorrectAnswer(responseText, q.answer);
-      // Check if this normalized answer has been manually accepted before
-      const accepted = await isAcceptedAnswer(pool, q.id, responseText);
-      // Only allow manual override if NOT blank
-      const correctLocked = (r && typeof r.override_correct === 'boolean' && !isBlank) ? r.override_correct : (auto || accepted);
+      // INTENDED LOGIC: Determine correctness based on rules
+      // 1. Matches correct answer → correct
+      // 2. Matches previously accepted answer → correct
+      // 3. Matches previously rejected answer → incorrect
+      // 4. Matches none → NULL (ungraded, preserve manual override if exists)
+      const matchesCorrect = isCorrectAnswer(responseText, q.answer);
+      const matchesAccepted = await isAcceptedAnswer(pool, q.id, responseText);
+      const matchesRejected = await isRejectedAnswer(pool, q.id, responseText);
+      
+      let correctLocked;
+      let overrideValue;
+      
+      if (matchesCorrect || matchesAccepted) {
+        correctLocked = true;
+        overrideValue = true;
+      } else if (matchesRejected) {
+        correctLocked = false;
+        overrideValue = false;
+      } else {
+        // Matches none - preserve existing override if manual, otherwise NULL (ungraded)
+        if (r && typeof r.override_correct === 'boolean') {
+          correctLocked = r.override_correct;
+          overrideValue = r.override_correct;
+        } else {
+          correctLocked = false; // Default to incorrect for scoring, but don't set override
+          overrideValue = null; // Leave as ungraded
+        }
+      }
+      
       const pts = correctLocked ? 5 : 0;
-      console.log(`[gradeQuiz] Q${q.number} (LOCKED): correct=${correctLocked}, points=${pts}, streak=${streak} (unchanged), total before=${total}, total after=${total + pts}`);
+      console.log(`[gradeQuiz] Q${q.number} (LOCKED): correct=${correctLocked}, override=${overrideValue}, points=${pts}, streak=${streak} (unchanged), total before=${total}, total after=${total + pts}`);
       graded.push({ questionId: q.id, number: q.number, locked: true, correct: correctLocked, points: pts, given: responseText, answer: q.answer });
       total += pts;
-      // CRITICAL: Persist override_correct when NULL, but preserve manual overrides
-      await pool.query(
-        'UPDATE responses SET points = $4, override_correct = CASE WHEN override_correct IS NULL THEN $5 ELSE override_correct END WHERE quiz_id=$1 AND user_email=$2 AND question_id=$3',
-        [quizId, userEmail, q.id, pts, correctLocked]
-      );
+      // CRITICAL: Set override_correct based on logic, but preserve manual overrides for ungraded responses
+      if (overrideValue !== null) {
+        await pool.query(
+          'UPDATE responses SET points = $4, override_correct = CASE WHEN override_correct IS NULL THEN $5 ELSE override_correct END WHERE quiz_id=$1 AND user_email=$2 AND question_id=$3',
+          [quizId, userEmail, q.id, pts, overrideValue]
+        );
+      } else {
+        // Ungraded - only update points, preserve override_correct
+        await pool.query(
+          'UPDATE responses SET points = $4 WHERE quiz_id=$1 AND user_email=$2 AND question_id=$3',
+          [quizId, userEmail, q.id, pts]
+        );
+      }
       // CRITICAL: Locked questions do NOT affect streak - streak continues unchanged
       // Do NOT increment streak, do NOT reset streak
       continue;
@@ -1398,33 +1427,79 @@ async function gradeQuiz(pool, quizId, userEmail) {
       continue;
     }
     
-    const auto = isCorrectAnswer(responseText, q.answer);
-    // Check if this normalized answer has been manually accepted before
-    const accepted = await isAcceptedAnswer(pool, q.id, responseText);
-    // Only allow manual override if NOT blank (already checked above)
-    const correct = (r && typeof r.override_correct === 'boolean') ? r.override_correct : (auto || accepted);
+    // INTENDED LOGIC: Determine correctness based on rules
+    // 1. Matches correct answer → correct
+    // 2. Matches previously accepted answer → correct
+    // 3. Matches previously rejected answer → incorrect
+    // 4. Matches none → NULL (ungraded, preserve manual override if exists)
+    const matchesCorrect = isCorrectAnswer(responseText, q.answer);
+    const matchesAccepted = await isAcceptedAnswer(pool, q.id, responseText);
+    const matchesRejected = await isRejectedAnswer(pool, q.id, responseText);
+    
+    let correct;
+    let overrideValue;
+    
+    if (matchesCorrect || matchesAccepted) {
+      correct = true;
+      overrideValue = true;
+    } else if (matchesRejected) {
+      correct = false;
+      overrideValue = false;
+    } else {
+      // Matches none - preserve existing override if manual, otherwise NULL (ungraded)
+      if (r && typeof r.override_correct === 'boolean') {
+        correct = r.override_correct;
+        overrideValue = r.override_correct;
+      } else {
+        correct = false; // Default to incorrect for scoring, but don't set override
+        overrideValue = null; // Leave as ungraded
+      }
+    }
+    
     if (correct) {
       streak += 1;
       total += streak;
-      console.log(`[gradeQuiz] Q${q.number} (non-locked): correct=true, streak=${streak}, points=${streak}, total before=${total - streak}, total after=${total}`);
-      // CRITICAL: Persist override_correct when NULL, but preserve manual overrides
-      const updateResult = await pool.query(
-        'UPDATE responses SET points = $4, override_correct = CASE WHEN override_correct IS NULL THEN TRUE ELSE override_correct END WHERE quiz_id=$1 AND user_email=$2 AND question_id=$3',
-        [quizId, userEmail, q.id, streak]
-      );
-      if (updateResult.rowCount === 0) {
-        console.warn(`[gradeQuiz] Failed to update points for quiz ${quizId}, user ${userEmail}, question ${q.id} - no rows affected`);
+      console.log(`[gradeQuiz] Q${q.number} (non-locked): correct=true, override=${overrideValue}, streak=${streak}, points=${streak}, total before=${total - streak}, total after=${total}`);
+      // CRITICAL: Set override_correct based on logic
+      if (overrideValue !== null) {
+        const updateResult = await pool.query(
+          'UPDATE responses SET points = $4, override_correct = CASE WHEN override_correct IS NULL THEN $5 ELSE override_correct END WHERE quiz_id=$1 AND user_email=$2 AND question_id=$3',
+          [quizId, userEmail, q.id, streak, overrideValue]
+        );
+        if (updateResult.rowCount === 0) {
+          console.warn(`[gradeQuiz] Failed to update points for quiz ${quizId}, user ${userEmail}, question ${q.id} - no rows affected`);
+        }
+      } else {
+        // Ungraded - only update points, preserve override_correct
+        const updateResult = await pool.query(
+          'UPDATE responses SET points = $4 WHERE quiz_id=$1 AND user_email=$2 AND question_id=$3',
+          [quizId, userEmail, q.id, streak]
+        );
+        if (updateResult.rowCount === 0) {
+          console.warn(`[gradeQuiz] Failed to update points for quiz ${quizId}, user ${userEmail}, question ${q.id} - no rows affected`);
+        }
       }
     } else {
       streak = 0;
       if (r) {
-        // CRITICAL: Persist override_correct when NULL, but preserve manual overrides
-        const updateResult = await pool.query(
-          'UPDATE responses SET points = 0, override_correct = CASE WHEN override_correct IS NULL THEN FALSE ELSE override_correct END WHERE quiz_id=$1 AND user_email=$2 AND question_id=$3',
-          [quizId, userEmail, q.id]
-        );
-        if (updateResult.rowCount === 0) {
-          console.warn(`[gradeQuiz] Failed to update points to 0 for quiz ${quizId}, user ${userEmail}, question ${q.id} - no rows affected`);
+        // CRITICAL: Set override_correct based on logic
+        if (overrideValue !== null) {
+          const updateResult = await pool.query(
+            'UPDATE responses SET points = 0, override_correct = CASE WHEN override_correct IS NULL THEN $4 ELSE override_correct END WHERE quiz_id=$1 AND user_email=$2 AND question_id=$3',
+            [quizId, userEmail, q.id, overrideValue]
+          );
+          if (updateResult.rowCount === 0) {
+            console.warn(`[gradeQuiz] Failed to update points to 0 for quiz ${quizId}, user ${userEmail}, question ${q.id} - no rows affected`);
+          }
+        } else {
+          // Ungraded - only update points, preserve override_correct
+          const updateResult = await pool.query(
+            'UPDATE responses SET points = 0 WHERE quiz_id=$1 AND user_email=$2 AND question_id=$3',
+            [quizId, userEmail, q.id]
+          );
+          if (updateResult.rowCount === 0) {
+            console.warn(`[gradeQuiz] Failed to update points to 0 for quiz ${quizId}, user ${userEmail}, question ${q.id} - no rows affected`);
+          }
         }
       }
     }
@@ -8013,112 +8088,51 @@ app.post('/quiz/:id/submit', requireAuthOrAdmin, async (req, res) => {
         continue;
       }
       
-      // MAJORITY VOTE LOGIC: When a new response would cause mixed states,
-      // determine correctness based on majority of existing responses (both auto-corrected and manually overridden)
+      // INTENDED LOGIC: Determine override_correct based on rules
+      // 1. Matches correct answer → correct (TRUE)
+      // 2. Matches previously accepted answer → correct (TRUE)
+      // 3. Matches previously rejected answer → incorrect (FALSE)
+      // 4. Matches none → NULL (ungraded)
       const norm = normalizeAnswer(val);
+      const matchesCorrect = isCorrectAnswer(val, q.answer);
+      const matchesAccepted = await isAcceptedAnswer(pool, q.id, val);
+      const matchesRejected = await isRejectedAnswer(pool, q.id, val);
       
-      // Get ALL existing responses with the same normalized text for this question
-      const allResponsesForQuestion = await pool.query(
-        `SELECT id, response_text, override_correct FROM responses 
+      let finalOverride = null;
+      
+      if (matchesCorrect || matchesAccepted) {
+        finalOverride = true;
+      } else if (matchesRejected) {
+        finalOverride = false;
+      } else {
+        // Matches none - leave as NULL (ungraded)
+        finalOverride = null;
+      }
+      
+      // CRITICAL: Sync ALL matching responses to prevent mixed states
+      // Get all responses with the same normalized text
+      const allMatchingResponses = await pool.query(
+        `SELECT id FROM responses 
          WHERE question_id=$1 AND submitted_at IS NOT NULL`,
         [q.id]
       );
       
-      let correctCount = 0;
-      let incorrectCount = 0;
-      let hasExplicitTrue = false;
       const matchingIds = [];
-      
-      // Count correct vs incorrect for existing responses with same normalized text
-      for (const row of allResponsesForQuestion.rows) {
+      for (const row of allMatchingResponses.rows) {
         const rowNorm = normalizeAnswer(row.response_text || '');
         if (rowNorm === norm) {
           matchingIds.push(row.id);
-          
-          // Determine if this existing response is correct:
-          // - override_correct = TRUE → correct
-          // - override_correct = FALSE → incorrect
-          // - override_correct = NULL → check auto-correct (matches correct answer)
-          if (row.override_correct === true) {
-            correctCount++;
-            hasExplicitTrue = true; // Track if ANY response is explicitly TRUE
-          } else if (row.override_correct === false) {
-            incorrectCount++;
-          } else {
-            // NULL override: check if it matches the correct answer (auto-correct)
-            const isAutoCorrect = isCorrectAnswer(row.response_text, q.answer);
-            if (isAutoCorrect) {
-              correctCount++;
-            } else {
-              incorrectCount++;
-            }
-          }
         }
       }
       
-      // Check if new response matches the correct answer (auto-correct)
-      const matchesCorrect = isCorrectAnswer(val, q.answer);
-      
-      // Determine final override value using majority vote:
-      // PRIORITY: If ANY existing response is explicitly TRUE, ALL must be TRUE
-      let finalOverride = null;
-      
-      if (matchingIds.length > 0) {
-        // There are existing responses with same normalized text - use majority vote
-        if (hasExplicitTrue) {
-          // If ANY existing response is TRUE, ALL must be TRUE - highest priority
-          finalOverride = true;
-        } else if (correctCount > incorrectCount) {
-          // Majority are correct → mark as TRUE
-          finalOverride = true;
-        } else if (incorrectCount > correctCount) {
-          // Majority are incorrect → mark as FALSE
-          finalOverride = false;
-        } else {
-          // Tie: use auto-correct as tiebreaker
-          finalOverride = matchesCorrect ? true : null;
-        }
-        
-        // CRITICAL: Immediately sync existing matching responses to the majority vote
-        // This prevents mixed states before we even insert the new response
-        if (finalOverride !== null && matchingIds.length > 0) {
-          const syncResult = await pool.query(
-            `UPDATE responses 
-             SET override_correct = $1, override_version = COALESCE(override_version, 0) + 1, override_updated_at = NOW()
-             WHERE id = ANY($2) AND override_correct IS DISTINCT FROM $1
-             RETURNING id`,
-            [finalOverride, matchingIds]
-          );
-          if (syncResult.rows.length > 0) {
-            console.log(`[submit] Synced ${syncResult.rows.length} existing responses for Q${q.id}, norm="${norm}", target=${finalOverride}, correctCount=${correctCount}, incorrectCount=${incorrectCount}`);
-          }
-        }
-      } else {
-        // No existing responses with same normalized text - use standard logic
-        if (matchesCorrect) {
-          finalOverride = true;
-        } else {
-          // Check if it matches any previously rejected answer
-          const rejectedResponsesResult = await pool.query(
-            `SELECT response_text FROM responses 
-             WHERE question_id=$1 AND override_correct=false AND submitted_at IS NOT NULL`,
-            [q.id]
-          );
-          let matchesRejected = false;
-          for (const row of rejectedResponsesResult.rows) {
-            if (normalizeAnswer(row.response_text || '') === norm) {
-              matchesRejected = true;
-              break;
-            }
-          }
-          
-          if (matchesRejected) {
-            finalOverride = false;
-          } else {
-            // Unique answer - leave as NULL (ungraded)
-            finalOverride = null;
-          }
-        }
+      // Sync existing matching responses BEFORE inserting new one
+      if (finalOverride !== null && matchingIds.length > 0) {
+        await pool.query(
+          `UPDATE responses 
+           SET override_correct = $1, override_version = COALESCE(override_version, 0) + 1, override_updated_at = NOW()
+           WHERE id = ANY($2) AND override_correct IS DISTINCT FROM $1`,
+          [finalOverride, matchingIds]
+        );
       }
       
       // Insert/update the new response with the determined override value
@@ -8137,7 +8151,7 @@ app.post('/quiz/:id/submit', requireAuthOrAdmin, async (req, res) => {
       );
       
       // CRITICAL: Final sync to ensure ALL matching responses (including newly inserted) are consistent
-      // This is a safeguard to catch any edge cases
+      // This prevents mixed states by ensuring all responses with same normalized text have same override_correct
       if (finalOverride !== null) {
         await syncOverrideForNormalizedText(pool, q.id, val, finalOverride);
       }
@@ -9647,24 +9661,28 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
         const accepted = acceptedNorms.has(normText);
         const hasOverride = overrides.some(v => v !== null);
         
-        // CRITICAL: A group is "ungraded" (needs review) if:
-        // - Flagged (needs attention)
-        // - Mixed (inconsistent state, needs fixing)
-        // - Has ANY ungraded responses (NULL override_correct) AND is NOT blank - blank ungraded responses are auto-rejected
-        // - NOT auto-correct AND NOT manually accepted AND has NO override (truly awaiting review)
+        // INTENDED LOGIC: A group is "ungraded" (needs review) if:
+        // - Mixed (shouldn't exist, but needs fixing)
+        // - Flagged AND not already correct/incorrect (needs intervention)
+        // - Has ANY ungraded responses (NULL override_correct) AND is NOT blank
+        // - Doesn't match correct/accepted/rejected AND has no override (awaiting review)
         // 
-        // Groups with overrides (even if false/rejected) are NOT ungraded - they've been reviewed
+        // Groups with overrides (TRUE/FALSE) are NOT ungraded - they've been reviewed
         // Groups that are auto-correct OR manually accepted are NOT ungraded - they're correct
-        // Blank groups with NULL override_correct are NOT ungraded - they're auto-rejected by gradeQuiz
+        // Blank groups with NULL override_correct are NOT ungraded - they're auto-rejected
         const hasUngraded = overrides.some(v => v === null);
-        // Only count hasUngraded if the group is NOT blank (blank ungraded responses are auto-rejected)
-        // CRITICAL: This must match the display filter logic exactly:
-        // - Display filter filters out blanks BEFORE checking ungraded status (unless mixed/flagged)
-        // - So blank groups with hasUngraded=true are filtered out and never shown
-        // - Therefore, we should NOT count blank groups with hasUngraded=true
-        // Show auto-correct responses that have been auto-graded - they may need manual verification
-        const isAutoGraded = auto && hasOverride && !isBlank;
-        const isUngraded = anyFlagged || isMixed || (hasUngraded && !isBlank) || (!auto && !accepted && !hasOverride) || isAutoGraded;
+        const hasAnyOverride = overrides.some(v => v !== null);
+        
+        // Flagged: needs intervention only if not already correct/incorrect
+        const flaggedNeedsIntervention = anyFlagged && !hasAnyOverride;
+        
+        // Ungraded: needs review if NULL override and not blank
+        const ungradedNeedsReview = hasUngraded && !isBlank;
+        
+        // Awaiting review: doesn't match correct/accepted/rejected and has no override
+        const awaitingReview = !auto && !accepted && !hasOverride;
+        
+        const isUngraded = isMixed || flaggedNeedsIntervention || ungradedNeedsReview || awaitingReview;
         
         if (isUngraded) {
           ungraded++;
@@ -9689,16 +9707,24 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
         const firstText = (arr[0].response_text || '').trim();
         const isBlank = !firstText || normalizeAnswer(firstText) === '';
         
-        // Check for mixed status BEFORE filtering blanks
+        // INTENDED LOGIC: Filter based on grading rules
+        // Mixed states should NEVER appear, but if they do, show them for fixing
         const overrides = arr.map(r => typeof r.override_correct === 'boolean' ? r.override_correct : null);
         const isMixed = overrides.some(v => v === true) && overrides.some(v => v === false);
         const anyFlagged = arr.some(r => r.flagged === true);
+        const hasOverride = overrides.some(v => v !== null);
         
-        // CRITICAL: Always show mixed and flagged responses, even if blank
-        // Mixed answers indicate inconsistency and must be visible for correction
-        if (isMixed || anyFlagged) return true;
+        // CRITICAL: Show mixed states if they exist (shouldn't happen, but need to fix them)
+        if (isMixed) return true;
         
-        // Otherwise, filter out blanks
+        // Flagged responses: show only if they need intervention (not already correct/incorrect)
+        if (anyFlagged) {
+          // If flagged but already has override (correct/incorrect), no intervention needed
+          // Only show if ungraded (NULL override)
+          return !hasOverride;
+        }
+        
+        // Filter out blanks
         if (isBlank) return false;
         return true;
       });
@@ -9720,19 +9746,24 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
           const normText = normalizeAnswer(firstText);
           const accepted = acceptedNorms.has(normText);
           
-          // CRITICAL: Always show:
-          // 1. Flagged answers (need attention)
-          // 2. Mixed answers (inconsistent state, needs fixing)
-          // 3. Groups with ungraded responses (NULL) AND NOT blank - blank ungraded responses are auto-rejected
-          // 4. Truly awaiting review (not auto-correct AND not manually accepted AND no override)
-          // 5. Auto-correct responses that have been auto-graded (have override_correct set) - they may need verification
+          // INTENDED LOGIC: Show responses that need human intervention
+          // 1. Mixed answers (shouldn't exist, but need fixing)
+          // 2. Flagged answers that need intervention (flagged but not already correct/incorrect)
+          // 3. Ungraded responses (NULL override) that are not blank
+          // 4. Responses that don't match correct/accepted/rejected (awaiting review)
           // This MUST match the counter logic exactly!
-          // Note: Blank groups are already filtered out above, but we check !isBlank here for consistency
           const isBlank = !firstText || normalizeAnswer(firstText) === '';
-          // Show auto-correct responses that have been auto-graded (override_correct is TRUE/FALSE, not NULL)
-          // These are shown because they may need manual verification even though they're auto-correct
-          const isAutoGraded = auto && hasOverride && !isBlank;
-          return anyFlagged || isMixed || (hasUngraded && !isBlank) || (!auto && !accepted && !hasOverride) || isAutoGraded;
+          
+          // Flagged: show only if ungraded (needs intervention)
+          const flaggedNeedsIntervention = anyFlagged && !hasOverride;
+          
+          // Ungraded: show if NULL override and not blank
+          const ungradedNeedsReview = hasUngraded && !isBlank;
+          
+          // Awaiting review: doesn't match correct/accepted/rejected and has no override
+          const awaitingReview = !auto && !accepted && !hasOverride;
+          
+          return isMixed || flaggedNeedsIntervention || ungradedNeedsReview || awaitingReview;
         });
       } else {
         // Even when showing all, prioritize mixed answers by ensuring they're included
