@@ -9119,6 +9119,23 @@ app.get('/admin/quiz/:id/check-responses', requireAdmin, async (req, res) => {
       validByUser.get(r.user_email).push(r);
     });
     
+    // Count distinct players
+    const allPlayerEmails = new Set(allResponses.rows.map(r => r.user_email));
+    const submittedPlayerEmails = new Set(allResponses.rows.filter(r => r.submitted_at).map(r => r.user_email));
+    
+    // Check for duplicate responses (same user, same question_id)
+    const duplicateMap = new Map();
+    const responseKeyMap = new Map();
+    allResponses.rows.forEach(r => {
+      const key = `${r.user_email}|${r.question_id}`;
+      if (!responseKeyMap.has(key)) {
+        responseKeyMap.set(key, []);
+      }
+      responseKeyMap.get(key).push(r);
+    });
+    
+    const duplicates = Array.from(responseKeyMap.entries()).filter(([key, responses]) => responses.length > 1);
+    
     res.type('html').send(`
       <html><head><title>Response Check - Quiz ${id}</title></head>
       <body style="font-family: system-ui; padding: 24px; background: #0a0a0a; color: #fff;">
@@ -9131,7 +9148,31 @@ app.get('/admin/quiz/:id/check-responses', requireAdmin, async (req, res) => {
           <li>Valid responses: ${allResponses.rows.length - orphaned.length}</li>
           <li>Orphaned responses: ${orphaned.length}</li>
           <li>Questions: ${allQuestions.rows.length}</li>
+          <li>Distinct players (all): ${allPlayerEmails.size}</li>
+          <li>Distinct players (submitted only): ${submittedPlayerEmails.size}</li>
+          <li>Expected max responses (${allPlayerEmails.size} players × ${allQuestions.rows.length} questions): ${allPlayerEmails.size * allQuestions.rows.length}</li>
+          ${duplicates.length > 0 ? `<li style="color:#ff9800;"><strong>⚠️ Duplicate responses found:</strong> ${duplicates.length} question(s) have multiple responses from the same player</li>` : ''}
         </ul>
+        
+        ${duplicates.length > 0 ? `
+          <h2 style="color: #ff9800;">⚠️ Duplicate Responses Found</h2>
+          <p>These are responses where the same player has multiple responses for the same question (violates UNIQUE constraint):</p>
+          <table border="1"1" cellpadding="8" style="border-collapse: collapse; background: #1a1a1a; margin-bottom: 24px;">
+            <tr style="background: #333;"><th>User</th><th>Question ID</th><th>Response Count</th><th>Response IDs</th><th>Submitted At</th></tr>
+            ${duplicates.map(([key, responses]) => {
+              const [email, questionId] = key.split('|');
+              return `
+                <tr>
+                  <td>${email}</td>
+                  <td>${questionId}</td>
+                  <td>${responses.length}</td>
+                  <td>${responses.map(r => r.id).join(', ')}</td>
+                  <td>${responses.map(r => r.submitted_at ? 'Yes' : 'No').join(', ')}</td>
+                </tr>
+              `;
+            }).join('')}
+          </table>
+        ` : ''}
         
         ${orphaned.length > 0 ? `
           <h2 style="color: #ff9800;">⚠️ Orphaned Responses Found</h2>
