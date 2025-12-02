@@ -7711,83 +7711,52 @@ app.post('/quiz/:id/submit', requireAuthOrAdmin, async (req, res) => {
         continue;
       }
       
-      // CRITICAL: Check if this response text matches an existing accepted/rejected answer
-      // This MUST happen BEFORE inserting to prevent NULL responses when they should be TRUE/FALSE
+      // SIMPLIFIED LOGIC: Determine override_correct based on matching responses
+      // Rule: ALL matching normalized responses MUST have the same override_correct value
       const norm = normalizeAnswer(val);
       
-      // Check if this normalized text has been accepted (has ANY response with override_correct = true)
-      const isAccepted = await isAcceptedAnswer(pool, q.id, val);
+      // Check 1: Does it match the correct answer? (auto-correct)
+      const matchesCorrect = isCorrectAnswer(val, q.answer);
       
-      // Check if this normalized text has any override (accepted or rejected)
-      const existingOverride = await getOverrideForNormalizedText(pool, q.id, val);
+      // Check 2: Does it match any previously accepted answer?
+      const matchesAccepted = await isAcceptedAnswer(pool, q.id, val);
       
-      // Determine the correct override value BEFORE inserting
-      // Priority: 1) If accepted, MUST be true; 2) If has existing override, use it; 3) Otherwise NULL
-      let finalOverride = null;
-      if (isAccepted) {
-        // CRITICAL: If accepted, ALWAYS set to true - never NULL
-        finalOverride = true;
-      } else if (existingOverride !== null) {
-        // Use existing override value (could be true or false)
-        finalOverride = existingOverride;
-      }
-      // Otherwise finalOverride stays null (ungraded)
-      
-      // Get all matching responses to check for mixed states and fix them BEFORE inserting
-      const allMatching = await pool.query(
-        'SELECT id, response_text, override_correct FROM responses WHERE question_id=$1 AND submitted_at IS NOT NULL',
+      // Check 3: Does it match any previously rejected answer?
+      // Get all rejected responses and check if any normalize to the same value
+      const { rows: rejectedResponses } = await pool.query(
+        `SELECT response_text FROM responses 
+         WHERE question_id=$1 AND override_correct=false AND submitted_at IS NOT NULL`,
         [q.id]
       );
-      
-      const matchingGroup = [];
-      for (const r of allMatching.rows) {
-        const rNorm = normalizeAnswer(r.response_text || '');
-        if (rNorm === norm) {
-          matchingGroup.push(r);
+      let matchesRejected = false;
+      for (const row of rejectedResponses.rows) {
+        if (normalizeAnswer(row.response_text || '') === norm) {
+          matchesRejected = true;
+          break;
         }
       }
       
-      // If this answer is accepted, ensure ALL existing matching responses are also true
-      if (isAccepted && matchingGroup.length > 0) {
-        const needsFix = matchingGroup.some(r => r.override_correct !== true);
-        if (needsFix) {
-          const matchingIds = matchingGroup.map(r => r.id);
-          await pool.query(
-            'UPDATE responses SET override_correct = TRUE, override_version = COALESCE(override_version, 0) + 1, override_updated_at = NOW() WHERE id = ANY($1)',
-            [matchingIds]
-          );
-        }
+      // Determine final override value:
+      // - If matches correct answer OR accepted answer → TRUE (correct)
+      // - If matches rejected answer → FALSE (incorrect)
+      // - If unique → FALSE (incorrect, but will show as needing grading)
+      let finalOverride = false; // Default to incorrect
+      if (matchesCorrect || matchesAccepted) {
+        finalOverride = true; // Correct
+      } else if (matchesRejected) {
+        finalOverride = false; // Incorrect
       }
-      // If there's an existing override (but not accepted), sync all matching responses
-      else if (existingOverride !== null && matchingGroup.length > 0) {
-        const needsFix = matchingGroup.some(r => r.override_correct !== existingOverride);
-        if (needsFix) {
-          const matchingIds = matchingGroup.map(r => r.id);
-          await pool.query(
-            'UPDATE responses SET override_correct = $1, override_version = COALESCE(override_version, 0) + 1, override_updated_at = NOW() WHERE id = ANY($2)',
-            [existingOverride, matchingIds]
-          );
-        }
-      }
+      // If unique (doesn't match anything), finalOverride stays false
       
-      // NOW insert/update the new response with the correct override value
-      // CRITICAL: finalOverride is already determined above - if accepted, it's TRUE, not NULL
+      // CRITICAL: Insert/update the new response with the determined override value
       await pool.query(
-        'INSERT INTO responses(quiz_id, question_id, user_email, response_text, locked, submitted_at, override_correct) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (user_email, question_id) DO UPDATE SET response_text = EXCLUDED.response_text, locked = EXCLUDED.locked, submitted_at = EXCLUDED.submitted_at, override_correct = CASE WHEN $7 IS NOT NULL THEN $7 ELSE responses.override_correct END',
+        'INSERT INTO responses(quiz_id, question_id, user_email, response_text, locked, submitted_at, override_correct) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (user_email, question_id) DO UPDATE SET response_text = EXCLUDED.response_text, locked = EXCLUDED.locked, submitted_at = EXCLUDED.submitted_at, override_correct = $7',
         [id, q.id, email, val, isLocked, submittedAt, finalOverride]
       );
       
-      // CRITICAL: Always sync after insertion to ensure ALL matching responses are consistent
-      // This catches any edge cases where mixed states weren't fixed before insertion
-      // Priority: 1) If accepted, sync ALL to true; 2) If has override, sync ALL to that value
-      if (isAccepted) {
-        // If accepted, ensure ALL matching responses (including the newly inserted one) are TRUE
-        // This prevents mixed states where some responses are TRUE and others are FALSE or NULL
-        await syncOverrideForNormalizedText(pool, q.id, val, true);
-      } else if (finalOverride !== null) {
-        // If has existing override (but not accepted), sync ALL matching responses to that value
-        await syncOverrideForNormalizedText(pool, q.id, val, finalOverride);
-      }
+      // CRITICAL: Sync ALL matching responses to the same override value
+      // This ensures no mixed states - all matching normalized responses have the same value
+      await syncOverrideForNormalizedText(pool, q.id, val, finalOverride);
     }
     
     // Ensure exactly one question is locked - set all others to false
