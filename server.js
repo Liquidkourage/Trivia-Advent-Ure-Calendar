@@ -10513,6 +10513,92 @@ app.get('/admin/quiz/:id/responses', requireAdmin, async (req, res) => {
               </ul>
             </div>` : ''}
           </div>
+          
+          ${(() => {
+            // Audit: Find responses where override_correct = TRUE but points = 0
+            const auditIssues = [];
+            for (const resp of allResponses) {
+              if (resp.override_correct === true && (resp.points === 0 || resp.points === null)) {
+                const player = players.find(p => p.user_email === resp.user_email);
+                const question = questions.find(q => q.number === resp.question_number);
+                auditIssues.push({
+                  user_email: resp.user_email,
+                  username: player?.username || player?.email || resp.user_email,
+                  question_number: resp.question_number,
+                  question_text: question?.text || '',
+                  response_text: resp.response_text || '',
+                  points: resp.points || 0,
+                  locked: resp.locked
+                });
+              }
+            }
+            
+            if (auditIssues.length === 0) {
+              return '';
+            }
+            
+            // Group by player for better display
+            const issuesByPlayer = new Map();
+            for (const issue of auditIssues) {
+              if (!issuesByPlayer.has(issue.user_email)) {
+                issuesByPlayer.set(issue.user_email, {
+                  username: issue.username,
+                  issues: []
+                });
+              }
+              issuesByPlayer.get(issue.user_email).issues.push(issue);
+            }
+            
+            return `
+              <div style="background:#2a1a0a;border:2px solid #ff9800;border-radius:8px;padding:20px;margin-bottom:24px;">
+                <h2 style="color:#ff9800;margin:0 0 16px 0;font-size:20px;">⚠️ Audit: Correct Answers with 0 Points (${auditIssues.length})</h2>
+                <p style="color:#ffcc88;margin-bottom:16px;">Found ${auditIssues.length} response${auditIssues.length !== 1 ? 's' : ''} marked as correct (override_correct = TRUE) but scored 0 points. These should be regraded.</p>
+                <div style="max-height:400px;overflow-y:auto;">
+                  ${Array.from(issuesByPlayer.entries()).map(([email, data]) => `
+                    <div style="background:#1a0a0a;border:1px solid #664400;border-radius:6px;padding:12px;margin-bottom:12px;">
+                      <div style="font-weight:bold;color:#ffcc88;margin-bottom:8px;">${escapeHtml(data.username)}</div>
+                      <table style="width:100%;font-size:12px;border-collapse:collapse;">
+                        <thead>
+                          <tr style="background:#2a1a0a;">
+                            <th style="padding:6px;text-align:left;border-bottom:1px solid #664400;">Q#</th>
+                            <th style="padding:6px;text-align:left;border-bottom:1px solid #664400;">Question</th>
+                            <th style="padding:6px;text-align:left;border-bottom:1px solid #664400;">Response</th>
+                            <th style="padding:6px;text-align:left;border-bottom:1px solid #664400;">Points</th>
+                            <th style="padding:6px;text-align:left;border-bottom:1px solid #664400;">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          ${data.issues.map(issue => `
+                            <tr>
+                              <td style="padding:6px;">Q${issue.question_number}${issue.locked ? ' 🔒' : ''}</td>
+                              <td style="padding:6px;">${escapeHtml(issue.question_text.substring(0, 60))}${issue.question_text.length > 60 ? '...' : ''}</td>
+                              <td style="padding:6px;">${escapeHtml(issue.response_text.substring(0, 40))}${issue.response_text.length > 40 ? '...' : ''}</td>
+                              <td style="padding:6px;color:#ff6666;font-weight:bold;">${issue.points}</td>
+                              <td style="padding:6px;">
+                                <form method="POST" action="/admin/quiz/${quizId}/regrade-user" style="display:inline;">
+                                  <input type="hidden" name="email" value="${escapeHtml(issue.user_email)}">
+                                  <input type="hidden" name="redirect_to" value="responses">
+                                  <button type="submit" class="ta-btn ta-btn-small" style="background:#2a4a1a;border-color:#55cc55;color:#88ff88;font-size:11px;padding:4px 8px;">Regrade</button>
+                                </form>
+                                <a href="/admin/quiz/${quizId}/edit-response?email=${encodeURIComponent(issue.user_email)}&question=${issue.question_number}" class="ta-btn ta-btn-small" style="font-size:11px;padding:4px 8px;margin-left:4px;">Edit</a>
+                              </td>
+                            </tr>
+                          `).join('')}
+                        </tbody>
+                      </table>
+                    </div>
+                  `).join('')}
+                </div>
+                <div style="margin-top:16px;padding-top:16px;border-top:1px solid rgba(255,152,0,0.3);">
+                  <form method="POST" action="/admin/quiz/${quizId}/regrade" style="display:inline;">
+                    <button type="submit" class="ta-btn ta-btn-primary" style="font-size:15px;padding:10px 20px;">Regrade All Players</button>
+                  </form>
+                  <div style="margin-top:8px;font-size:13px;opacity:0.8;color:#ffcc88;">This will recalculate points for all players in this quiz.</div>
+                </div>
+              </div>
+            `;
+          })()}
+          
           ${playerSubmissions || '<p>No responses yet.</p>'}
           
           ${playersWithAllEmpty.length > 0 ? `
