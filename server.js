@@ -9136,11 +9136,26 @@ app.get('/admin/quiz/:id/check-responses', requireAdmin, async (req, res) => {
     
     const duplicates = Array.from(responseKeyMap.entries()).filter(([key, responses]) => responses.length > 1);
     
+    // Check for responses without submitted_at (these won't show in grader/responses pages)
+    const responsesWithoutSubmitted = allResponses.rows.filter(r => !r.submitted_at);
+    const responsesWithSubmitted = allResponses.rows.filter(r => r.submitted_at);
+    
+    // Group by user to see who has unsubmitted responses
+    const unsubmittedByUser = new Map();
+    responsesWithoutSubmitted.forEach(r => {
+      if (!unsubmittedByUser.has(r.user_email)) {
+        unsubmittedByUser.set(r.user_email, []);
+      }
+      unsubmittedByUser.get(r.user_email).push(r);
+    });
+    
     res.type('html').send(`
       <html><head><title>Response Check - Quiz ${id}</title></head>
       <body style="font-family: system-ui; padding: 24px; background: #0a0a0a; color: #fff;">
         <h1>Response Check for Quiz ${id}</h1>
         <p><a href="/admin/quiz/${id}/grade">← Back to Grader</a></p>
+        
+        ${req.query.restored ? `<div style="background:#efffef;border:1px solid #55cc55;color:#1a5a1a;padding:10px;border-radius:6px;margin-bottom:16px;">✓ Restored submitted_at for ${req.query.restored} response(s)</div>` : ''}
         
         <h2>Summary</h2>
         <ul>
@@ -9151,8 +9166,42 @@ app.get('/admin/quiz/:id/check-responses', requireAdmin, async (req, res) => {
           <li>Distinct players (all): ${allPlayerEmails.size}</li>
           <li>Distinct players (submitted only): ${submittedPlayerEmails.size}</li>
           <li>Expected max responses (${allPlayerEmails.size} players × ${allQuestions.rows.length} questions): ${allPlayerEmails.size * allQuestions.rows.length}</li>
+          <li><strong>Responses WITH submitted_at:</strong> ${responsesWithSubmitted.length} (visible in grader/responses pages)</li>
+          <li><strong>Responses WITHOUT submitted_at:</strong> ${responsesWithoutSubmitted.length} (NOT visible in grader/responses pages)</li>
           ${duplicates.length > 0 ? `<li style="color:#ff9800;"><strong>⚠️ Duplicate responses found:</strong> ${duplicates.length} question(s) have multiple responses from the same player</li>` : ''}
         </ul>
+        
+        ${responsesWithoutSubmitted.length > 0 ? `
+          <h2 style="color: #ff9800;">⚠️ Responses Missing submitted_at</h2>
+          <p>These ${responsesWithoutSubmitted.length} responses exist in the database but don't have <code>submitted_at</code> set, so they won't appear in the grader or responses page. This might have happened if questions were edited before submission completed.</p>
+          
+          <h3>By User:</h3>
+          <table border="1" cellpadding="8" style="border-collapse: collapse; background: #1a1a1a; margin-bottom: 24px;">
+            <tr style="background: #333;"><th>User Email</th><th>Unsubmitted Responses</th><th>Question IDs</th><th>Actions</th></tr>
+            ${Array.from(unsubmittedByUser.entries()).map(([email, responses]) => {
+              const questionIds = responses.map(r => r.question_id).join(', ');
+              return `
+                <tr>
+                  <td>${email}</td>
+                  <td>${responses.length}</td>
+                  <td>${questionIds}</td>
+                  <td>
+                    <form method="post" action="/admin/quiz/${id}/restore-submitted" style="display:inline;">
+                      <input type="hidden" name="email" value="${email}">
+                      <button type="submit" style="background: #4CAF50; color: white; padding: 6px 12px; border: none; border-radius: 4px; cursor: pointer;">
+                        Restore submitted_at (Use Latest Response Time)
+                      </button>
+                    </form>
+                  </td>
+                </tr>
+              `;
+            }).join('')}
+          </table>
+          
+          <div style="background:#2a1a0a;border:1px solid #664400;border-radius:6px;padding:16px;margin-bottom:24px;color:#ff9800;">
+            <strong>⚠️ Note:</strong> If responses were created before questions were edited, they might have lost their <code>submitted_at</code> timestamp. You can restore it by clicking "Restore submitted_at" above, which will set <code>submitted_at</code> to the most recent <code>created_at</code> time for that user's responses in this quiz.
+          </div>
+        ` : ''}
         
         ${duplicates.length > 0 ? `
           <h2 style="color: #ff9800;">⚠️ Duplicate Responses Found</h2>
@@ -9218,6 +9267,46 @@ app.get('/admin/quiz/:id/check-responses', requireAdmin, async (req, res) => {
         `}
       </body></html>
     `);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Error: ' + e.message);
+  }
+});
+
+// Restore submitted_at for responses that lost it (e.g., after question edit)
+app.post('/admin/quiz/:id/restore-submitted', requireAdmin, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const userEmail = String(req.body.email || '').toLowerCase().trim();
+    
+    if (!userEmail) {
+      return res.status(400).send('Email required');
+    }
+    
+    // Get all responses for this user in this quiz that don't have submitted_at
+    const unsubmittedResponses = await pool.query(
+      'SELECT id, created_at FROM responses WHERE quiz_id=$1 AND user_email=$2 AND submitted_at IS NULL',
+      [id, userEmail]
+    );
+    
+    if (unsubmittedResponses.rows.length === 0) {
+      return res.redirect(`/admin/quiz/${id}/check-responses?msg=No unsubmitted responses found`);
+    }
+    
+    // Find the most recent created_at time for this user's responses in this quiz
+    // Use that as the submitted_at timestamp
+    const latestCreated = unsubmittedResponses.rows.reduce((latest, r) => {
+      const created = new Date(r.created_at);
+      return created > latest ? created : latest;
+    }, new Date(0));
+    
+    // Update all unsubmitted responses to have submitted_at set to the latest created_at
+    await pool.query(
+      'UPDATE responses SET submitted_at=$1 WHERE quiz_id=$2 AND user_email=$3 AND submitted_at IS NULL',
+      [latestCreated, id, userEmail]
+    );
+    
+    res.redirect(`/admin/quiz/${id}/check-responses?restored=${unsubmittedResponses.rows.length}`);
   } catch (e) {
     console.error(e);
     res.status(500).send('Error: ' + e.message);
