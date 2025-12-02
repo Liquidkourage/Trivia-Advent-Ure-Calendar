@@ -2092,6 +2092,23 @@ app.post('/account/credentials', requireAuth, express.urlencoded({ extended: tru
       }
       const hash = await hashPassword(pw);
       await pool.query('UPDATE players SET username=$1, password_hash=$2, password_set_at=NOW() WHERE email=$3', [username, hash, email]);
+      
+      // Mark magic token as used now that user has completed username/password setup
+      // Find the most recent unused token for this email and mark it as used
+      if (!hasExistingPassword) {
+        // Only mark token if this is first-time setup (not password change)
+        const { rows: tokensToMark } = await pool.query(
+          'SELECT token FROM magic_tokens WHERE email = $1 AND used = false AND expires_at > NOW() ORDER BY created_at DESC LIMIT 1',
+          [email]
+        );
+        if (tokensToMark.length > 0) {
+          await pool.query(
+            'UPDATE magic_tokens SET used = true WHERE token = $1',
+            [tokensToMark[0].token]
+          );
+          console.log('[account/credentials] Marked magic token as used after credentials setup for:', email);
+        }
+      }
     } else {
       // Only update username if they already have a password (changing username only)
       await pool.query('UPDATE players SET username=$1 WHERE email=$2', [username, email]);
@@ -2613,15 +2630,15 @@ app.get('/auth/magic', async (req, res) => {
         );
         if (freshCheck.length > 0) {
           console.log('[auth/magic] Found unused token for same email, redirecting to use it');
-          // Use the fresh token instead
+          // Use the fresh token instead (don't mark as used yet - wait for credentials setup)
           const freshToken = freshCheck[0].token;
-          const updateResult = await pool.query(
-            'UPDATE magic_tokens SET used = true WHERE token = $1 AND used = false AND expires_at > NOW() RETURNING email',
+          const freshTokenCheck = await pool.query(
+            'SELECT email FROM magic_tokens WHERE token = $1 AND used = false AND expires_at > NOW() AND created_at < NOW() - INTERVAL \'5 seconds\'',
             [freshToken]
           );
-          if (updateResult.rows.length > 0) {
+          if (freshTokenCheck.rows.length > 0) {
             // Continue with authentication using the fresh token
-            const email = updateResult.rows[0].email;
+            const email = freshTokenCheck.rows[0].email;
             // Set session and continue (code continues below)
             req.session.user = { email };
             await new Promise((resolve, reject) => {
@@ -2655,15 +2672,18 @@ app.get('/auth/magic', async (req, res) => {
       return res.status(400).send('Invalid token');
     }
     
-    // Mark as used using the specific row's ID or token (atomic update)
-    // Use database NOW() for consistent timezone handling and require token to be at least 5 seconds old
-    console.log('[auth/magic] Attempting to mark token as used. Token:', token.substring(0, 10) + '...', 'Email:', row.email);
-    const updateResult = await pool.query(
-      'UPDATE magic_tokens SET used = true WHERE token = $1 AND used = false AND expires_at > NOW() AND created_at < NOW() - INTERVAL \'5 seconds\' RETURNING email',
+    // DON'T mark token as used yet - wait until user completes username/password setup
+    // This prevents "token already used" errors for freshly generated tokens
+    // Token will be marked as used in /account/credentials after successful setup
+    console.log('[auth/magic] Validating token (will mark as used after credentials setup). Token:', token.substring(0, 10) + '...', 'Email:', row.email);
+    
+    // Verify token is still valid (not used, not expired, old enough)
+    const tokenCheck = await pool.query(
+      'SELECT email FROM magic_tokens WHERE token = $1 AND used = false AND expires_at > NOW() AND created_at < NOW() - INTERVAL \'5 seconds\'',
       [token]
     );
     
-    if (updateResult.rows.length === 0) {
+    if (tokenCheck.rows.length === 0) {
       console.log('[auth/magic] Failed to mark token as used - may have been used concurrently:', token.substring(0, 10) + '...');
       console.log('[auth/magic] Token state check - used:', row.used, 'expires_at:', row.expires_at);
       // Try one more time to find an unused token for this email
@@ -2674,13 +2694,13 @@ app.get('/auth/magic', async (req, res) => {
       if (retryCheck.length > 0) {
         console.log('[auth/magic] Found unused token on retry, using it');
         const retryToken = retryCheck[0].token;
-        const retryUpdate = await pool.query(
-          'UPDATE magic_tokens SET used = true WHERE token = $1 AND used = false AND expires_at > NOW() RETURNING email',
+        const retryTokenCheck = await pool.query(
+          'SELECT email FROM magic_tokens WHERE token = $1 AND used = false AND expires_at > NOW() AND created_at < NOW() - INTERVAL \'5 seconds\'',
           [retryToken]
         );
-        if (retryUpdate.rows.length > 0) {
-          // Continue with authentication
-          const email = retryUpdate.rows[0].email;
+        if (retryTokenCheck.rows.length > 0) {
+          // Continue with authentication (don't mark token as used yet - wait for credentials setup)
+          const email = retryTokenCheck.rows[0].email;
           req.session.user = { email };
           await new Promise((resolve, reject) => {
             req.session.save((err) => {
@@ -2710,7 +2730,7 @@ app.get('/auth/magic', async (req, res) => {
       return res.status(400).send('Token already used or expired');
     }
     
-    const email = updateResult.rows[0].email;
+    const email = row.email;
     
     // Check if player record exists
     const orow = await pool.query('SELECT onboarding_complete, username, password_set_at FROM players WHERE email = $1', [email]);
@@ -7730,15 +7750,24 @@ app.post('/quiz/:id/submit', requireAuthOrAdmin, async (req, res) => {
       );
       let hasExistingTrue = false;
       let hasExistingFalse = false;
+      let matchingCount = 0;
+      let trueCount = 0;
       for (const row of allResponsesForQuestion.rows) {
         const rowNorm = normalizeAnswer(row.response_text || '');
         if (rowNorm === norm) {
+          matchingCount++;
           if (row.override_correct === true) {
             hasExistingTrue = true;
+            trueCount++;
           } else if (row.override_correct === false) {
             hasExistingFalse = true;
           }
         }
+      }
+      
+      // DEBUG: Log if we have TRUE responses but didn't detect them
+      if (trueCount > 0 && !hasExistingTrue) {
+        console.error(`[SUBMIT BUG] Q${q.id}: Found ${trueCount} TRUE responses for norm "${norm}" but hasExistingTrue=false! Response: "${val}"`);
       }
       
       // Check if it matches the correct answer (auto-correct)
@@ -7807,9 +7836,25 @@ app.post('/quiz/:id/submit', requireAuthOrAdmin, async (req, res) => {
         }
       }
       
+      // DEBUG: Log if hasExistingTrue but finalOverride is still null (should never happen)
+      if (matchingCount > 0 && hasExistingTrue && finalOverride === null) {
+        console.error(`[SUBMIT BUG] Q${q.id}: hasExistingTrue=true but finalOverride=null for norm "${norm}"! Response: "${val}", matchingCount=${matchingCount}, trueCount=${trueCount}`);
+      }
+      
       // CRITICAL: Insert/update the new response with the determined override value
+      // Use EXCLUDED.override_correct in ON CONFLICT to ensure we use the INSERT value
+      // But preserve TRUE values: if existing is TRUE, keep it TRUE (don't overwrite with NULL/FALSE)
       await pool.query(
-        'INSERT INTO responses(quiz_id, question_id, user_email, response_text, locked, submitted_at, override_correct) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (user_email, question_id) DO UPDATE SET response_text = EXCLUDED.response_text, locked = EXCLUDED.locked, submitted_at = EXCLUDED.submitted_at, override_correct = $7',
+        `INSERT INTO responses(quiz_id, question_id, user_email, response_text, locked, submitted_at, override_correct) 
+         VALUES($1,$2,$3,$4,$5,$6,$7) 
+         ON CONFLICT (user_email, question_id) DO UPDATE SET 
+           response_text = EXCLUDED.response_text, 
+           locked = EXCLUDED.locked, 
+           submitted_at = EXCLUDED.submitted_at, 
+           override_correct = CASE 
+             WHEN responses.override_correct = TRUE THEN TRUE 
+             ELSE EXCLUDED.override_correct 
+           END`,
         [id, q.id, email, val, isLocked, submittedAt, finalOverride]
       );
       
@@ -9487,6 +9532,8 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
               <input type="hidden" name="question_id" value="${sec.number}"/>
               <input type="hidden" name="norm" value="${ans}"/>
               <input type="hidden" name="expected_version" value="${groupVersion}"/>
+              ${showQStr ? `<input type="hidden" name="showq" value="${showQStr}"/>` : ''}
+              ${filterType !== 'all' ? `<input type="hidden" name="filter" value="${filterType}"/>` : ''}
               <button name="action" value="accept">Accept</button>
               <button name="action" value="reject">Reject</button>
               <button name="action" value="clear">Clear</button>
@@ -9605,8 +9652,17 @@ app.post('/admin/quiz/:id/override', requireAdmin, async (req, res) => {
       }
     }
     
+    // Preserve query parameters (showq, filter, etc.) from form POST body and add anchor to maintain scroll position
+    const showQ = req.body.showq || req.query.showq || '';
+    const filter = req.body.filter || req.query.filter || '';
+    const queryParams = [];
+    if (showQ) queryParams.push(`showq=${encodeURIComponent(showQ)}`);
+    if (filter && filter !== 'all') queryParams.push(`filter=${encodeURIComponent(filter)}`);
+    const queryString = queryParams.length > 0 ? '?' + queryParams.join('&') : '';
+    const anchor = `#q${qNumber}`;
+    
     if (matchingIds.length === 0) { 
-      return res.redirect(`/admin/quiz/${quizId}/grade`); 
+      return res.redirect(`/admin/quiz/${quizId}/grade${queryString}${anchor}`); 
     }
     
     // CRITICAL: Ensure ALL responses with this normalized text are updated together
@@ -9616,7 +9672,7 @@ app.post('/admin/quiz/:id/override', requireAdmin, async (req, res) => {
     const ver = await pool.query('SELECT MAX(override_version) AS v FROM responses WHERE id = ANY($1)', [matchingIds]);
     const currentMax = Number(ver.rows[0].v || 0);
     if (currentMax !== expectedVersion) {
-      return res.redirect(`/admin/quiz/${quizId}/grade?stale=1`);
+      return res.redirect(`/admin/quiz/${quizId}/grade?stale=1${anchor}`);
     }
     
     let val = null;
@@ -9704,7 +9760,8 @@ app.post('/admin/quiz/:id/override', requireAdmin, async (req, res) => {
       await gradeQuiz(pool, quizId, user.user_email);
     }
     
-    res.redirect(`/admin/quiz/${quizId}/grade`);
+    // Redirect back to the same question section to maintain scroll position
+    res.redirect(`/admin/quiz/${quizId}/grade${queryString}${anchor}`);
   } catch (e) {
     console.error(e);
     res.status(500).send('Failed to override');
