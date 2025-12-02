@@ -8433,6 +8433,7 @@ app.get('/admin/quizzes', requireAdmin, async (req, res) => {
         ? `<div style="font-size:12px;opacity:0.8;">${q.last_graded_by || 'Unknown'} · ${fmtTime(q.last_graded_at)}</div>`
         : '<div style="font-size:12px;opacity:0.5;">Not graded</div>';
       const quizTypeBadge = q.quiz_type === 'quizmas' ? '<span style="background:#d4af37;color:#000;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:bold;margin-left:6px;">QUIZMAS</span>' : '';
+      const isUnlocked = q.unlock_at && new Date(q.unlock_at) <= new Date();
       return `<tr>
         <td><input type="checkbox" class="quiz-checkbox" value="${q.id}" /></td>
         <td>#${q.id}</td>
@@ -8442,10 +8443,10 @@ app.get('/admin/quizzes', requireAdmin, async (req, res) => {
         <td>${gradedInfo}</td>
         <td>
           <a href="/admin/quiz/${q.id}" class="ta-btn ta-btn-small" style="margin-right:4px;">View/Edit</a>
-          <a href="/admin/quiz/${q.id}/analytics" class="ta-btn ta-btn-small" style="margin-right:4px;">Analytics</a>
-          <a href="/admin/quiz/${q.id}/grade" class="ta-btn ta-btn-small" style="margin-right:4px;">Grade</a>
-          <a href="/admin/quiz/${q.id}/responses" class="ta-btn ta-btn-small" style="margin-right:4px;">Responses</a>
-          <a href="/quiz/${q.id}/leaderboard" class="ta-btn ta-btn-small" style="margin-right:4px;">Leaderboard</a>
+          ${isUnlocked ? `<a href="/admin/quiz/${q.id}/analytics" class="ta-btn ta-btn-small" style="margin-right:4px;">Analytics</a>` : ''}
+          ${isUnlocked ? `<a href="/admin/quiz/${q.id}/grade" class="ta-btn ta-btn-small" style="margin-right:4px;">Grade</a>` : ''}
+          ${isUnlocked ? `<a href="/admin/quiz/${q.id}/responses" class="ta-btn ta-btn-small" style="margin-right:4px;">Responses</a>` : ''}
+          ${isUnlocked ? `<a href="/quiz/${q.id}/leaderboard" class="ta-btn ta-btn-small" style="margin-right:4px;">Leaderboard</a>` : ''}
           <a href="/quiz/${q.id}?preview=player" class="ta-btn ta-btn-small" style="margin-right:4px;">Preview</a>
           <a href="/quiz/${q.id}" class="ta-btn ta-btn-small">Open</a>
         </td>
