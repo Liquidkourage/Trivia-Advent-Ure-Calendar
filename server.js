@@ -4281,7 +4281,7 @@ app.get('/admin', requireAdmin, async (req, res) => {
                       </div>
                     </div>
                     <div style="margin-left:16px;">
-                      <a href="/admin/quiz/${q.id}/responses" class="ta-btn ta-btn-small" style="background:#2a4a1a;border-color:#55cc55;color:#88ff88;">View & Fix</a>
+                      <a href="/admin/quiz/${q.id}/responses" class="ta-btn ta-btn-small">View & Fix</a>
                     </div>
                   </div>
                 `;
