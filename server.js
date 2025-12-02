@@ -10514,28 +10514,30 @@ app.get('/admin/quiz/:id/responses', requireAdmin, async (req, res) => {
             </div>` : ''}
           </div>
           
-          ${(() => {
-            // Audit: Find responses where override_correct = TRUE but points = 0
-            const auditIssues = [];
-            for (const resp of allResponses) {
-              if (resp.override_correct === true && (resp.points === 0 || resp.points === null)) {
-                const player = players.find(p => p.user_email === resp.user_email);
-                const question = questions.find(q => q.number === resp.question_number);
-                auditIssues.push({
-                  user_email: resp.user_email,
-                  username: player?.username || player?.email || resp.user_email,
-                  question_number: resp.question_number,
-                  question_text: question?.text || '',
-                  response_text: resp.response_text || '',
-                  points: resp.points || 0,
-                  locked: resp.locked
-                });
+          <div style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:16px;margin-bottom:24px;">
+            <h2 style="color:#ffd700;margin:0 0 12px 0;font-size:18px;">📊 Audit: Correct Answers Scoring Check</h2>
+            ${(() => {
+              // Audit: Find responses where override_correct = TRUE but points = 0
+              const auditIssues = [];
+              for (const resp of allResponses) {
+                if (resp.override_correct === true && (resp.points === 0 || resp.points === null)) {
+                  const player = players.find(p => p.user_email === resp.user_email);
+                  const question = questions.find(q => q.number === resp.question_number);
+                  auditIssues.push({
+                    user_email: resp.user_email,
+                    username: player?.username || player?.email || resp.user_email,
+                    question_number: resp.question_number,
+                    question_text: question?.text || '',
+                    response_text: resp.response_text || '',
+                    points: resp.points || 0,
+                    locked: resp.locked
+                  });
+                }
               }
-            }
-            
-            if (auditIssues.length === 0) {
-              return '';
-            }
+              
+              if (auditIssues.length === 0) {
+                return '<p style="color:#88ff88;margin:0;">✓ No issues found. All correct answers have proper points assigned.</p>';
+              }
             
             // Group by player for better display
             const issuesByPlayer = new Map();
@@ -10549,10 +10551,8 @@ app.get('/admin/quiz/:id/responses', requireAdmin, async (req, res) => {
               issuesByPlayer.get(issue.user_email).issues.push(issue);
             }
             
-            return `
-              <div style="background:#2a1a0a;border:2px solid #ff9800;border-radius:8px;padding:20px;margin-bottom:24px;">
-                <h2 style="color:#ff9800;margin:0 0 16px 0;font-size:20px;">⚠️ Audit: Correct Answers with 0 Points (${auditIssues.length})</h2>
-                <p style="color:#ffcc88;margin-bottom:16px;">Found ${auditIssues.length} response${auditIssues.length !== 1 ? 's' : ''} marked as correct (override_correct = TRUE) but scored 0 points. These should be regraded.</p>
+              return `
+                <p style="color:#ff9800;margin:0 0 16px 0;font-weight:bold;">⚠️ Found ${auditIssues.length} response${auditIssues.length !== 1 ? 's' : ''} marked as correct (override_correct = TRUE) but scored 0 points. These should be regraded.</p>
                 <div style="max-height:400px;overflow-y:auto;">
                   ${Array.from(issuesByPlayer.entries()).map(([email, data]) => `
                     <div style="background:#1a0a0a;border:1px solid #664400;border-radius:6px;padding:12px;margin-bottom:12px;">
@@ -10595,9 +10595,9 @@ app.get('/admin/quiz/:id/responses', requireAdmin, async (req, res) => {
                   </form>
                   <div style="margin-top:8px;font-size:13px;opacity:0.8;color:#ffcc88;">This will recalculate points for all players in this quiz.</div>
                 </div>
-              </div>
-            `;
-          })()}
+              `;
+            })()}
+          </div>
           
           ${playerSubmissions || '<p>No responses yet.</p>'}
           
