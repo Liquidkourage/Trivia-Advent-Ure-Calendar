@@ -7859,7 +7859,7 @@ app.post('/quiz/:id/submit', requireAuthOrAdmin, async (req, res) => {
     if (authorEmail && authorEmail === email) {
       return res.status(403).send('Quiz authors cannot submit this quiz.');
     }
-    const { rows: qs } = await pool.query('SELECT id, number FROM questions WHERE quiz_id = $1 ORDER BY number ASC', [id]);
+    const { rows: qs } = await pool.query('SELECT id, number, answer FROM questions WHERE quiz_id = $1 ORDER BY number ASC', [id]);
     let lockedSelected = Number(req.body.locked || 0) || null;
     
     // Enforce: must have one locked question on submit
@@ -7907,115 +7907,94 @@ app.post('/quiz/:id/submit', requireAuthOrAdmin, async (req, res) => {
         continue;
       }
       
-      // SIMPLIFIED LOGIC: Determine override_correct based on matching responses
-      // Rule: ALL matching normalized responses MUST have the same override_correct value
+      // MAJORITY VOTE LOGIC: When a new response would cause mixed states,
+      // determine correctness based on majority of existing responses (both auto-corrected and manually overridden)
       const norm = normalizeAnswer(val);
       
-      // CRITICAL: First check - if ANY existing response with this normalized text is TRUE,
-      // then ALL responses with this normalized text MUST be TRUE (prevents mixed states)
-      // This is the most reliable check - it doesn't depend on answer matching logic
-      // Get ALL responses for this question to check normalization
+      // Get ALL existing responses with the same normalized text for this question
       const allResponsesForQuestion = await pool.query(
         `SELECT response_text, override_correct FROM responses 
          WHERE question_id=$1 AND submitted_at IS NOT NULL`,
         [q.id]
       );
-      let hasExistingTrue = false;
-      let hasExistingFalse = false;
-      let matchingCount = 0;
-      let trueCount = 0;
+      
+      let correctCount = 0;
+      let incorrectCount = 0;
+      const matchingIds = [];
+      
+      // Count correct vs incorrect for existing responses with same normalized text
       for (const row of allResponsesForQuestion.rows) {
         const rowNorm = normalizeAnswer(row.response_text || '');
         if (rowNorm === norm) {
-          matchingCount++;
+          matchingIds.push(row.id);
+          
+          // Determine if this existing response is correct:
+          // - override_correct = TRUE → correct
+          // - override_correct = FALSE → incorrect
+          // - override_correct = NULL → check auto-correct (matches correct answer)
           if (row.override_correct === true) {
-            hasExistingTrue = true;
-            trueCount++;
+            correctCount++;
           } else if (row.override_correct === false) {
-            hasExistingFalse = true;
+            incorrectCount++;
+          } else {
+            // NULL override: check if it matches the correct answer (auto-correct)
+            const isAutoCorrect = isCorrectAnswer(row.response_text, q.answer);
+            if (isAutoCorrect) {
+              correctCount++;
+            } else {
+              incorrectCount++;
+            }
           }
         }
       }
       
-      // DEBUG: Log if we have TRUE responses but didn't detect them
-      if (trueCount > 0 && !hasExistingTrue) {
-        console.error(`[SUBMIT BUG] Q${q.id}: Found ${trueCount} TRUE responses for norm "${norm}" but hasExistingTrue=false! Response: "${val}"`);
-      }
-      
-      // Check if it matches the correct answer (auto-correct)
+      // Check if new response matches the correct answer (auto-correct)
       const matchesCorrect = isCorrectAnswer(val, q.answer);
       
-      // Check if it matches any previously accepted answer
-      const matchesAccepted = await isAcceptedAnswer(pool, q.id, val);
+      // Determine final override value using majority vote:
+      let finalOverride = null;
       
-      // Determine final override value with clear priority:
-      // Priority 1: If ANY existing response with same normalized text is TRUE → ALWAYS TRUE
-      // Priority 2: If matches correct answer → TRUE
-      // Priority 3: If matches accepted answer → TRUE
-      // Priority 4: Check if matches rejected answer → FALSE
-      // Priority 5: If unique → NULL (ungraded, will show as needing grading)
-      let finalOverride = null; // Default to ungraded (unique answers)
-      
-      if (hasExistingTrue) {
-        // CRITICAL: If ANY response with this normalized text is TRUE, ALL must be TRUE
-        // This is the most reliable check and prevents mixed states
-        finalOverride = true;
-        
-        // Find and fix ANY non-TRUE responses (FALSE or NULL) with this normalized text immediately
-        const allResponsesForSync = await pool.query(
-          `SELECT id, response_text, override_correct FROM responses 
-           WHERE question_id=$1 AND submitted_at IS NOT NULL`,
-          [q.id]
-        );
-        const idsToFix = [];
-        for (const row of allResponsesForSync.rows) {
-          const rowNorm = normalizeAnswer(row.response_text || '');
-          if (rowNorm === norm && row.override_correct !== true) {
-            idsToFix.push(row.id);
-          }
+      if (matchingIds.length > 0) {
+        // There are existing responses with same normalized text - use majority vote
+        if (correctCount > incorrectCount) {
+          // Majority are correct → mark as TRUE
+          finalOverride = true;
+        } else if (incorrectCount > correctCount) {
+          // Majority are incorrect → mark as FALSE
+          finalOverride = false;
+        } else {
+          // Tie: use auto-correct as tiebreaker
+          finalOverride = matchesCorrect ? true : null;
         }
-        if (idsToFix.length > 0) {
-          // Fix any FALSE or NULL responses to TRUE immediately
-          await pool.query(
-            `UPDATE responses 
-             SET override_correct = TRUE, override_version = COALESCE(override_version, 0) + 1, override_updated_at = NOW()
-             WHERE id = ANY($1)`,
-            [idsToFix]
-          );
-        }
-      } else if (matchesCorrect) {
-        // Correct answers are ALWAYS TRUE
-        finalOverride = true;
-      } else if (matchesAccepted) {
-        finalOverride = true; // Accepted answer
       } else {
-        // Only check rejected if it doesn't match correct/accepted/existing-true
-        const rejectedResponsesResult = await pool.query(
-          `SELECT response_text FROM responses 
-           WHERE question_id=$1 AND override_correct=false AND submitted_at IS NOT NULL`,
-          [q.id]
-        );
-        let matchesRejected = false;
-        for (const row of rejectedResponsesResult.rows) {
-          if (normalizeAnswer(row.response_text || '') === norm) {
-            matchesRejected = true;
-            break;
+        // No existing responses with same normalized text - use standard logic
+        if (matchesCorrect) {
+          finalOverride = true;
+        } else {
+          // Check if it matches any previously rejected answer
+          const rejectedResponsesResult = await pool.query(
+            `SELECT response_text FROM responses 
+             WHERE question_id=$1 AND override_correct=false AND submitted_at IS NOT NULL`,
+            [q.id]
+          );
+          let matchesRejected = false;
+          for (const row of rejectedResponsesResult.rows) {
+            if (normalizeAnswer(row.response_text || '') === norm) {
+              matchesRejected = true;
+              break;
+            }
+          }
+          
+          if (matchesRejected) {
+            finalOverride = false;
+          } else {
+            // Unique answer - leave as NULL (ungraded)
+            finalOverride = null;
           }
         }
-        
-        if (matchesRejected) {
-          finalOverride = false; // Incorrect
-        }
       }
       
-      // DEBUG: Log if hasExistingTrue but finalOverride is still null (should never happen)
-      if (matchingCount > 0 && hasExistingTrue && finalOverride === null) {
-        console.error(`[SUBMIT BUG] Q${q.id}: hasExistingTrue=true but finalOverride=null for norm "${norm}"! Response: "${val}", matchingCount=${matchingCount}, trueCount=${trueCount}`);
-      }
-      
-      // CRITICAL: Insert/update the new response with the determined override value
-      // Use EXCLUDED.override_correct in ON CONFLICT to ensure we use the INSERT value
-      // But preserve TRUE values: if existing is TRUE, keep it TRUE (don't overwrite with NULL/FALSE)
+      // Insert/update the new response with the determined override value
       await pool.query(
         `INSERT INTO responses(quiz_id, question_id, user_email, response_text, locked, submitted_at, override_correct) 
          VALUES($1,$2,$3,$4,$5,$6,$7) 
@@ -8030,37 +8009,9 @@ app.post('/quiz/:id/submit', requireAuthOrAdmin, async (req, res) => {
         [id, q.id, email, val, isLocked, submittedAt, finalOverride]
       );
       
-      // CRITICAL: ALWAYS sync ALL matching responses after insertion
-      // This is the final safeguard to prevent mixed states
-      // Priority: If ANY response is TRUE, ALL must be TRUE (even if we just inserted FALSE)
-      // Re-check after insertion to catch any edge cases
-      const postInsertCheck = await pool.query(
-        `SELECT id, response_text, override_correct FROM responses 
-         WHERE question_id=$1 AND submitted_at IS NOT NULL`,
-        [q.id]
-      );
-      let postHasTrue = false;
-      const postMatchingIds = [];
-      for (const row of postInsertCheck.rows) {
-        const rowNorm = normalizeAnswer(row.response_text || '');
-        if (rowNorm === norm) {
-          postMatchingIds.push(row.id);
-          if (row.override_correct === true) {
-            postHasTrue = true;
-          }
-        }
-      }
-      
-      // If ANY response is TRUE after insertion, ALL must be TRUE (fix any FALSE/NULL)
-      if (postHasTrue && postMatchingIds.length > 0) {
-        await pool.query(
-          `UPDATE responses 
-           SET override_correct = TRUE, override_version = COALESCE(override_version, 0) + 1, override_updated_at = NOW()
-           WHERE id = ANY($1) AND override_correct IS NOT TRUE`,
-          [postMatchingIds]
-        );
-      } else if (finalOverride !== null) {
-        // Otherwise, sync to the determined override value
+      // CRITICAL: Sync ALL matching responses (including the newly inserted one) to the determined value
+      // This ensures all responses with the same normalized text have the same override_correct value
+      if (finalOverride !== null) {
         await syncOverrideForNormalizedText(pool, q.id, val, finalOverride);
       }
     }
@@ -8447,7 +8398,9 @@ app.get('/admin/quizzes', requireAdmin, async (req, res) => {
         : '<div style="font-size:12px;opacity:0.5;">Not graded</div>';
       const quizTypeBadge = q.quiz_type === 'quizmas' ? '<span style="background:#d4af37;color:#000;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:bold;margin-left:6px;">QUIZMAS</span>' : '';
       const isUnlocked = q.unlock_at && new Date(q.unlock_at) <= new Date();
-      return `<tr>
+      const unlockTimestamp = q.unlock_at ? new Date(q.unlock_at).getTime() : '';
+      const freezeTimestamp = q.freeze_at ? new Date(q.freeze_at).getTime() : '';
+      return `<tr data-unlock="${unlockTimestamp}" data-freeze="${freezeTimestamp}">
         <td><input type="checkbox" class="quiz-checkbox" value="${q.id}" /></td>
         <td>#${q.id}</td>
         <td>${q.title || 'Untitled'}${quizTypeBadge}</td>
@@ -8523,21 +8476,26 @@ app.get('/admin/quizzes', requireAdmin, async (req, res) => {
           function filterQuizzes() {
             const searchTerm = document.getElementById('quiz-search').value.toLowerCase().trim();
             const statusFilter = document.getElementById('status-filter').value;
-            const now = new Date();
+            const now = Date.now();
             const rows = document.querySelectorAll('tbody tr');
             let visibleCount = 0;
             rows.forEach(row => {
-              const id = row.cells[0]?.textContent?.toLowerCase() || '';
-              const title = row.cells[1]?.textContent?.toLowerCase() || '';
-              const unlockText = row.cells[2]?.textContent || '';
-              const freezeText = row.cells[3]?.textContent || '';
-              const unlockDate = unlockText ? new Date(unlockText) : null;
-              const freezeDate = freezeText ? new Date(freezeText) : null;
+              // Cell indices: 0=checkbox, 1=ID, 2=Title, 3=Unlock, 4=Freeze, 5=Last graded, 6=Actions
+              const id = row.cells[1]?.textContent?.toLowerCase() || '';
+              const title = row.cells[2]?.textContent?.toLowerCase() || '';
+              
+              // Use data attributes for reliable date comparison
+              const unlockTimestamp = row.dataset.unlock ? parseInt(row.dataset.unlock, 10) : null;
+              const freezeTimestamp = row.dataset.freeze ? parseInt(row.dataset.freeze, 10) : null;
               
               let status = '';
-              if (unlockDate && now < unlockDate) status = 'locked';
-              else if (freezeDate && now >= freezeDate) status = 'finalized';
-              else if (unlockDate && now >= unlockDate) status = 'active';
+              if (unlockTimestamp && now < unlockTimestamp) {
+                status = 'locked';
+              } else if (freezeTimestamp && now >= freezeTimestamp) {
+                status = 'finalized';
+              } else if (unlockTimestamp && now >= unlockTimestamp) {
+                status = 'active';
+              }
               
               const matchesSearch = !searchTerm || id.includes(searchTerm) || title.includes(searchTerm);
               const matchesStatus = !statusFilter || status === statusFilter;
