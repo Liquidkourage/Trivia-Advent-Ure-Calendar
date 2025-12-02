@@ -1002,8 +1002,7 @@ const ADMIN_CRUMB = { label: 'Admin', href: '/admin' };
 const ADMIN_NAV_LINKS = [
   { id: 'dashboard', label: 'Dashboard', href: '/admin' },
   { id: 'quizzes', label: 'Quizzes', href: '/admin/quizzes' },
-  { id: 'calendar', label: 'Calendar', href: '/admin/calendar' },
-  { id: 'authors', label: 'Author Assignments', href: '/admin/author-slots' },
+  { id: 'calendar', label: 'Calendar & Assignments', href: '/admin/calendar' },
   { id: 'writers', label: 'Writer Invites', href: '/admin/writer-invites/list' },
   { id: 'submissions', label: 'Writer Submissions', href: '/admin/writer-submissions' },
   { id: 'players', label: 'Players', href: '/admin/players' },
@@ -3110,7 +3109,10 @@ app.get('/public', async (req, res) => {
 // --- Admin: Calendar occupancy view (AM/PM) ---
 app.get('/admin/calendar', requireAdmin, async (req, res) => {
   try {
-    const { rows: quizzes } = await pool.query('SELECT id, title, unlock_at, author FROM quizzes ORDER BY unlock_at ASC, id ASC');
+    const tab = String(req.query.tab || 'calendar').toLowerCase(); // 'calendar' or 'authors'
+    const msg = String(req.query.msg || '');
+    const esc = (v) => String(v || '').replace(/&/g, '&amp;').replace(/</g, '&lt;');
+    const { rows: quizzes } = await pool.query('SELECT id, title, unlock_at, author, author_email, author_points_override, quiz_type FROM quizzes ORDER BY unlock_at ASC, id ASC');
     // Fetch unpublished writer submissions (submissions without published_at)
     const { rows: unpublishedSubmissions } = await pool.query(`
       SELECT wi.slot_date, wi.slot_half, ws.id as submission_id, ws.author
@@ -3285,15 +3287,119 @@ app.get('/admin/calendar', requireAdmin, async (req, res) => {
         <td style=\"padding:6px 4px;\">${r.isQuizmas ? '<div style=\"color:#666;font-style:italic;\">N/A</div>' : cellHtml(r.pm, r.day, 'PM')}</td>
       </tr>`;
     }).join('');
+    // Build author assignments table (similar to author-slots page)
+    const bySlotForAuthors = new Map();
+    for (const q of quizzes) {
+      const p = utcToEtParts(new Date(q.unlock_at));
+      const key = slotKey(p);
+      bySlotForAuthors.set(key, q);
+    }
+    
+    const authorRows = [];
+    for (let d = 1; d <= 24; d++) {
+      const day = `${currentYear}-12-${String(d).padStart(2,'0')}`;
+      const amKey = `${day}|AM`;
+      const pmKey = `${day}|PM`;
+      const amQuiz = bySlotForAuthors.get(amKey) || null;
+      const pmQuiz = bySlotForAuthors.get(pmKey) || null;
+      authorRows.push({ day, am: amQuiz, pm: pmQuiz, isQuizmas: false });
+    }
+    for (let d = 26; d <= 31; d++) {
+      const day = `${currentYear}-12-${String(d).padStart(2,'0')}`;
+      const amKey = `${day}|AM`;
+      const amQuiz = bySlotForAuthors.get(amKey) || null;
+      authorRows.push({ day, am: amQuiz, pm: null, isQuizmas: true });
+    }
+    for (let d = 1; d <= 6; d++) {
+      const day = `${currentYear + 1}-01-${String(d).padStart(2,'0')}`;
+      const amKey = `${day}|AM`;
+      const amQuiz = bySlotForAuthors.get(amKey) || null;
+      authorRows.push({ day, am: amQuiz, pm: null, isQuizmas: true });
+    }
+    
+    function formatDateStr(day, half) {
+      const dateParts = day.split('-');
+      const month = parseInt(dateParts[1]);
+      const dayNum = parseInt(dateParts[2]);
+      const year = parseInt(dateParts[0]);
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const monthName = monthNames[month - 1];
+      const hour = half === 'AM' ? 12 : 12;
+      const ampm = half;
+      return `${monthName} ${dayNum}, ${year} ${hour}:00 ${ampm} ET`;
+    }
+    
+    function renderAuthorSlot(quiz, day, half) {
+      if (!quiz) {
+        return `<tr style="opacity:0.6;">
+          <td style="padding:10px 8px;">—</td>
+          <td style="padding:10px 8px;"><em style="color:#999;">Empty slot</em></td>
+          <td style="padding:10px 8px;">${formatDateStr(day, half)}</td>
+          <td style="padding:10px 8px;">—</td>
+          <td style="padding:10px 8px;">—</td>
+          <td style="padding:10px 8px;">—</td>
+        </tr>`;
+      }
+      const unlockUtc = new Date(quiz.unlock_at);
+      const p = utcToEtParts(unlockUtc);
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const monthName = monthNames[p.m - 1];
+      const hour = p.h === 0 ? 12 : (p.h > 12 ? p.h - 12 : p.h);
+      const ampm = p.h < 12 ? 'AM' : 'PM';
+      const minute = String(p.et.getUTCMinutes()).padStart(2, '0');
+      const dateStr = `${monthName} ${p.d}, ${p.y} ${hour}:${minute} ${ampm} ET`;
+      const quizTypeBadge = quiz.quiz_type === 'quizmas' ? '<span style="background:#d4af37;color:#000;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:bold;margin-left:6px;">QUIZMAS</span>' : '';
+      const overrideStr = (quiz.author_points_override !== null && quiz.author_points_override !== undefined)
+        ? formatPoints(quiz.author_points_override)
+        : '';
+      return `<tr>
+        <td style="padding:10px 8px;">${quiz.id}</td>
+        <td style="padding:10px 8px;">${esc(quiz.title || 'Untitled Quiz')}${quizTypeBadge}</td>
+        <td style="padding:10px 8px;">${dateStr}</td>
+        <td style="padding:10px 8px;">${esc(quiz.author || '')}</td>
+        <td style="padding:10px 8px;">
+          <form method="post" action="/admin/quizzes/${quiz.id}/author-email" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <input type="email" name="author_email" value="${esc(quiz.author_email || '')}" placeholder="name@example.com" style="padding:6px 8px;border-radius:6px;border:1px solid #555;background:#0a0a0a;color:#ffd700;min-width:220px;"/>
+            <button type="submit" class="ta-btn ta-btn-primary" style="margin:0;">Save</button>
+            ${quiz.author_email ? `<a href="/admin/quizzes/${quiz.id}/author-email?clear=1" class="ta-btn ta-btn-outline" style="margin:0;">Clear</a>` : ''}
+          </form>
+        </td>
+        <td style="padding:10px 8px;">
+          <form method="post" action="/admin/quizzes/${quiz.id}/author-average" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <input type="text" name="author_points_override" value="${overrideStr}" placeholder="e.g. 42" style="padding:6px 8px;border-radius:6px;border:1px solid #555;background:#0a0a0a;color:#ffd700;min-width:120px;"/>
+            <button type="submit" class="ta-btn ta-btn-primary" style="margin:0;">Apply</button>
+            ${overrideStr ? `<a href="/admin/quizzes/${quiz.id}/author-average?clear=1" class="ta-btn ta-btn-outline" style="margin:0;">Clear</a>` : ''}
+          </form>
+        </td>
+      </tr>`;
+    }
+    
+    const authorItems = authorRows.flatMap(r => {
+      const result = [];
+      if (r.am) result.push(renderAuthorSlot(r.am, r.day, 'AM'));
+      else if (!r.isQuizmas) result.push(renderAuthorSlot(null, r.day, 'AM'));
+      if (r.pm) result.push(renderAuthorSlot(r.pm, r.day, 'PM'));
+      else if (!r.isQuizmas) result.push(renderAuthorSlot(null, r.day, 'PM'));
+      if (r.isQuizmas && !r.am) result.push(renderAuthorSlot(null, r.day, 'AM'));
+      return result;
+    }).join('');
+    
     const header = await renderHeader(req);
     res.type('html').send(`
-      ${renderHead('Admin Calendar', true)}
+      ${renderHead('Calendar & Assignments • Admin', true)}
       <body class="ta-body">
       ${header}
         <main class="ta-main ta-container">
-          ${renderBreadcrumb([ADMIN_CRUMB, { label: 'Calendar' }])}
+          ${renderBreadcrumb([ADMIN_CRUMB, { label: 'Calendar & Assignments' }])}
           ${renderAdminNav('calendar')}
-          <h1 class="ta-page-title">Calendar Overview</h1>
+          <h1 class="ta-page-title">Calendar & Assignments</h1>
+          
+          <div style="display:flex;gap:8px;margin-bottom:20px;border-bottom:1px solid #333;">
+            <a href="/admin/calendar?tab=calendar" style="padding:12px 20px;text-decoration:none;color:${tab === 'calendar' ? '#ffd700' : '#999'};border-bottom:2px solid ${tab === 'calendar' ? '#ffd700' : 'transparent'};font-weight:${tab === 'calendar' ? 'bold' : 'normal'};">Calendar Overview</a>
+            <a href="/admin/calendar?tab=authors" style="padding:12px 20px;text-decoration:none;color:${tab === 'authors' ? '#ffd700' : '#999'};border-bottom:2px solid ${tab === 'authors' ? '#ffd700' : 'transparent'};font-weight:${tab === 'authors' ? 'bold' : 'normal'};">Author Assignments</a>
+          </div>
+          
+          ${tab === 'calendar' ? `
           <p style="margin:0 0 16px 0;opacity:0.85;">Review daily AM/PM slots, identify conflicts, and jump into quiz details. Quizmas days (Dec 26 - Jan 6) show AM slots only.</p>
           <div style="background:#0e0e0e;border:1px solid rgba(255,255,255,0.08);border-radius:12px;overflow:hidden;">
             <table style="width:100%;border-collapse:collapse;">
@@ -3307,6 +3413,27 @@ app.get('/admin/calendar', requireAdmin, async (req, res) => {
           <tbody>${htmlRows}</tbody>
         </table>
           </div>
+          ` : `
+          ${msg ? `<div style="margin-bottom:20px;padding:12px;border:1px solid #2e7d32;border-radius:6px;background:rgba(46,125,50,0.15);color:#81c784;">${esc(msg)}</div>` : ''}
+          <p style="margin:0 0 16px 0;opacity:0.85;">Set author emails and points overrides for each quiz slot. Overrides replace the automatic average and immediately reflect on leaderboards.</p>
+          <div style="background:#1a1a1a;border:1px solid #333;border-radius:10px;overflow-x:auto;">
+            <table style="width:100%;border-collapse:collapse;min-width:720px;">
+              <thead>
+                <tr style="background:#111;">
+                  <th style="padding:10px 8px;text-align:left;">Quiz ID</th>
+                  <th style="padding:10px 8px;text-align:left;">Title</th>
+                  <th style="padding:10px 8px;text-align:left;">Unlock</th>
+                  <th style="padding:10px 8px;text-align:left;">Author</th>
+                  <th style="padding:10px 8px;text-align:left;">Author Email</th>
+                  <th style="padding:10px 8px;text-align:left;">Author Points Override</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${authorItems || '<tr><td colspan="6" style="padding:16px;text-align:center;opacity:0.8;">No quizzes found.</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+          `}
         </main>
         ${renderFooter(req)}
       </body></html>
@@ -3317,6 +3444,11 @@ app.get('/admin/calendar', requireAdmin, async (req, res) => {
   }
 });
 app.get('/admin/author-slots', requireAdmin, async (req, res) => {
+  // Redirect to combined calendar page with authors tab
+  res.redirect('/admin/calendar?tab=authors');
+});
+
+app.get('/admin/author-slots-old', requireAdmin, async (req, res) => {
   try {
     const header = await renderHeader(req);
     const msg = String(req.query.msg || '');
@@ -3476,7 +3608,7 @@ app.post('/admin/quizzes/:id/author-email', requireAdmin, express.urlencoded({ e
     const email = String(req.body.author_email || '').trim().toLowerCase();
     const value = email ? email : null;
     await pool.query('UPDATE quizzes SET author_email=$1 WHERE id=$2', [value, id]);
-    res.redirect('/admin/author-slots?msg=Author%20email%20updated');
+    res.redirect('/admin/calendar?tab=authors&msg=Author%20email%20updated');
   } catch (e) {
     console.error(e);
     res.status(500).send('Failed to update author email');
@@ -3490,7 +3622,7 @@ app.get('/admin/quizzes/:id/author-average', requireAdmin, async (req, res) => {
     const clear = String(req.query.clear || '').toLowerCase() === '1';
     if (!clear) return res.status(400).send('Specify clear=1 to remove override');
     await pool.query('UPDATE quizzes SET author_points_override=NULL WHERE id=$1', [id]);
-    res.redirect('/admin/author-slots?msg=Author%20override%20cleared');
+    res.redirect('/admin/calendar?tab=authors&msg=Author%20override%20cleared');
   } catch (e) {
     console.error(e);
     res.status(500).send('Failed to clear override');
@@ -3509,7 +3641,7 @@ app.post('/admin/quizzes/:id/author-average', requireAdmin, express.urlencoded({
       value = parsed;
     }
     await pool.query('UPDATE quizzes SET author_points_override=$1 WHERE id=$2', [value, id]);
-    res.redirect('/admin/author-slots?msg=Author%20override%20saved');
+    res.redirect('/admin/calendar?tab=authors&msg=Author%20override%20saved');
   } catch (e) {
     console.error(e);
     res.status(500).send('Failed to update override');
@@ -3890,10 +4022,8 @@ app.get('/admin', requireAdmin, async (req, res) => {
         <section style="margin-bottom:32px;">
           <h2 style="margin-bottom:12px;color:#ffd700;">Quizzes</h2>
           <div class="ta-card-grid">
-            <a class="ta-card" href="/admin/upload-quiz"><strong>Upload Quiz</strong><span>Create a quiz with 10 questions</span></a>
-            <a class="ta-card" href="/admin/quizzes"><strong>Manage Quizzes</strong><span>View/Edit/Clone/Delete</span></a>
-            <a class="ta-card" href="/admin/calendar"><strong>Admin Calendar</strong><span>AM/PM occupancy and conflicts</span></a>
-            <a class="ta-card" href="/admin/author-slots"><strong>Author Assignments</strong><span>Set author emails & slot overrides</span></a>
+            <a class="ta-card" href="/admin/quizzes"><strong>Manage Quizzes</strong><span>View/Edit/Clone/Delete & Upload</span></a>
+            <a class="ta-card" href="/admin/calendar"><strong>Calendar & Assignments</strong><span>AM/PM slots, conflicts, and author settings</span></a>
           </div>
         </section>
         <section style="margin-bottom:32px;">
@@ -8330,7 +8460,10 @@ app.get('/admin/quizzes', requireAdmin, async (req, res) => {
         <main class="ta-main ta-container">
           ${renderBreadcrumb([ADMIN_CRUMB, { label: 'Quizzes' }])}
           ${renderAdminNav('quizzes')}
-          <h1 class="ta-page-title">Quizzes</h1>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+            <h1 class="ta-page-title" style="margin:0;">Quizzes</h1>
+            <a href="/admin/upload-quiz" class="ta-btn ta-btn-primary">Upload Quiz</a>
+          </div>
           <div class="ta-admin-toolbar">
             <p class="ta-admin-toolbar__count">Total: <span id="total-count">${rows.length}</span> quiz${rows.length !== 1 ? 'zes' : ''} (${rows.filter(q => q.quiz_type === 'quizmas').length} Quizmas, ${rows.filter(q => !q.quiz_type || q.quiz_type !== 'quizmas').length} Advent)</p>
             <div class="ta-admin-toolbar__filters">
