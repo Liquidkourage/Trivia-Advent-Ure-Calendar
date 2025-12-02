@@ -1396,10 +1396,15 @@ async function gradeQuiz(pool, quizId, userEmail) {
       total += pts;
       // CRITICAL: Set override_correct based on logic, but preserve manual overrides for ungraded responses
       if (overrideValue !== null) {
+        // Update this user's response
         await pool.query(
           'UPDATE responses SET points = $4, override_correct = CASE WHEN override_correct IS NULL THEN $5 ELSE override_correct END WHERE quiz_id=$1 AND user_email=$2 AND question_id=$3',
           [quizId, userEmail, q.id, pts, overrideValue]
         );
+        // CRITICAL: If this matches correct/accepted answer, sync ALL matching responses
+        if (overrideValue === true && (matchesCorrect || matchesAccepted)) {
+          await syncOverrideForNormalizedText(pool, q.id, responseText, true);
+        }
       } else {
         // Ungraded - only update points, preserve override_correct
         await pool.query(
@@ -1462,12 +1467,17 @@ async function gradeQuiz(pool, quizId, userEmail) {
       console.log(`[gradeQuiz] Q${q.number} (non-locked): correct=true, override=${overrideValue}, streak=${streak}, points=${streak}, total before=${total - streak}, total after=${total}`);
       // CRITICAL: Set override_correct based on logic
       if (overrideValue !== null) {
+        // Update this user's response
         const updateResult = await pool.query(
           'UPDATE responses SET points = $4, override_correct = CASE WHEN override_correct IS NULL THEN $5 ELSE override_correct END WHERE quiz_id=$1 AND user_email=$2 AND question_id=$3',
           [quizId, userEmail, q.id, streak, overrideValue]
         );
         if (updateResult.rowCount === 0) {
           console.warn(`[gradeQuiz] Failed to update points for quiz ${quizId}, user ${userEmail}, question ${q.id} - no rows affected`);
+        }
+        // CRITICAL: If this matches correct/accepted answer, sync ALL matching responses
+        if (overrideValue === true && (matchesCorrect || matchesAccepted)) {
+          await syncOverrideForNormalizedText(pool, q.id, responseText, true);
         }
       } else {
         // Ungraded - only update points, preserve override_correct
@@ -1484,12 +1494,17 @@ async function gradeQuiz(pool, quizId, userEmail) {
       if (r) {
         // CRITICAL: Set override_correct based on logic
         if (overrideValue !== null) {
+          // Update this user's response
           const updateResult = await pool.query(
             'UPDATE responses SET points = 0, override_correct = CASE WHEN override_correct IS NULL THEN $4 ELSE override_correct END WHERE quiz_id=$1 AND user_email=$2 AND question_id=$3',
             [quizId, userEmail, q.id, overrideValue]
           );
           if (updateResult.rowCount === 0) {
             console.warn(`[gradeQuiz] Failed to update points to 0 for quiz ${quizId}, user ${userEmail}, question ${q.id} - no rows affected`);
+          }
+          // CRITICAL: If this matches correct/accepted answer, sync ALL matching responses
+          if (overrideValue === true && (matchesCorrect || matchesAccepted)) {
+            await syncOverrideForNormalizedText(pool, q.id, responseText, true);
           }
         } else {
           // Ungraded - only update points, preserve override_correct
@@ -8114,7 +8129,7 @@ app.post('/quiz/:id/submit', requireAuthOrAdmin, async (req, res) => {
       // CRITICAL: Sync ALL matching responses to prevent mixed states
       // Get all responses with the same normalized text
       const allMatchingResponses = await pool.query(
-        `SELECT id FROM responses 
+        `SELECT id, response_text FROM responses 
          WHERE question_id=$1 AND submitted_at IS NOT NULL`,
         [q.id]
       );
