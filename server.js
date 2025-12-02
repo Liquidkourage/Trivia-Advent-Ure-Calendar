@@ -7739,14 +7739,14 @@ app.post('/quiz/:id/submit', requireAuthOrAdmin, async (req, res) => {
       // Determine final override value:
       // - If matches correct answer OR accepted answer → TRUE (correct)
       // - If matches rejected answer → FALSE (incorrect)
-      // - If unique → FALSE (incorrect, but will show as needing grading)
-      let finalOverride = false; // Default to incorrect
+      // - If unique → NULL (ungraded, will show as needing grading)
+      let finalOverride = null; // Default to ungraded (unique answers)
       if (matchesCorrect || matchesAccepted) {
         finalOverride = true; // Correct
       } else if (matchesRejected) {
         finalOverride = false; // Incorrect
       }
-      // If unique (doesn't match anything), finalOverride stays false
+      // If unique (doesn't match anything), finalOverride stays null (ungraded)
       
       // CRITICAL: Insert/update the new response with the determined override value
       await pool.query(
@@ -7756,7 +7756,10 @@ app.post('/quiz/:id/submit', requireAuthOrAdmin, async (req, res) => {
       
       // CRITICAL: Sync ALL matching responses to the same override value
       // This ensures no mixed states - all matching normalized responses have the same value
-      await syncOverrideForNormalizedText(pool, q.id, val, finalOverride);
+      // Only sync if we have a definitive override value (true or false), not null
+      if (finalOverride !== null) {
+        await syncOverrideForNormalizedText(pool, q.id, val, finalOverride);
+      }
     }
     
     // Ensure exactly one question is locked - set all others to false
