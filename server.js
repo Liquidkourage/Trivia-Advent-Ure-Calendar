@@ -8278,7 +8278,7 @@ app.get('/admin/quizzes', requireAdmin, async (req, res) => {
         ORDER BY r.override_updated_at DESC
         LIMIT 1
       ) latest_grading ON true
-      ORDER BY q.unlock_at DESC, q.id DESC
+      ORDER BY q.unlock_at ASC, q.id ASC
       LIMIT 200
     `);
     
