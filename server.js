@@ -1268,7 +1268,11 @@ async function gradeQuiz(pool, quizId, userEmail) {
       console.log(`[gradeQuiz] Q${q.number} (LOCKED): correct=${correctLocked}, points=${pts}, streak=${streak} (unchanged), total before=${total}, total after=${total + pts}`);
       graded.push({ questionId: q.id, number: q.number, locked: true, correct: correctLocked, points: pts, given: responseText, answer: q.answer });
       total += pts;
-      await pool.query('UPDATE responses SET points = $4 WHERE quiz_id=$1 AND user_email=$2 AND question_id=$3', [quizId, userEmail, q.id, pts]);
+      // CRITICAL: Persist override_correct when NULL, but preserve manual overrides
+      await pool.query(
+        'UPDATE responses SET points = $4, override_correct = CASE WHEN override_correct IS NULL THEN $5 ELSE override_correct END WHERE quiz_id=$1 AND user_email=$2 AND question_id=$3',
+        [quizId, userEmail, q.id, pts, correctLocked]
+      );
       // CRITICAL: Locked questions do NOT affect streak - streak continues unchanged
       // Do NOT increment streak, do NOT reset streak
       continue;
@@ -1298,14 +1302,22 @@ async function gradeQuiz(pool, quizId, userEmail) {
       streak += 1;
       total += streak;
       console.log(`[gradeQuiz] Q${q.number} (non-locked): correct=true, streak=${streak}, points=${streak}, total before=${total - streak}, total after=${total}`);
-      const updateResult = await pool.query('UPDATE responses SET points = $4 WHERE quiz_id=$1 AND user_email=$2 AND question_id=$3', [quizId, userEmail, q.id, streak]);
+      // CRITICAL: Persist override_correct when NULL, but preserve manual overrides
+      const updateResult = await pool.query(
+        'UPDATE responses SET points = $4, override_correct = CASE WHEN override_correct IS NULL THEN TRUE ELSE override_correct END WHERE quiz_id=$1 AND user_email=$2 AND question_id=$3',
+        [quizId, userEmail, q.id, streak]
+      );
       if (updateResult.rowCount === 0) {
         console.warn(`[gradeQuiz] Failed to update points for quiz ${quizId}, user ${userEmail}, question ${q.id} - no rows affected`);
       }
     } else {
       streak = 0;
       if (r) {
-        const updateResult = await pool.query('UPDATE responses SET points = 0 WHERE quiz_id=$1 AND user_email=$2 AND question_id=$3', [quizId, userEmail, q.id]);
+        // CRITICAL: Persist override_correct when NULL, but preserve manual overrides
+        const updateResult = await pool.query(
+          'UPDATE responses SET points = 0, override_correct = CASE WHEN override_correct IS NULL THEN FALSE ELSE override_correct END WHERE quiz_id=$1 AND user_email=$2 AND question_id=$3',
+          [quizId, userEmail, q.id]
+        );
         if (updateResult.rowCount === 0) {
           console.warn(`[gradeQuiz] Failed to update points to 0 for quiz ${quizId}, user ${userEmail}, question ${q.id} - no rows affected`);
         }
@@ -4054,6 +4066,7 @@ app.get('/admin', requireAdmin, async (req, res) => {
           <h2 style="margin-bottom:12px;color:#ffd700;">Leaderboards</h2>
           <div class="ta-card-grid">
             <a class="ta-card" href="/leaderboard"><strong>Overall Leaderboard</strong></a>
+            <a class="ta-card" href="/admin/quiz-leaderboards"><strong>Individual Quiz Leaderboards</strong><span>View leaderboards for each quiz</span></a>
           </div>
         </section>
       </main>
@@ -10003,6 +10016,71 @@ app.post('/admin/quiz/:id/regrade-user', requireAdmin, async (req, res) => {
   }
 });
 
+// --- Admin: Individual Quiz Leaderboards ---
+app.get('/admin/quiz-leaderboards', requireAdmin, async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT 
+        q.id, 
+        q.title, 
+        q.unlock_at,
+        q.quiz_type
+      FROM quizzes q
+      WHERE q.unlock_at <= NOW()
+      ORDER BY q.unlock_at DESC, q.id DESC
+      LIMIT 200
+    `);
+    
+    const esc = (v) => String(v || '').replace(/&/g, '&amp;').replace(/</g, '&lt;');
+    
+    const items = rows.map(q => {
+      const quizTypeBadge = q.quiz_type === 'quizmas' ? '<span style="background:#d4af37;color:#000;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:bold;margin-left:6px;">QUIZMAS</span>' : '';
+      const unlockDate = q.unlock_at ? new Date(q.unlock_at).toLocaleDateString() : '';
+      return `<tr>
+        <td>#${q.id}</td>
+        <td>${esc(q.title || 'Untitled')}${quizTypeBadge}</td>
+        <td>${unlockDate}</td>
+        <td>
+          <a href="/quiz/${q.id}/leaderboard" class="ta-btn ta-btn-small">View Leaderboard</a>
+        </td>
+      </tr>`;
+    }).join('');
+    
+    const header = await renderHeader(req);
+    res.type('html').send(`
+      ${renderHead('Quiz Leaderboards • Admin', true)}
+      <body class="ta-body">
+      ${header}
+        <main class="ta-main ta-container">
+          ${renderBreadcrumb([ADMIN_CRUMB, { label: 'Quiz Leaderboards' }])}
+          ${renderAdminNav('dashboard')}
+          <h1 class="ta-page-title">Individual Quiz Leaderboards</h1>
+          <p style="margin:0 0 16px 0;opacity:0.85;">View leaderboards for each unlocked quiz. Only quizzes that have been unlocked are shown.</p>
+          <div class="ta-table-wrapper">
+            <table class="ta-table">
+              <thead>
+                <tr>
+                  <th>Quiz ID</th>
+                  <th>Title</th>
+                  <th>Unlock Date</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${items || '<tr><td colspan="4" style="padding:16px;text-align:center;opacity:0.8;">No unlocked quizzes found.</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+        </main>
+        ${renderFooter(req)}
+      </body></html>
+    `);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to load quiz leaderboards');
+  }
+});
+
 // --- Admin: View all player responses for a quiz ---
 app.get('/admin/quiz/:id/responses', requireAdmin, async (req, res) => {
   try {
@@ -10804,8 +10882,8 @@ app.get('/admin/quiz/:id/analytics', requireAdmin, async (req, res) => {
               <div><strong>Total Players:</strong> ${totalPlayers}</div>
               <div><strong>Participants:</strong> ${participants}</div>
               <div><strong>Participation Rate:</strong> ${participationRate}%</div>
-              <div><strong>Average Score:</strong> ${avgScore}%</div>
-              <div><strong>Median Score:</strong> ${medianScore}%</div>
+              <div><strong>Average Score:</strong> ${avgScore}</div>
+              <div><strong>Median Score:</strong> ${medianScore}</div>
               <div><strong>Total Questions:</strong> ${totalQuestions}</div>
             </div>
           </div>
