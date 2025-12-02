@@ -1006,6 +1006,7 @@ const ADMIN_NAV_LINKS = [
   { id: 'writers', label: 'Writer Invites', href: '/admin/writer-invites/list' },
   { id: 'submissions', label: 'Writer Submissions', href: '/admin/writer-submissions' },
   { id: 'players', label: 'Players', href: '/admin/players' },
+  { id: 'responses', label: 'Responses', href: '/admin/responses' },
   { id: 'donations', label: 'Donations', href: '/admin/donations' },
   { id: 'admins', label: 'Admins', href: '/admin/admins' },
   { id: 'announcements', label: 'Announcements', href: '/admin/announcements' }
@@ -12542,6 +12543,242 @@ app.post('/admin/players/bulk/export-csv', requireAdmin, async (req, res) => {
     res.status(500).send('Failed to export');
   }
 });
+// --- Admin: Browse Responses Table ---
+app.get('/admin/responses', requireAdmin, async (req, res) => {
+  try {
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const perPage = 50;
+    const offset = (page - 1) * perPage;
+    
+    // Filters
+    const quizId = req.query.quiz_id ? parseInt(req.query.quiz_id) : null;
+    const questionId = req.query.question_id ? parseInt(req.query.question_id) : null;
+    const userEmail = req.query.user_email ? String(req.query.user_email).toLowerCase().trim() : null;
+    const searchText = req.query.search ? String(req.query.search).trim() : null;
+    const submittedOnly = req.query.submitted === 'true';
+    const sortBy = req.query.sort || 'created_at';
+    const sortOrder = req.query.order === 'asc' ? 'ASC' : 'DESC';
+    
+    // Build WHERE clause
+    const whereConditions = [];
+    const queryParams = [];
+    let paramIndex = 1;
+    
+    if (quizId) {
+      whereConditions.push(`r.quiz_id = $${paramIndex++}`);
+      queryParams.push(quizId);
+    }
+    
+    if (questionId) {
+      whereConditions.push(`r.question_id = $${paramIndex++}`);
+      queryParams.push(questionId);
+    }
+    
+    if (userEmail) {
+      whereConditions.push(`LOWER(r.user_email) = $${paramIndex++}`);
+      queryParams.push(userEmail);
+    }
+    
+    if (searchText) {
+      whereConditions.push(`r.response_text ILIKE $${paramIndex++}`);
+      queryParams.push(`%${searchText}%`);
+    }
+    
+    if (submittedOnly) {
+      whereConditions.push(`r.submitted_at IS NOT NULL`);
+    }
+    
+    const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
+    
+    // Get total count
+    const countQuery = `SELECT COUNT(*) as count FROM responses r ${whereClause}`;
+    const countResult = await pool.query(countQuery, queryParams);
+    const totalCount = parseInt(countResult.rows[0].count || 0);
+    const totalPages = Math.ceil(totalCount / perPage);
+    
+    // Get responses with related data
+    const validSortColumns = ['id', 'quiz_id', 'question_id', 'user_email', 'created_at', 'submitted_at', 'points', 'override_correct'];
+    const sortColumn = validSortColumns.includes(sortBy) ? sortBy : 'created_at';
+    
+    const responsesQuery = `
+      SELECT 
+        r.id,
+        r.quiz_id,
+        r.question_id,
+        r.user_email,
+        r.response_text,
+        r.points,
+        r.override_correct,
+        r.locked,
+        r.flagged,
+        r.created_at,
+        r.submitted_at,
+        q.title as quiz_title,
+        qq.number as question_number,
+        qq.text as question_text,
+        p.username as player_username
+      FROM responses r
+      LEFT JOIN quizzes q ON q.id = r.quiz_id
+      LEFT JOIN questions qq ON qq.id = r.question_id
+      LEFT JOIN players p ON p.email = r.user_email
+      ${whereClause}
+      ORDER BY r.${sortColumn} ${sortOrder}
+      LIMIT $${paramIndex++} OFFSET $${paramIndex++}
+    `;
+    
+    queryParams.push(perPage, offset);
+    const responses = await pool.query(responsesQuery, queryParams);
+    
+    // Helper to escape HTML
+    const escapeHtml = (text) => {
+      return String(text || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+    };
+    
+    // Build table rows
+    const tableRows = responses.rows.map(r => {
+      const responseText = (r.response_text || '').trim();
+      const displayText = responseText.length > 50 ? responseText.substring(0, 50) + '...' : responseText;
+      const overrideDisplay = r.override_correct === null ? '-' : (r.override_correct ? '✓' : '✗');
+      const overrideColor = r.override_correct === null ? '#888' : (r.override_correct ? '#4caf50' : '#f44336');
+      
+      return `
+        <tr>
+          <td>${r.id}</td>
+          <td><a href="/admin/quiz/${r.quiz_id}" style="color:#ffd700;">${r.quiz_id}</a>${r.quiz_title ? `<br><small style="opacity:0.7;">${escapeHtml(r.quiz_title.substring(0, 30))}</small>` : ''}</td>
+          <td>${r.question_id ? `<a href="/admin/quiz/${r.quiz_id}/grade#q${r.question_number || r.question_id}" style="color:#ffd700;">Q${r.question_number || r.question_id}</a>` : r.question_id || '-'}</td>
+          <td><a href="/admin/players/${encodeURIComponent(r.user_email)}" style="color:#ffd700;">${escapeHtml(r.player_username || r.user_email)}</a></td>
+          <td style="max-width:300px;word-break:break-word;">${displayText ? escapeHtml(displayText) : '<em style="opacity:0.5;">(empty)</em>'}</td>
+          <td>${r.points || 0}</td>
+          <td style="color:${overrideColor};">${overrideDisplay}</td>
+          <td>${r.locked ? '🔒' : ''}${r.flagged ? '🚩' : ''}</td>
+          <td>${r.submitted_at ? new Date(r.submitted_at).toLocaleString() : '<em style="opacity:0.5;">Not submitted</em>'}</td>
+          <td>${new Date(r.created_at).toLocaleString()}</td>
+          <td><a href="/admin/quiz/${r.quiz_id}/edit-response?email=${encodeURIComponent(r.user_email)}&question=${r.question_number || r.question_id}" class="ta-btn ta-btn-small">Edit</a></td>
+        </tr>
+      `;
+    }).join('');
+    
+    // Build filter form
+    const filterForm = `
+      <form method="get" action="/admin/responses" style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:16px;margin-bottom:24px;">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:12px;">
+          <div>
+            <label style="display:block;margin-bottom:4px;font-weight:600;">Quiz ID</label>
+            <input type="number" name="quiz_id" value="${quizId || ''}" class="ta-input" placeholder="Filter by quiz ID">
+          </div>
+          <div>
+            <label style="display:block;margin-bottom:4px;font-weight:600;">Question ID</label>
+            <input type="number" name="question_id" value="${questionId || ''}" class="ta-input" placeholder="Filter by question ID">
+          </div>
+          <div>
+            <label style="display:block;margin-bottom:4px;font-weight:600;">User Email</label>
+            <input type="text" name="user_email" value="${userEmail ? escapeHtml(userEmail) : ''}" class="ta-input" placeholder="Filter by email">
+          </div>
+          <div>
+            <label style="display:block;margin-bottom:4px;font-weight:600;">Search Text</label>
+            <input type="text" name="search" value="${searchText ? escapeHtml(searchText) : ''}" class="ta-input" placeholder="Search response text">
+          </div>
+        </div>
+        <div style="display:flex;gap:12px;align-items:end;">
+          <div>
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+              <input type="checkbox" name="submitted" value="true" ${submittedOnly ? 'checked' : ''}>
+              <span>Submitted only</span>
+            </label>
+          </div>
+          <div>
+            <label style="display:block;margin-bottom:4px;font-weight:600;">Sort By</label>
+            <select name="sort" class="ta-input">
+              <option value="created_at" ${sortBy === 'created_at' ? 'selected' : ''}>Created At</option>
+              <option value="submitted_at" ${sortBy === 'submitted_at' ? 'selected' : ''}>Submitted At</option>
+              <option value="id" ${sortBy === 'id' ? 'selected' : ''}>ID</option>
+              <option value="quiz_id" ${sortBy === 'quiz_id' ? 'selected' : ''}>Quiz ID</option>
+              <option value="question_id" ${sortBy === 'question_id' ? 'selected' : ''}>Question ID</option>
+              <option value="user_email" ${sortBy === 'user_email' ? 'selected' : ''}>User Email</option>
+              <option value="points" ${sortBy === 'points' ? 'selected' : ''}>Points</option>
+            </select>
+          </div>
+          <div>
+            <label style="display:block;margin-bottom:4px;font-weight:600;">Order</label>
+            <select name="order" class="ta-input">
+              <option value="desc" ${sortOrder === 'DESC' ? 'selected' : ''}>Descending</option>
+              <option value="asc" ${sortOrder === 'ASC' ? 'selected' : ''}>Ascending</option>
+            </select>
+          </div>
+          <button type="submit" class="ta-btn ta-btn-primary">Apply Filters</button>
+          <a href="/admin/responses" class="ta-btn ta-btn-outline">Clear</a>
+        </div>
+      </form>
+    `;
+    
+    // Build pagination
+    const buildQueryParams = (pageNum) => {
+      const params = [`page=${pageNum}`];
+      if (quizId) params.push(`quiz_id=${quizId}`);
+      if (questionId) params.push(`question_id=${questionId}`);
+      if (userEmail) params.push(`user_email=${encodeURIComponent(userEmail)}`);
+      if (searchText) params.push(`search=${encodeURIComponent(searchText)}`);
+      if (submittedOnly) params.push('submitted=true');
+      params.push(`sort=${sortBy}`);
+      params.push(`order=${sortOrder === 'DESC' ? 'desc' : 'asc'}`);
+      return '?' + params.join('&');
+    };
+    
+    const pagination = totalPages > 1 ? `
+      <div style="display:flex;justify-content:center;gap:8px;margin-top:24px;">
+        ${page > 1 ? `<a href="/admin/responses${buildQueryParams(page - 1)}" class="ta-btn ta-btn-outline">← Previous</a>` : ''}
+        <span style="padding:10px 16px;background:#1a1a1a;border-radius:8px;">Page ${page} of ${totalPages}</span>
+        ${page < totalPages ? `<a href="/admin/responses${buildQueryParams(page + 1)}" class="ta-btn ta-btn-outline">Next →</a>` : ''}
+      </div>
+    ` : '';
+    
+    const header = await renderHeader(req);
+    res.type('html').send(`
+      ${renderHead('Responses • Admin', true)}
+      <body class="ta-body">
+        ${header}
+        <main class="ta-main ta-container">
+          ${renderBreadcrumb([ADMIN_CRUMB, { label: 'Responses' }])}
+          ${renderAdminNav('responses')}
+          <h1 class="ta-page-title">Browse Responses</h1>
+          <p style="opacity:0.8;margin-bottom:24px;">Total: ${totalCount} response${totalCount !== 1 ? 's' : ''}</p>
+          
+          ${filterForm}
+          
+          <div class="ta-table-wrapper">
+            <table class="ta-table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Quiz</th>
+                  <th>Question</th>
+                  <th>User</th>
+                  <th>Response Text</th>
+                  <th>Points</th>
+                  <th>Override</th>
+                  <th>Flags</th>
+                  <th>Submitted</th>
+                  <th>Created</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${tableRows || '<tr><td colspan="11" style="text-align:center;padding:24px;opacity:0.7;">No responses found</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+          
+          ${pagination}
+        </main>
+        ${renderFooter(req)}
+      </body></html>
+    `);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send('Failed to load responses: ' + (e?.message || String(e)));
+  }
+});
+
 // --- Individual Player Profile ---
 app.get('/admin/players/:email', requireAdmin, async (req, res) => {
   try {
