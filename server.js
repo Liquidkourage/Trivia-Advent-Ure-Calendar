@@ -1115,10 +1115,9 @@ async function isAcceptedAnswer(pool, questionId, responseText) {
   if (!norm) return false;
   
   // Get all manually accepted responses for this question
-  // CRITICAL: Only check submitted responses to avoid checking draft/unsubmitted responses
   const { rows } = await pool.query(
     `SELECT response_text FROM responses 
-     WHERE question_id=$1 AND override_correct=true AND submitted_at IS NOT NULL`,
+     WHERE question_id=$1 AND override_correct=true`,
     [questionId]
   );
   
@@ -1131,125 +1130,19 @@ async function isAcceptedAnswer(pool, questionId, responseText) {
   return false;
 }
 
-// CRITICAL: Get the override_correct value that should be applied to a response based on existing overrides
-// Returns: true (accepted), false (rejected), or null (no override exists)
-async function getOverrideForNormalizedText(pool, questionId, responseText) {
-  if (!responseText) return null;
-  const norm = normalizeAnswer(responseText);
-  if (!norm) return null;
-  
-  // Check if ANY response with this normalized text has an override
-  const { rows } = await pool.query(
-    `SELECT override_correct FROM responses 
-     WHERE question_id=$1 AND submitted_at IS NOT NULL AND override_correct IS NOT NULL
-     LIMIT 1`,
-    [questionId]
-  );
-  
-  // Check all responses to find matching normalized text
-  const allResponses = await pool.query(
-    `SELECT response_text, override_correct FROM responses 
-     WHERE question_id=$1 AND submitted_at IS NOT NULL AND override_correct IS NOT NULL`,
-    [questionId]
-  );
-  
-  for (const row of allResponses.rows) {
-    const rowNorm = normalizeAnswer(row.response_text || '');
-    if (rowNorm === norm) {
-      return row.override_correct; // Return the override value (true or false)
-    }
-  }
-  
-  return null; // No matching override found
-}
-
-// CRITICAL: Automatically sync override_correct for ALL responses with matching normalized text
-async function syncOverrideForNormalizedText(pool, questionId, responseText, overrideValue) {
-  if (!responseText || overrideValue === null) return;
-  const norm = normalizeAnswer(responseText);
-  if (!norm) return;
-  
-  // Find ALL responses with this normalized text and update them
-  const allResponses = await pool.query(
-    `SELECT id, response_text FROM responses 
-     WHERE question_id=$1 AND submitted_at IS NOT NULL`,
-    [questionId]
-  );
-  
-  const matchingIds = [];
-  for (const row of allResponses.rows) {
-    const rowNorm = normalizeAnswer(row.response_text || '');
-    if (rowNorm === norm) {
-      matchingIds.push(row.id);
-    }
-  }
-  
-  if (matchingIds.length > 0) {
-    await pool.query(
-      `UPDATE responses 
-       SET override_correct = $1, override_version = COALESCE(override_version, 0) + 1, override_updated_at = NOW()
-       WHERE id = ANY($2)`,
-      [overrideValue, matchingIds]
-    );
-  }
-}
-
 async function gradeQuiz(pool, quizId, userEmail) {
-  try {
-    const { rows: qs } = await pool.query('SELECT id, number, answer FROM questions WHERE quiz_id=$1 ORDER BY number ASC', [quizId]);
-    if (!qs || qs.length === 0) {
-      console.error(`[gradeQuiz] No questions found for quiz ${quizId}`);
-      return { total: 0, graded: [] };
-    }
-    const { rows: rs } = await pool.query('SELECT question_id, response_text, locked, override_correct FROM responses WHERE quiz_id=$1 AND user_email=$2', [quizId, userEmail]);
-    const qIdToResp = new Map();
-    rs.forEach(r => qIdToResp.set(Number(r.question_id), r));
-    
-    // Check if any question is locked - if not, default to question 1 being locked
-    const hasLocked = rs.some(r => r.locked === true);
-    let defaultLockedQuestionId = null;
-    let lockedCount = rs.filter(r => r.locked === true).length;
-    
-    // CRITICAL: Ensure exactly ONE question is locked
-    // If multiple are locked, unlock all and default to Q1
-    // If none are locked, default to Q1
-    if (lockedCount !== 1 && qs.length > 0) {
-      // Default to question 1 if no locked question exists or if multiple are locked
-      defaultLockedQuestionId = qs.find(q => q.number === 1)?.id || qs[0].id;
-      if (lockedCount === 0) {
-        console.log(`[gradeQuiz] No locked question found, defaulting to Q1 (id=${defaultLockedQuestionId})`);
-      } else {
-        console.log(`[gradeQuiz] Multiple locked questions found (${lockedCount}), unlocking all and defaulting to Q1 (id=${defaultLockedQuestionId})`);
-      }
-      
-      // Actually set the locked flag in the database so it shows correctly in admin interface
-      // First, unlock ALL questions for this user/quiz (ensures only one is locked)
-      await pool.query('UPDATE responses SET locked = FALSE WHERE quiz_id=$1 AND user_email=$2', [quizId, userEmail]);
-      // Then lock question 1
-      await pool.query('UPDATE responses SET locked = TRUE WHERE quiz_id=$1 AND user_email=$2 AND question_id=$3', [quizId, userEmail, defaultLockedQuestionId]);
-      
-      // Update the in-memory map to reflect the change
-      // Unlock all in memory
-      rs.forEach(r => r.locked = false);
-      // Lock Q1 in memory
-      const q1Resp = qIdToResp.get(defaultLockedQuestionId);
-      if (q1Resp) {
-        q1Resp.locked = true;
-      } else {
-        // If Q1 response doesn't exist yet, create a placeholder entry
-        qIdToResp.set(defaultLockedQuestionId, { locked: true });
-      }
-    }
-    
-    let streak = 0;
-    let total = 0;
-    const graded = [];
-    for (const q of qs) {
+  const { rows: qs } = await pool.query('SELECT id, number, answer FROM questions WHERE quiz_id=$1 ORDER BY number ASC', [quizId]);
+  const { rows: rs } = await pool.query('SELECT question_id, response_text, locked, override_correct FROM responses WHERE quiz_id=$1 AND user_email=$2', [quizId, userEmail]);
+  const qIdToResp = new Map();
+  rs.forEach(r => qIdToResp.set(Number(r.question_id), r));
+  let streak = 0;
+  let total = 0;
+  const graded = [];
+  for (const q of qs) {
     const r = qIdToResp.get(q.id);
     const responseText = r ? (r.response_text || '').trim() : '';
     const isBlank = !responseText;
-    // Check if this question is locked, or if it should be the default locked question
-    const locked = !!(r && r.locked) || (defaultLockedQuestionId === q.id);
+    const locked = !!(r && r.locked);
     
     if (locked) {
       // Blank locked responses are NEVER correct, even with manual override
@@ -1257,7 +1150,6 @@ async function gradeQuiz(pool, quizId, userEmail) {
         const pts = 0;
         graded.push({ questionId: q.id, number: q.number, locked: true, correct: false, points: pts, given: '', answer: q.answer });
         await pool.query('UPDATE responses SET points = $4, override_correct = FALSE WHERE quiz_id=$1 AND user_email=$2 AND question_id=$3', [quizId, userEmail, q.id, pts]);
-        // streak unchanged - locked blank doesn't affect streak
         continue;
       }
       const auto = isCorrectAnswer(responseText, q.answer);
@@ -1266,26 +1158,17 @@ async function gradeQuiz(pool, quizId, userEmail) {
       // Only allow manual override if NOT blank
       const correctLocked = (r && typeof r.override_correct === 'boolean' && !isBlank) ? r.override_correct : (auto || accepted);
       const pts = correctLocked ? 5 : 0;
-      console.log(`[gradeQuiz] Q${q.number} (LOCKED): correct=${correctLocked}, points=${pts}, streak=${streak} (unchanged), total before=${total}, total after=${total + pts}`);
       graded.push({ questionId: q.id, number: q.number, locked: true, correct: correctLocked, points: pts, given: responseText, answer: q.answer });
       total += pts;
       await pool.query('UPDATE responses SET points = $4 WHERE quiz_id=$1 AND user_email=$2 AND question_id=$3', [quizId, userEmail, q.id, pts]);
-      // CRITICAL: Locked questions do NOT affect streak - streak continues unchanged
-      // Do NOT increment streak, do NOT reset streak
+      // streak unchanged
       continue;
     }
     
     // Blank non-locked responses are NEVER correct
     if (isBlank) {
       streak = 0;
-      if (r) {
-        // CRITICAL: Update ALL blank responses for this question to ensure consistency
-        // Blank responses normalize to empty string, so they're all the same normalized text
-        await pool.query(
-          'UPDATE responses SET points = 0, override_correct = FALSE WHERE quiz_id=$1 AND question_id=$2 AND submitted_at IS NOT NULL AND (response_text IS NULL OR TRIM(response_text) = \'\')',
-          [quizId, q.id]
-        );
-      }
+      if (r) await pool.query('UPDATE responses SET points = 0, override_correct = FALSE WHERE quiz_id=$1 AND user_email=$2 AND question_id=$3', [quizId, userEmail, q.id]);
       graded.push({ questionId: q.id, number: q.number, locked: false, correct: false, points: 0, given: '', answer: q.answer });
       continue;
     }
@@ -1298,28 +1181,14 @@ async function gradeQuiz(pool, quizId, userEmail) {
     if (correct) {
       streak += 1;
       total += streak;
-      console.log(`[gradeQuiz] Q${q.number} (non-locked): correct=true, streak=${streak}, points=${streak}, total before=${total - streak}, total after=${total}`);
-      const updateResult = await pool.query('UPDATE responses SET points = $4 WHERE quiz_id=$1 AND user_email=$2 AND question_id=$3', [quizId, userEmail, q.id, streak]);
-      if (updateResult.rowCount === 0) {
-        console.warn(`[gradeQuiz] Failed to update points for quiz ${quizId}, user ${userEmail}, question ${q.id} - no rows affected`);
-      }
+      await pool.query('UPDATE responses SET points = $4 WHERE quiz_id=$1 AND user_email=$2 AND question_id=$3', [quizId, userEmail, q.id, streak]);
     } else {
       streak = 0;
-      if (r) {
-        const updateResult = await pool.query('UPDATE responses SET points = 0 WHERE quiz_id=$1 AND user_email=$2 AND question_id=$3', [quizId, userEmail, q.id]);
-        if (updateResult.rowCount === 0) {
-          console.warn(`[gradeQuiz] Failed to update points to 0 for quiz ${quizId}, user ${userEmail}, question ${q.id} - no rows affected`);
-        }
-      }
+      if (r) await pool.query('UPDATE responses SET points = 0 WHERE quiz_id=$1 AND user_email=$2 AND question_id=$3', [quizId, userEmail, q.id]);
     }
     graded.push({ questionId: q.id, number: q.number, locked: false, correct, points: correct ? streak : 0, given: responseText, answer: q.answer });
-    }
-    console.log(`[gradeQuiz] Quiz ${quizId}, User ${userEmail}: ${graded.length} questions graded, total points: ${total}`);
-    return { total, graded };
-  } catch (error) {
-    console.error(`[gradeQuiz] Error grading quiz ${quizId} for user ${userEmail}:`, error);
-    throw error;
   }
+  return { total, graded };
 }
 
 async function computeAuthorAveragePoints(pool, quizId, authorEmailRaw) {
@@ -1334,7 +1203,7 @@ async function computeAuthorAveragePoints(pool, quizId, authorEmailRaw) {
     }
   }
   const { rows } = await pool.query(
-    'SELECT user_email, SUM(points) AS total_points FROM responses WHERE quiz_id=$1 AND submitted_at IS NOT NULL GROUP BY user_email',
+    'SELECT user_email, SUM(points) AS total_points FROM responses WHERE quiz_id=$1 GROUP BY user_email',
     [quizId]
   );
   const others = rows.filter(r => (r.user_email || '').toLowerCase() !== authorEmail);
@@ -3086,90 +2955,25 @@ app.get('/public', async (req, res) => {
 // --- Admin: Calendar occupancy view (AM/PM) ---
 app.get('/admin/calendar', requireAdmin, async (req, res) => {
   try {
-    const { rows: quizzes } = await pool.query('SELECT id, title, unlock_at, author FROM quizzes ORDER BY unlock_at ASC, id ASC');
-    // Fetch unpublished writer submissions (submissions without published_at)
-    const { rows: unpublishedSubmissions } = await pool.query(`
-      SELECT wi.slot_date, wi.slot_half, ws.id as submission_id, ws.author
-      FROM writer_submissions ws
-      JOIN writer_invites wi ON wi.token = ws.token
-      WHERE wi.published_at IS NULL
-        AND wi.slot_date IS NOT NULL
-        AND wi.slot_half IS NOT NULL
-    `);
-    // Fetch published writer submissions to check which quizzes have corresponding submissions
-    const { rows: publishedSubmissions } = await pool.query(`
-      SELECT wi.slot_date, wi.slot_half
-      FROM writer_invites wi
-      WHERE wi.published_at IS NOT NULL
-        AND wi.slot_date IS NOT NULL
-        AND wi.slot_half IS NOT NULL
-    `);
-    // Fetch writer invites to get assigned authors for each slot
-    const { rows: writerInvites } = await pool.query(`
-      SELECT slot_date, slot_half, author
-      FROM writer_invites
-      WHERE slot_date IS NOT NULL
-        AND slot_half IS NOT NULL
-        AND active = true
-    `);
-    
+    const { rows: quizzes } = await pool.query('SELECT id, title, unlock_at FROM quizzes ORDER BY unlock_at ASC, id ASC');
     const bySlot = new Map(); // key: YYYY-MM-DD|AM|PM → array of quizzes
-    const unpublishedBySlot = new Map(); // key: YYYY-MM-DD|AM|PM → array of submission info
-    const publishedSlots = new Set(); // key: YYYY-MM-DD|AM|PM → has published submission
-    const assignedAuthorsBySlot = new Map(); // key: YYYY-MM-DD|AM|PM → author name
-    // Use current year for calendar display (not derived from existing quizzes)
-    const currentYear = new Date().getUTCFullYear();
+    let baseYear = quizzes.length ? utcToEtParts(new Date(quizzes[0].unlock_at)).y : new Date().getUTCFullYear();
     function slotKey(dParts){
       const day = `${dParts.y}-${String(dParts.m).padStart(2,'0')}-${String(dParts.d).padStart(2,'0')}`;
       const half = dParts.h === 0 ? 'AM' : 'PM';
       return `${day}|${half}`;
     }
-    function slotKeyFromDate(date, half){
-      const d = new Date(date);
-      const year = d.getFullYear();
-      const month = String(d.getMonth() + 1).padStart(2,'0');
-      const day = String(d.getDate()).padStart(2,'0');
-      return `${year}-${month}-${day}|${half}`;
-    }
     for (const q of quizzes) {
       const p = utcToEtParts(new Date(q.unlock_at));
+      baseYear = p.y;
       const key = slotKey(p);
       if (!bySlot.has(key)) bySlot.set(key, []);
       bySlot.get(key).push(q);
     }
-    // Map unpublished submissions to slots
-    for (const sub of unpublishedSubmissions) {
-      if (sub.slot_date && sub.slot_half) {
-        const half = String(sub.slot_half).trim().toUpperCase();
-        const key = slotKeyFromDate(sub.slot_date, half);
-        if (!unpublishedBySlot.has(key)) unpublishedBySlot.set(key, []);
-        unpublishedBySlot.get(key).push(sub);
-      }
-    }
-    // Map published submissions to slots
-    for (const pub of publishedSubmissions) {
-      if (pub.slot_date && pub.slot_half) {
-        const half = String(pub.slot_half).trim().toUpperCase();
-        const key = slotKeyFromDate(pub.slot_date, half);
-        publishedSlots.add(key);
-      }
-    }
-    // Map assigned authors to slots
-    for (const invite of writerInvites) {
-      if (invite.slot_date && invite.slot_half && invite.author) {
-        const half = String(invite.slot_half).trim().toUpperCase();
-        const key = slotKeyFromDate(invite.slot_date, half);
-        // Use the first author if multiple invites exist for the same slot
-        if (!assignedAuthorsBySlot.has(key)) {
-          assignedAuthorsBySlot.set(key, invite.author);
-        }
-      }
-    }
-    
     const rows = [];
     // Advent calendar: Dec 1-24, AM/PM slots
     for (let d=1; d<=24; d++) {
-      const day = `${currentYear}-12-${String(d).padStart(2,'0')}`;
+      const day = `${baseYear}-12-${String(d).padStart(2,'0')}`;
       const amKey = `${day}|AM`;
       const pmKey = `${day}|PM`;
       const am = bySlot.get(amKey) || [];
@@ -3178,74 +2982,31 @@ app.get('/admin/calendar', requireAdmin, async (req, res) => {
     }
     // Quizmas: Dec 26-31, AM only (one quiz per day)
     for (let d=26; d<=31; d++) {
-      const day = `${currentYear}-12-${String(d).padStart(2,'0')}`;
+      const day = `${baseYear}-12-${String(d).padStart(2,'0')}`;
       const amKey = `${day}|AM`;
       const am = bySlot.get(amKey) || [];
       rows.push({ day, am, pm: [], isQuizmas: true });
     }
     // Quizmas: Jan 1-6, AM only (one quiz per day)
     for (let d=1; d<=6; d++) {
-      const day = `${currentYear + 1}-01-${String(d).padStart(2,'0')}`;
+      const day = `${baseYear + 1}-01-${String(d).padStart(2,'0')}`;
       const amKey = `${day}|AM`;
       const am = bySlot.get(amKey) || [];
       rows.push({ day, am, pm: [], isQuizmas: true });
     }
-    
     function cellHtml(list, day, half){
-      const key = `${day}|${half}`;
-      const unpublished = unpublishedBySlot.get(key) || [];
-      const hasUnpublished = unpublished.length > 0;
-      const hasPublishedSubmission = publishedSlots.has(key);
-      
       if (!list.length) {
         const hh = half === 'AM' ? '00:00' : '12:00';
         const unlock = `${day}T${hh}`;
-        if (hasUnpublished) {
-          const submissionLinks = unpublished.map(s => 
-            `<a href="/admin/writer-submissions/${s.submission_id}" class="ta-btn-small" style="margin:2px 0;display:block;">📝 ${s.author || 'Unnamed'}'s Submission</a>`
-          ).join('');
-          return `<div style="color:#ff9800;font-weight:bold;margin-bottom:4px;">⚠️ Unpublished Submission${unpublished.length > 1 ? 's' : ''}</div>${submissionLinks}`;
-        }
         return `<div style=\"color:#999;\">Empty</div><div><a class=\"ta-btn-small\" href=\"/admin/writer-submissions?unlock=${unlock}\">Publish here</a></div>`;
       }
       if (list.length === 1) {
         const q = list[0];
-        const isMissingSubmission = !hasPublishedSubmission && !hasUnpublished;
-        let extraHtml = '';
-        if (hasUnpublished) {
-          const submissionLinks = unpublished.map(s => 
-            `<a href="/admin/writer-submissions/${s.submission_id}" class="ta-btn-small" style="margin:2px 0;display:block;background:#ff9800;color:#000;">📝 ${s.author || 'Unnamed'}'s Submission</a>`
-          ).join('');
-          extraHtml = `<div style="color:#ff9800;font-weight:bold;margin-top:4px;font-size:11px;">⚠️ Unpublished Submission${unpublished.length > 1 ? 's' : ''} also waiting</div>${submissionLinks}`;
-        }
-        
-        if (isMissingSubmission) {
-          // Show author name from quiz, assigned author from writer_invites, or fallback to quiz title
-          const assignedAuthor = assignedAuthorsBySlot.get(key);
-          const displayTitle = (q.author || assignedAuthor || q.title || 'Unnamed').replace(/</g,'&lt;');
-          return `<div><a href=\"/admin/quiz/${q.id}\" class=\"ta-btn ta-btn-small\" style="color:#ff4444;">#${q.id} ${displayTitle}</a></div><div style="color:#ff4444;font-size:11px;margin-top:2px;">Missing submission</div>`;
-        }
-        
-        const title = q.title.replace(/</g,'&lt;');
-        return `<div><a href=\"/admin/quiz/${q.id}\" class=\"ta-btn ta-btn-small\">#${q.id} ${title}</a></div>${extraHtml}`;
+        return `<div><a href=\"/admin/quiz/${q.id}\" class=\"ta-btn ta-btn-small\">#${q.id} ${q.title.replace(/</g,'&lt;')}</a></div>`;
       }
       // Conflict
-      const links = list.map(q => {
-        const title = q.title.replace(/</g,'&lt;');
-        return `<div><a href=\"/admin/quiz/${q.id}\" class=\"ta-btn ta-btn-small\">#${q.id} ${title}</a></div>`;
-      }).join('');
-      let extraHtml = '';
-      if (hasUnpublished) {
-        const submissionLinks = unpublished.map(s => 
-          `<a href="/admin/writer-submissions/${s.submission_id}" class="ta-btn-small" style="margin:2px 0;display:block;background:#ff9800;color:#000;">📝 ${s.author || 'Unnamed'}'s Submission</a>`
-        ).join('');
-        extraHtml = `<div style="color:#ff9800;font-weight:bold;margin-top:4px;font-size:11px;">⚠️ Unpublished Submission${unpublished.length > 1 ? 's' : ''} also waiting</div>${submissionLinks}`;
-      } else if (!hasPublishedSubmission) {
-        const hh = half === 'AM' ? '00:00' : '12:00';
-        const unlock = `${day}T${hh}`;
-        extraHtml = `<div style="color:#ff4444;font-weight:bold;margin-top:4px;font-size:11px;">⚠️ Missing Submission</div><div><a href="/admin/writer-submissions?unlock=${unlock}" class="ta-btn-small" style="margin:2px 0;display:block;background:#ff4444;color:#fff;">📝 Create Submission</a></div>`;
-      }
-      return `<div style=\"color:#c62828;\"><strong>Conflict (${list.length})</strong></div>${links}${extraHtml}`;
+      const links = list.map(q=>`<div><a href=\"/admin/quiz/${q.id}\" class=\"ta-btn ta-btn-small\">#${q.id} ${q.title.replace(/</g,'&lt;')}</a></div>`).join('');
+      return `<div style=\"color:#c62828;\"><strong>Conflict (${list.length})</strong></div>${links}`;
     }
     const htmlRows = rows.map(r => {
       const dateParts = r.day.split('-');
@@ -3528,7 +3289,7 @@ app.get('/player', requireAuth, async (req, res) => {
         COALESCE(SUM(r.points), 0) as total_points
       FROM responses r
       JOIN questions qq ON qq.id = r.question_id
-      WHERE r.user_email = $1 AND r.submitted_at IS NOT NULL
+      WHERE r.user_email = $1
     `, [email]);
     if (statsResult.rows.length) {
       stats.totalQuizzes = parseInt(statsResult.rows[0].total_quizzes) || 0;
@@ -3549,8 +3310,8 @@ app.get('/player', requireAuth, async (req, res) => {
         SUM(r.points) as points
       FROM quizzes q
       LEFT JOIN questions qq ON qq.quiz_id = q.id
-      LEFT JOIN responses r ON r.quiz_id = q.id AND r.user_email = $1 AND r.question_id = qq.id AND r.submitted_at IS NOT NULL
-      WHERE EXISTS (SELECT 1 FROM responses r2 WHERE r2.quiz_id = q.id AND r2.user_email = $1 AND r2.submitted_at IS NOT NULL)
+      LEFT JOIN responses r ON r.quiz_id = q.id AND r.user_email = $1 AND r.question_id = qq.id
+      WHERE EXISTS (SELECT 1 FROM responses r2 WHERE r2.quiz_id = q.id AND r2.user_email = $1)
       GROUP BY q.id, q.title, q.unlock_at
       ORDER BY q.unlock_at DESC
       LIMIT 5
@@ -3665,110 +3426,41 @@ app.get('/admin', requireAdmin, async (req, res) => {
     stats.totalDonated = parseFloat(donationResult.rows[0]?.total || 0);
     
     // Get last 5 opened (unlocked) quizzes - prioritize those that need grading
-    // Count ungraded GROUPS using JavaScript normalization (same as grading page and debug query)
-    const recentQuizzesRaw = await pool.query(`
+    // Count ungraded items matching the grading page logic: submitted responses that are
+    // flagged OR (override_correct IS NULL AND not auto-correct)
+    // Note: This counts individual responses, matching the nav counter logic (line 7869)
+    const recentQuizzes = await pool.query(`
       SELECT 
         q.id, 
         q.title, 
         q.unlock_at, 
-        q.author
+        q.author,
+        (SELECT COUNT(DISTINCT r.user_email) FROM responses r WHERE r.quiz_id = q.id AND r.submitted_at IS NOT NULL) as response_count,
+        (SELECT COUNT(*) 
+         FROM responses r
+         JOIN questions qu ON qu.id = r.question_id 
+         WHERE qu.quiz_id = q.id 
+           AND r.submitted_at IS NOT NULL
+           AND TRIM(r.response_text) != ''
+           AND r.override_correct IS NULL
+           AND (
+             r.flagged = true
+             OR (
+               -- Not auto-correct: response doesn't match answer (simple check)
+               -- Note: This is approximate - full normalization happens in JavaScript
+               LOWER(TRIM(r.response_text)) != LOWER(TRIM(qu.answer))
+               AND NOT (qu.answer LIKE '%|%' AND LOWER(TRIM(r.response_text)) = ANY(
+                 SELECT LOWER(TRIM(unnest(string_to_array(qu.answer, '|'))))
+               ))
+             )
+           )
+        ) as ungraded_count
       FROM quizzes q
       WHERE q.unlock_at <= NOW()
       ORDER BY q.unlock_at DESC 
       LIMIT 5
     `);
-    
-    // For each quiz, count ungraded groups using JavaScript normalization (same as grading page)
-    stats.recentQuizzes = await Promise.all(recentQuizzesRaw.rows.map(async (q) => {
-      // Get all responses for this quiz
-      const allResponses = await pool.query(`
-        SELECT 
-          r.id,
-          r.question_id,
-          r.response_text,
-          r.override_correct,
-          r.flagged,
-          qu.answer,
-          qu.number as question_number,
-          qu.quiz_id
-        FROM responses r
-        JOIN questions qu ON qu.id = r.question_id
-        WHERE r.submitted_at IS NOT NULL
-          AND qu.quiz_id = $1
-      `, [q.id]);
-      
-      // Get response count
-      const responseCountResult = await pool.query(
-        'SELECT COUNT(DISTINCT user_email) as count FROM responses WHERE quiz_id=$1 AND submitted_at IS NOT NULL',
-        [q.id]
-      );
-      const response_count = parseInt(responseCountResult.rows[0]?.count || 0);
-      
-      // Normalize using JavaScript (same as grading page)
-      const normalizedResponses = allResponses.rows.map(r => ({
-        ...r,
-        norm_response: normalizeAnswer(r.response_text || ''),
-        norm_answer: normalizeAnswer(r.answer || '')
-      }));
-      
-      // Group by normalized text (same logic as grading page)
-      const normGroups = new Map();
-      for (const r of normalizedResponses) {
-        const key = `${r.question_number}|${r.norm_response}`;
-        if (!normGroups.has(key)) {
-          normGroups.set(key, {
-            question_number: r.question_number,
-            norm_response: r.norm_response,
-            norm_answer: r.norm_answer,
-            responses: []
-          });
-        }
-        normGroups.get(key).responses.push(r);
-      }
-      
-      // Get all accepted answers for all questions in this quiz (more efficient)
-      const acceptedAnswersMap = new Map();
-      const questionIds = [...new Set(allResponses.rows.map(r => r.question_id))];
-      for (const questionId of questionIds) {
-        const acceptedAnswers = await pool.query(
-          'SELECT response_text FROM responses WHERE question_id=$1 AND override_correct=true AND submitted_at IS NOT NULL',
-          [questionId]
-        );
-        acceptedAnswersMap.set(questionId, new Set(acceptedAnswers.rows.map(r => normalizeAnswer(r.response_text || ''))));
-      }
-      
-      // Count ungraded groups (matching grading page logic)
-      let ungradedCount = 0;
-      for (const group of normGroups.values()) {
-        const responses = group.responses;
-        const trueCount = responses.filter(r => r.override_correct === true).length;
-        const falseCount = responses.filter(r => r.override_correct === false).length;
-        const nullCount = responses.filter(r => r.override_correct === null).length;
-        const anyFlagged = responses.some(r => r.flagged === true);
-        const isMixed = trueCount > 0 && falseCount > 0;
-        const hasOverride = trueCount > 0 || falseCount > 0;
-        const hasUngraded = nullCount > 0;
-        const isAutoCorrect = group.norm_response === group.norm_answer;
-        const isBlank = group.norm_response === '';
-        
-        // Get accepted answers for this question
-        const questionId = responses[0]?.question_id;
-        const acceptedNorms = acceptedAnswersMap.get(questionId) || new Set();
-        const accepted = acceptedNorms.has(group.norm_response);
-        
-        // Count if ungraded (matching grading page logic)
-        const shouldInclude = anyFlagged || isMixed || (hasUngraded && !isBlank) || (!isAutoCorrect && !accepted && !hasOverride && !isBlank);
-        if (shouldInclude) {
-          ungradedCount++;
-        }
-      }
-      
-      return {
-        ...q,
-        response_count,
-        ungraded_count: ungradedCount
-      };
-    }));
+    stats.recentQuizzes = recentQuizzes.rows;
   } catch (e) {
     console.error('Error fetching admin stats:', e);
   }
@@ -4159,34 +3851,30 @@ app.get('/calendar', async (req, res) => {
               
               var door = e.currentTarget;
               
-              // CRITICAL: If clicking on a slot button, let it handle navigation
-              // Check multiple ways to detect button clicks
-              var clickedButton = null;
-              if (e.target.classList && e.target.classList.contains('slot-btn')) {
-                clickedButton = e.target;
-              } else if (e.target.closest) {
-                clickedButton = e.target.closest('.slot-btn');
-              } else if (e.target.tagName === 'A' && e.target.closest('.slot-grid')) {
-                clickedButton = e.target;
-              }
-              
-              if (clickedButton) {
-                // Check if door is open OR if it's unlocked (hover state opens it visually)
-                var isOpen = door.classList.contains('is-open');
-                var isUnlocked = door.classList.contains('is-unlocked');
-                console.log('[door] Button click detected, door open:', isOpen, 'unlocked:', isUnlocked, 'button:', clickedButton.href);
-                // Only block if door is closed AND not unlocked
-                // If unlocked, hover opens it visually so allow clicks
-                if (!isOpen && !isUnlocked) {
+              // CRITICAL: If door is NOT open, block ALL clicks from reaching buttons
+              var isOpen = door.classList.contains('is-open');
+              if (!isOpen) {
+                // Door is closed - prevent any clicks from reaching buttons
+                if (e.target.closest('.slot-btn')) {
                   e.preventDefault();
                   e.stopPropagation();
                   e.stopImmediatePropagation();
                   return false;
                 }
-                // Door is open or unlocked - let the link navigate naturally
-                // Don't prevent default, don't stop propagation - just return
-                console.log('[door] Allowing button navigation');
-                return;
+              } else {
+                // Door is open - let slot buttons work normally
+                if (e.target && e.target.closest && e.target.closest('.slot-btn')) {
+                  // If door was just opened, prevent immediate navigation
+                  if (recentlyOpened.has(door)) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    e.stopImmediatePropagation();
+                    return false;
+                  }
+                  // Don't prevent navigation - let the link work
+                  // Don't stop propagation here - let the event reach the link naturally
+                  return; // Allow normal button navigation, don't handle door toggle
+                }
               }
               
               if (!door.classList.contains('is-unlocked')) return;
@@ -4203,11 +3891,11 @@ app.get('/calendar', async (req, res) => {
                 door.classList.add('is-open');
                 // Mark as recently opened to prevent immediate button clicks
                 recentlyOpened.add(door);
-                // Reduced delay - 100ms should be enough for animation
+                // Longer delay for mobile to ensure animation completes
                 setTimeout(function(){
                   recentlyOpened.delete(door);
                   isProcessing = false;
-                }, 100);
+                }, 800);
               } else {
                 isProcessing = false;
               }
@@ -4216,11 +3904,93 @@ app.get('/calendar', async (req, res) => {
             function setupDoors(){
               var doors = document.querySelectorAll('.ta-door');
               doors.forEach(function(d){
-                // Single handler for door clicks
-                // If clicking button and door is open, let link work naturally
-                d.addEventListener('click', function(e){
-                  handleDoorClick(e);
-                }, false); // Bubble phase - let link navigation happen first
+                // Block all clicks on slot buttons when door is closed
+                var slotButtons = d.querySelectorAll('.slot-btn');
+                slotButtons.forEach(function(btn){
+                  btn.addEventListener('click', function(e){
+                    var door = btn.closest('.ta-door');
+                    if (!door || !door.classList.contains('is-open')) {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      e.stopImmediatePropagation();
+                      return false;
+                    }
+                    if (recentlyOpened.has(door)) {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      e.stopImmediatePropagation();
+                      return false;
+                    }
+                    // Door is open and not recently opened - allow navigation
+                    // Don't prevent default, let the link work
+                    e.stopPropagation(); // Stop event from bubbling to door handler
+                  }, true);
+                });
+                
+                // Handle touch events first to prevent double-firing
+                if ('ontouchstart' in window) {
+                  d.addEventListener('touchstart', function(e){
+                    // Block touch on buttons when door is closed
+                    if (e.target.closest('.slot-btn')) {
+                      var door = e.target.closest('.ta-door');
+                      if (!door || !door.classList.contains('is-open')) {
+                        return;
+                      }
+                    }
+                    if (!e.target.closest('.slot-btn')) {
+                      touchStartDoor = d;
+                      touchStartTime = Date.now();
+                    }
+                  }, { passive: true });
+                  
+                  d.addEventListener('touchend', function(e){
+                    // Block touch on buttons when door is closed
+                    if (e.target.closest('.slot-btn')) {
+                      var door = e.target.closest('.ta-door');
+                      if (!door || !door.classList.contains('is-open')) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        return false;
+                      }
+                      if (recentlyOpened.has(door)) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        return false;
+                      }
+                      return; // Let button handle its own navigation
+                    }
+                    
+                    var touchDuration = Date.now() - touchStartTime;
+                    // Only handle quick taps (not long press or swipe)
+                    if (touchStartDoor === d && touchDuration < 300) {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      e.stopImmediatePropagation();
+                      handleDoorClick(e);
+                      // Block click event for longer
+                      setTimeout(function(){
+                        touchStartDoor = null;
+                      }, 300);
+                    } else {
+                      touchStartDoor = null;
+                    }
+                  }, { passive: false });
+                  
+                  // Also prevent click on touch devices
+                  d.addEventListener('click', function(e){
+                    if (touchStartDoor === d || recentlyOpened.has(d)) {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      e.stopImmediatePropagation();
+                      return false;
+                    }
+                  }, true);
+                } else {
+                  // Use click for desktop
+                  d.addEventListener('click', function(e){
+                    handleDoorClick(e);
+                  }, true);
+                }
               });
             }
             
@@ -6902,7 +6672,6 @@ app.get('/quiz/:id/leaderboard', async (req, res) => {
         SELECT 
           r.id,
           r.user_email,
-          r.question_id,
           r.response_text,
           r.override_correct,
           r.points,
@@ -6924,12 +6693,11 @@ app.get('/quiz/:id/leaderboard', async (req, res) => {
           AND r2.response_text IS NOT NULL 
           AND TRIM(r2.response_text) != ''
       )
-        SELECT 
+      SELECT 
         nr.user_email,
-        SUM(CASE 
-          WHEN nr.points > 0 THEN 1
+        COUNT(CASE 
           WHEN nr.response_text IS NULL OR TRIM(nr.response_text) = '' THEN 0
-          WHEN nr.override_correct = true AND nr.response_text IS NOT NULL AND TRIM(nr.response_text) != '' THEN 1
+          WHEN nr.override_correct = true THEN 1
           WHEN nr.override_correct = false THEN 0
           WHEN EXISTS (
             SELECT 1 FROM accepted_norms an 
@@ -7116,8 +6884,7 @@ app.get('/quizmas/leaderboard', async (req, res) => {
        FROM responses r
        JOIN quizzes q ON q.id = r.quiz_id
        LEFT JOIN players p ON p.email = r.user_email
-       WHERE (q.quiz_type = 'quizmas' OR (q.unlock_at >= $1 AND q.unlock_at < $2))
-         AND r.submitted_at IS NOT NULL
+       WHERE q.quiz_type = 'quizmas' OR (q.unlock_at >= $1 AND q.unlock_at < $2)
        GROUP BY r.user_email, handle`,
       [quizmasStart, quizmasEnd]
     );
@@ -7145,9 +6912,7 @@ app.get('/quizmas/leaderboard', async (req, res) => {
       const { rows: authorResponses } = await pool.query(
         `SELECT COUNT(*) as count FROM responses r
          JOIN quizzes q ON q.id = r.quiz_id
-         WHERE r.user_email = $1 
-           AND (q.quiz_type = 'quizmas' OR (q.unlock_at >= $2 AND q.unlock_at < $3))
-           AND r.submitted_at IS NOT NULL`,
+         WHERE r.user_email = $1 AND (q.quiz_type = 'quizmas' OR (q.unlock_at >= $2 AND q.unlock_at < $3))`,
         [authorEmail, quizmasStart, quizmasEnd]
       );
       
@@ -7183,9 +6948,7 @@ app.get('/quizmas/leaderboard', async (req, res) => {
           FROM responses r
           JOIN questions q ON q.id = r.question_id
           JOIN quizzes qu ON qu.id = r.quiz_id
-          WHERE r.user_email = $1 
-            AND (qu.quiz_type = 'quizmas' OR (qu.unlock_at >= $2 AND qu.unlock_at < $3))
-            AND r.submitted_at IS NOT NULL
+          WHERE r.user_email = $1 AND (qu.quiz_type = 'quizmas' OR (qu.unlock_at >= $2 AND qu.unlock_at < $3))
         ),
         accepted_norms AS (
           SELECT DISTINCT
@@ -7198,10 +6961,9 @@ app.get('/quizmas/leaderboard', async (req, res) => {
         )
         SELECT 
           COUNT(DISTINCT nr.quiz_id) as quizzes_submitted,
-          SUM(CASE 
-            WHEN nr.points > 0 THEN 1
+          COUNT(CASE 
             WHEN nr.response_text IS NULL OR TRIM(nr.response_text) = '' THEN 0
-            WHEN nr.override_correct = true AND nr.response_text IS NOT NULL AND TRIM(nr.response_text) != '' THEN 1
+            WHEN nr.override_correct = true THEN 1
             WHEN nr.override_correct = false THEN 0
             WHEN EXISTS (
               SELECT 1 FROM accepted_norms an 
@@ -7388,7 +7150,6 @@ app.get('/leaderboard', async (req, res) => {
       `SELECT r.user_email, COALESCE(p.username, r.user_email) AS handle, SUM(r.points) AS points
        FROM responses r
        LEFT JOIN players p ON p.email = r.user_email
-       WHERE r.submitted_at IS NOT NULL
        GROUP BY r.user_email, handle`
     );
     const totals = new Map();
@@ -7458,10 +7219,9 @@ app.get('/leaderboard', async (req, res) => {
         )
         SELECT 
           COUNT(DISTINCT nr.quiz_id) as quizzes_submitted,
-          SUM(CASE 
-            WHEN nr.points > 0 THEN 1
+          COUNT(CASE 
             WHEN nr.response_text IS NULL OR TRIM(nr.response_text) = '' THEN 0
-            WHEN nr.override_correct = true AND nr.response_text IS NOT NULL AND TRIM(nr.response_text) != '' THEN 1
+            WHEN nr.override_correct = true THEN 1
             WHEN nr.override_correct = false THEN 0
             WHEN EXISTS (
               SELECT 1 FROM accepted_norms an 
@@ -7664,31 +7424,14 @@ app.post('/quiz/:id/submit', requireAuthOrAdmin, async (req, res) => {
       return res.status(403).send('Quiz authors cannot submit this quiz.');
     }
     const { rows: qs } = await pool.query('SELECT id, number FROM questions WHERE quiz_id = $1 ORDER BY number ASC', [id]);
-    let lockedSelected = Number(req.body.locked || 0) || null;
-    
+    const lockedSelected = Number(req.body.locked || 0) || null;
     // Enforce: must have one locked question on submit
     if (!lockedSelected) {
-      const existingLock = await pool.query('SELECT question_id FROM responses WHERE quiz_id=$1 AND user_email=$2 AND locked=true LIMIT 1', [id, email]);
-      if (existingLock.rows.length > 0) {
-        // Use existing lock if no new one selected
-        lockedSelected = existingLock.rows[0].question_id;
-      } else {
-        // Default to question 1 if no lock exists
-        const question1 = qs.find(q => q.number === 1);
-        if (question1) {
-          lockedSelected = question1.id;
-        } else {
-          return res.status(400).send('Please choose one question to lock before submitting.');
-        }
+      const existingLock = await pool.query('SELECT 1 FROM responses WHERE quiz_id=$1 AND user_email=$2 AND locked=true LIMIT 1', [id, email]);
+      if (existingLock.rows.length === 0) {
+        return res.status(400).send('Please choose one question to lock before submitting.');
       }
     }
-    
-    // Verify the selected locked question ID is valid
-    const validQuestionIds = qs.map(q => q.id);
-    if (!validQuestionIds.includes(lockedSelected)) {
-      return res.status(400).send('Invalid locked question selected.');
-    }
-    
     const submittedAt = new Date(); // Mark all responses as submitted at this time
     for (const q of qs) {
       const key = `q${q.number}`;
@@ -7710,126 +7453,18 @@ app.post('/quiz/:id/submit', requireAuthOrAdmin, async (req, res) => {
         );
         continue;
       }
-      
-      // SIMPLIFIED LOGIC: Determine override_correct based on matching responses
-      // Rule: ALL matching normalized responses MUST have the same override_correct value
-      const norm = normalizeAnswer(val);
-      
-      // CRITICAL: First check - if ANY existing response with this normalized text is TRUE,
-      // then ALL responses with this normalized text MUST be TRUE (prevents mixed states)
-      // This is the most reliable check - it doesn't depend on answer matching logic
-      const allTrueResponses = await pool.query(
-        `SELECT response_text FROM responses 
-         WHERE question_id=$1 AND submitted_at IS NOT NULL AND override_correct=true`,
-        [q.id]
-      );
-      let hasExistingTrue = false;
-      for (const row of allTrueResponses.rows) {
-        if (normalizeAnswer(row.response_text || '') === norm) {
-          hasExistingTrue = true;
-          break;
-        }
-      }
-      
-      // Check if it matches the correct answer (auto-correct)
-      const matchesCorrect = isCorrectAnswer(val, q.answer);
-      
-      // Check if it matches any previously accepted answer
-      const matchesAccepted = await isAcceptedAnswer(pool, q.id, val);
-      
-      // Determine final override value with clear priority:
-      // Priority 1: If ANY existing response with same normalized text is TRUE → ALWAYS TRUE
-      // Priority 2: If matches correct answer → TRUE
-      // Priority 3: If matches accepted answer → TRUE
-      // Priority 4: Check if matches rejected answer → FALSE
-      // Priority 5: If unique → NULL (ungraded, will show as needing grading)
-      let finalOverride = null; // Default to ungraded (unique answers)
-      
-      if (hasExistingTrue) {
-        // CRITICAL: If ANY response with this normalized text is TRUE, ALL must be TRUE
-        // This is the most reliable check and prevents mixed states
-        // Proactively fix any FALSE responses in this group BEFORE inserting
-        finalOverride = true;
-        
-        // Find and fix any FALSE responses with this normalized text immediately
-        const allResponsesForSync = await pool.query(
-          `SELECT id, response_text, override_correct FROM responses 
-           WHERE question_id=$1 AND submitted_at IS NOT NULL`,
-          [q.id]
-        );
-        const falseIdsToFix = [];
-        for (const row of allResponsesForSync.rows) {
-          const rowNorm = normalizeAnswer(row.response_text || '');
-          if (rowNorm === norm && row.override_correct === false) {
-            falseIdsToFix.push(row.id);
-          }
-        }
-        if (falseIdsToFix.length > 0) {
-          // Fix any FALSE responses to TRUE immediately
-          await pool.query(
-            `UPDATE responses 
-             SET override_correct = TRUE, override_version = COALESCE(override_version, 0) + 1, override_updated_at = NOW()
-             WHERE id = ANY($1)`,
-            [falseIdsToFix]
-          );
-        }
-      } else if (matchesCorrect) {
-        // Correct answers are ALWAYS TRUE
-        finalOverride = true;
-      } else if (matchesAccepted) {
-        finalOverride = true; // Accepted answer
-      } else {
-        // Only check rejected if it doesn't match correct/accepted/existing-true
-        const rejectedResponsesResult = await pool.query(
-          `SELECT response_text FROM responses 
-           WHERE question_id=$1 AND override_correct=false AND submitted_at IS NOT NULL`,
-          [q.id]
-        );
-        let matchesRejected = false;
-        for (const row of rejectedResponsesResult.rows) {
-          if (normalizeAnswer(row.response_text || '') === norm) {
-            matchesRejected = true;
-            break;
-          }
-        }
-        
-        if (matchesRejected) {
-          finalOverride = false; // Incorrect
-        }
-      }
-      
-      // CRITICAL: Insert/update the new response with the determined override value
       await pool.query(
-        'INSERT INTO responses(quiz_id, question_id, user_email, response_text, locked, submitted_at, override_correct) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (user_email, question_id) DO UPDATE SET response_text = EXCLUDED.response_text, locked = EXCLUDED.locked, submitted_at = EXCLUDED.submitted_at, override_correct = $7',
-        [id, q.id, email, val, isLocked, submittedAt, finalOverride]
+        'INSERT INTO responses(quiz_id, question_id, user_email, response_text, locked, submitted_at) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT (user_email, question_id) DO UPDATE SET response_text = EXCLUDED.response_text, locked = EXCLUDED.locked, submitted_at = EXCLUDED.submitted_at',
+        [id, q.id, email, val, isLocked, submittedAt]
       );
-      
-      // CRITICAL: Sync ALL matching responses to the same override value
-      // This ensures no mixed states - all matching normalized responses have the same value
-      // Always sync if we have a definitive override value (true or false), not null
-      if (finalOverride !== null) {
-        await syncOverrideForNormalizedText(pool, q.id, val, finalOverride);
-      }
     }
-    
-    // Ensure exactly one question is locked - set all others to false
-    await pool.query('UPDATE responses SET locked = FALSE WHERE quiz_id=$1 AND user_email=$2 AND question_id <> $3', [id, email, lockedSelected]);
-    // Ensure the selected question is locked
-    await pool.query('UPDATE responses SET locked = TRUE WHERE quiz_id=$1 AND user_email=$2 AND question_id=$3', [id, email, lockedSelected]);
+    if (lockedSelected) {
+      await pool.query('UPDATE responses SET locked = FALSE WHERE quiz_id=$1 AND user_email=$2 AND question_id <> $3', [id, email, lockedSelected]);
+    }
     // Mark ALL responses for this quiz/user as submitted (in case some weren't updated above)
     await pool.query('UPDATE responses SET submitted_at = $1 WHERE quiz_id=$2 AND user_email=$3 AND submitted_at IS NULL', [submittedAt, id, email]);
-    
-    // Verify responses were saved before grading
-    const verifyResp = await pool.query('SELECT COUNT(*) as count FROM responses WHERE quiz_id=$1 AND user_email=$2 AND submitted_at IS NOT NULL', [id, email]);
-    if (parseInt(verifyResp.rows[0].count) === 0) {
-      console.error(`[submit] No submitted responses found for quiz ${id}, user ${email} after save`);
-      return res.status(500).send('Failed to save responses');
-    }
-    
     // grade and redirect to recap
-    const gradeResult = await gradeQuiz(pool, id, email);
-    console.log(`[submit] Quiz ${id}, User ${email}: Graded ${gradeResult.graded.length} questions, total points: ${gradeResult.total}`);
-    
+    await gradeQuiz(pool, id, email);
     res.redirect(`/quiz/${id}?recap=1`);
   } catch (e) {
     console.error(e);
@@ -8688,526 +8323,6 @@ app.get('/admin/quiz/:id/seed-responses', requireAdmin, async (req, res) => {
   }
 });
 
-// --- Admin: diagnostic endpoint to see what SQL query counts as ungraded ---
-app.get('/admin/quiz/:id/debug-ungraded', requireAdmin, async (req, res) => {
-  try {
-    const id = Number(req.params.id);
-    const quiz = (await pool.query('SELECT id, title FROM quizzes WHERE id=$1', [id])).rows[0];
-    if (!quiz) return res.status(404).send('Quiz not found');
-    
-    // Get all responses and normalize using JavaScript (same as grading page)
-    // This ensures we see the same grouping as the grading interface
-    const allResponses = await pool.query(`
-      SELECT 
-        r.id,
-        r.question_id,
-        r.response_text,
-        r.override_correct,
-        r.flagged,
-        qu.answer,
-        qu.number as question_number,
-        qu.quiz_id
-      FROM responses r
-      JOIN questions qu ON qu.id = r.question_id
-      WHERE r.submitted_at IS NOT NULL
-        AND qu.quiz_id = $1
-    `, [id]);
-    
-    // Normalize using JavaScript (same as grading page)
-    const normalizedResponses = allResponses.rows.map(r => ({
-      ...r,
-      norm_response: normalizeAnswer(r.response_text || ''),
-      norm_answer: normalizeAnswer(r.answer || '')
-    }));
-    
-    // Group by normalized text (same logic as grading page)
-    const normGroups = new Map();
-    for (const r of normalizedResponses) {
-      const key = `${r.question_number}|${r.norm_response}`;
-      if (!normGroups.has(key)) {
-        normGroups.set(key, {
-          question_number: r.question_number,
-          norm_response: r.norm_response,
-          norm_answer: r.norm_answer,
-          responses: []
-        });
-      }
-      normGroups.get(key).responses.push(r);
-    }
-    
-    // Calculate group stats
-    const result = {
-      rows: Array.from(normGroups.values()).map(group => {
-        const responses = group.responses;
-        const trueCount = responses.filter(r => r.override_correct === true).length;
-        const falseCount = responses.filter(r => r.override_correct === false).length;
-        const nullCount = responses.filter(r => r.override_correct === null).length;
-        const anyFlagged = responses.some(r => r.flagged === true);
-        const isMixed = trueCount > 0 && falseCount > 0;
-        const hasOverride = trueCount > 0 || falseCount > 0;
-        const hasUngraded = nullCount > 0;
-        const isAutoCorrect = group.norm_response === group.norm_answer;
-        
-        let reason = 'graded';
-        if (anyFlagged) reason = 'flagged';
-        else if (isMixed) reason = 'mixed';
-        else if (hasUngraded && group.norm_response !== '') reason = 'has_ungraded';
-        else if (!isAutoCorrect && !hasOverride) reason = 'not_auto_no_override';
-        
-        // Only include groups that need attention
-        // Blank groups are auto-rejected, so they don't need grading unless flagged or mixed
-        const isBlank = group.norm_response === '';
-        const shouldInclude = anyFlagged || isMixed || (hasUngraded && !isBlank) || (!isAutoCorrect && !hasOverride && !isBlank);
-        
-        if (!shouldInclude) return null;
-        
-        const sampleTexts = [...new Set(responses.map(r => r.response_text).filter(Boolean))].slice(0, 5);
-        
-        return {
-          question_number: group.question_number,
-          norm_response: group.norm_response,
-          sample_responses: sampleTexts.join(', '),
-          response_count: responses.length,
-          true_count: trueCount,
-          false_count: falseCount,
-          null_count: nullCount,
-          any_flagged: anyFlagged,
-          is_mixed: isMixed,
-          has_override: hasOverride,
-          has_ungraded: hasUngraded,
-          is_auto_correct: isAutoCorrect,
-          reason_ungraded: reason
-        };
-      }).filter(Boolean)
-    };
-    
-    // Old SQL-based query (kept for reference but not used)
-    /*
-    const result = await pool.query(`
-      WITH normalized_responses AS (
-        SELECT 
-          r.id,
-          r.question_id,
-          r.response_text,
-          r.override_correct,
-          r.flagged,
-          qu.answer,
-          qu.number as question_number,
-          qu.quiz_id,
-          LOWER(REGEXP_REPLACE(TRIM(r.response_text), '[^a-z0-9]', '', 'g')) as norm_response,
-          LOWER(REGEXP_REPLACE(TRIM(qu.answer), '[^a-z0-9]', '', 'g')) as norm_answer
-        FROM responses r
-        JOIN questions qu ON qu.id = r.question_id
-        WHERE r.submitted_at IS NOT NULL
-          AND TRIM(r.response_text) != ''
-          AND qu.quiz_id = $1
-      ),
-      response_groups AS (
-        SELECT 
-          nr.quiz_id,
-          nr.question_id,
-          nr.question_number,
-          nr.norm_response,
-          BOOL_OR(nr.flagged = true) as any_flagged,
-          CASE 
-            WHEN COUNT(*) FILTER (WHERE nr.override_correct = true) > 0 
-                 AND COUNT(*) FILTER (WHERE nr.override_correct = false) > 0 
-            THEN true 
-            ELSE false 
-          END as is_mixed,
-          BOOL_OR(nr.override_correct IS NOT NULL) as has_override,
-          BOOL_OR(nr.override_correct IS NULL) as has_ungraded,
-          BOOL_OR(nr.norm_response = nr.norm_answer) as is_auto_correct,
-          COUNT(*) as response_count,
-          COUNT(*) FILTER (WHERE nr.override_correct = true) as true_count,
-          COUNT(*) FILTER (WHERE nr.override_correct = false) as false_count,
-          COUNT(*) FILTER (WHERE nr.override_correct IS NULL) as null_count,
-          STRING_AGG(DISTINCT SUBSTRING(nr.response_text, 1, 30), ', ' ORDER BY SUBSTRING(nr.response_text, 1, 30)) as sample_responses
-        FROM normalized_responses nr
-        GROUP BY nr.quiz_id, nr.question_id, nr.question_number, nr.norm_response
-      )
-      SELECT 
-        rg.question_number,
-        rg.norm_response,
-        rg.sample_responses,
-        rg.response_count,
-        rg.true_count,
-        rg.false_count,
-        rg.null_count,
-        rg.any_flagged,
-        rg.is_mixed,
-        rg.has_override,
-        rg.has_ungraded,
-        rg.is_auto_correct,
-        CASE
-          WHEN rg.any_flagged = true THEN 'flagged'
-          WHEN rg.is_mixed = true THEN 'mixed'
-          WHEN rg.has_ungraded = true AND rg.norm_response != '' THEN 'has_ungraded'
-          WHEN rg.is_auto_correct = false AND rg.has_override = false THEN 'not_auto_no_override'
-          ELSE 'graded'
-        END as reason_ungraded
-      FROM response_groups rg
-      WHERE rg.quiz_id = $1
-        AND (
-          rg.any_flagged = true
-          OR rg.is_mixed = true
-          OR (rg.has_ungraded = true AND rg.norm_response != '')
-          OR (rg.is_auto_correct = false AND rg.has_override = false)
-        )
-      ORDER BY rg.question_number, rg.norm_response
-    `, [id]);
-    */
-    
-    res.type('html').send(`
-      <html><head><title>Debug Ungraded - ${quiz.title}</title></head>
-      <body style="font-family: system-ui; padding: 24px; background: #0a0a0a; color: #fff;">
-        <h1>Debug: Ungraded Groups for "${quiz.title}"</h1>
-        <p><a href="/admin/quiz/${id}/grade" style="color: #4CAF50;">← Back to Grader</a></p>
-        <p>SQL Query found <strong>${result.rows.length}</strong> ungraded groups:</p>
-        <table border="1" cellpadding="8" style="border-collapse: collapse; margin-top: 16px; background: #1a1a1a;">
-          <tr style="background: #333;">
-            <th>Q#</th>
-            <th>Normalized Text</th>
-            <th>Sample Responses</th>
-            <th>Total</th>
-            <th>True</th>
-            <th>False</th>
-            <th>NULL</th>
-            <th>Flagged</th>
-            <th>Mixed</th>
-            <th>Has Override</th>
-            <th>Has Ungraded</th>
-            <th>Auto Correct</th>
-            <th>Reason</th>
-          </tr>
-          ${result.rows.map(r => `
-            <tr>
-              <td>Q${r.question_number}</td>
-              <td><code>${r.norm_response || '(blank)'}</code></td>
-              <td>${r.sample_responses ? r.sample_responses.substring(0, 50) + (r.sample_responses.length > 50 ? '...' : '') : ''}</td>
-              <td>${r.response_count}</td>
-              <td style="color: ${r.true_count > 0 ? '#4CAF50' : '#888'}">${r.true_count || 0}</td>
-              <td style="color: ${r.false_count > 0 ? '#f44336' : '#888'}">${r.false_count || 0}</td>
-              <td style="color: ${r.null_count > 0 ? '#ff9800' : '#888'}">${r.null_count || 0}</td>
-              <td>${r.any_flagged ? '✓' : ''}</td>
-              <td style="color: ${r.is_mixed ? '#f44336' : '#888'}">${r.is_mixed ? '✓ MIXED' : ''}</td>
-              <td>${r.has_override ? '✓' : ''}</td>
-              <td>${r.has_ungraded ? '✓' : ''}</td>
-              <td>${r.is_auto_correct ? '✓' : ''}</td>
-              <td><strong>${r.reason_ungraded}</strong></td>
-            </tr>
-          `).join('')}
-        </table>
-        ${result.rows.length === 0 ? '<p style="color: #4CAF50;">✓ No ungraded groups found by SQL query!</p>' : ''}
-        <hr style="margin: 24px 0; border-color: #333;">
-        <h2>Detailed View for Mixed Groups</h2>
-        ${result.rows.filter(r => r.is_mixed === true || r.is_mixed === 't' || r.reason_ungraded === 'mixed').length > 0 ? result.rows.filter(r => r.is_mixed === true || r.is_mixed === 't' || r.reason_ungraded === 'mixed').map(r => {
-          return `<div style="margin: 16px 0; padding: 16px; background: #222; border: 1px solid #444; border-radius: 4px;">
-            <h3 style="color: #f44336; margin-top: 0;">Q${r.question_number}: "${r.norm_response}" - ${r.response_count} responses (MIXED)</h3>
-            <p><strong>Breakdown:</strong> ${r.true_count || 0} TRUE, ${r.false_count || 0} FALSE, ${r.null_count || 0} NULL</p>
-            <form method="post" action="/admin/quiz/${id}/inspect-group" style="margin-top: 16px;">
-              <input type="hidden" name="question_number" value="${r.question_number}">
-              <input type="hidden" name="norm_response" value="${r.norm_response}">
-              <button type="submit" style="background: #ff9800; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">🔍 Inspect Individual Responses</button>
-            </form>
-            <form method="post" action="/admin/quiz/${id}/fix-group" style="margin-top: 8px; display: inline-block;">
-              <input type="hidden" name="question_number" value="${r.question_number}">
-              <input type="hidden" name="norm_response" value="${r.norm_response}">
-              <button type="submit" name="action" value="accept" style="background: #4CAF50; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; margin-right: 8px; font-size: 14px;">✓ Set All to TRUE</button>
-              <button type="submit" name="action" value="reject" style="background: #f44336; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; margin-right: 8px; font-size: 14px;">✗ Set All to FALSE</button>
-              <button type="submit" name="action" value="clear" style="background: #ff9800; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">Clear All</button>
-            </form>
-          </div>`;
-        }).join('') : '<p>No mixed groups found.</p>'}
-      </body></html>
-    `);
-  } catch (e) {
-    console.error(e);
-    res.status(500).send('Error: ' + e.message);
-  }
-});
-
-// SQL normalization function (matches what SQL does)
-function sqlNormalize(s) {
-  return String(s || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, '');
-}
-
-// --- Admin: Inspect individual responses in a mixed group ---
-app.post('/admin/quiz/:id/inspect-group', requireAdmin, async (req, res) => {
-  try {
-    const quizId = Number(req.params.id);
-    const questionNumber = Number(req.body.question_number);
-    const normResponse = String(req.body.norm_response || '');
-    
-    const question = (await pool.query('SELECT id FROM questions WHERE quiz_id=$1 AND number=$2', [quizId, questionNumber])).rows[0];
-    if (!question) return res.status(404).send('Question not found');
-    
-    // Get all responses for this question
-    const allResponses = await pool.query(
-      'SELECT id, response_text, override_correct, user_email, flagged FROM responses WHERE question_id=$1 AND submitted_at IS NOT NULL',
-      [question.id]
-    );
-    
-    // Group by SQL normalization (same as debug query)
-    const sqlNormGroups = new Map();
-    const jsNormGroups = new Map();
-    for (const r of allResponses.rows) {
-      const sqlNorm = sqlNormalize(r.response_text || '');
-      const jsNorm = normalizeAnswer(r.response_text || '');
-      if (!sqlNormGroups.has(sqlNorm)) sqlNormGroups.set(sqlNorm, []);
-      if (!jsNormGroups.has(jsNorm)) jsNormGroups.set(jsNorm, []);
-      sqlNormGroups.get(sqlNorm).push(r);
-      jsNormGroups.get(jsNorm).push(r);
-    }
-    
-    // Find the group matching the SQL-normalized text
-    const matchingGroup = sqlNormGroups.get(normResponse);
-    
-    if (!matchingGroup) {
-      return res.type('html').send(`
-        <html><head><title>Inspect Group</title></head>
-        <body style="font-family: system-ui; padding: 24px; background: #0a0a0a; color: #fff;">
-          <h1>Group Not Found</h1>
-          <p>Could not find group with SQL-normalized text: "${normResponse}"</p>
-          <p>This suggests a normalization mismatch between SQL and JavaScript.</p>
-          <p><a href="/admin/quiz/${quizId}/debug-ungraded">Back to Debug</a></p>
-          <h2>All SQL-normalized groups for Q${questionNumber}:</h2>
-          <ul>
-            ${Array.from(sqlNormGroups.keys()).sort().map(norm => `<li><code>${norm}</code> (${sqlNormGroups.get(norm).length} responses)</li>`).join('')}
-          </ul>
-          <h2>All JavaScript-normalized groups for Q${questionNumber}:</h2>
-          <ul>
-            ${Array.from(jsNormGroups.keys()).sort().map(norm => `<li><code>${norm}</code> (${jsNormGroups.get(norm).length} responses)</li>`).join('')}
-          </ul>
-        </body></html>
-      `);
-    }
-    
-    const trueResponses = matchingGroup.filter(r => r.override_correct === true);
-    const falseResponses = matchingGroup.filter(r => r.override_correct === false);
-    const nullResponses = matchingGroup.filter(r => r.override_correct === null);
-    
-    res.type('html').send(`
-      <html><head><title>Inspect Group - Q${questionNumber}</title></head>
-      <body style="font-family: system-ui; padding: 24px; background: #0a0a0a; color: #fff;">
-        <h1>Inspecting Q${questionNumber}: "${normResponse}"</h1>
-        <p><a href="/admin/quiz/${quizId}/debug-ungraded">← Back to Debug</a></p>
-        <p><strong>Total:</strong> ${matchingGroup.length} responses</p>
-        <p><strong>True:</strong> ${trueResponses.length} | <strong>False:</strong> ${falseResponses.length} | <strong>NULL:</strong> ${nullResponses.length}</p>
-        
-        ${trueResponses.length > 0 ? `
-          <h2 style="color: #4CAF50;">True Overrides (${trueResponses.length})</h2>
-          <table border="1" cellpadding="8" style="border-collapse: collapse; margin-bottom: 24px; background: #1a1a1a;">
-            <tr style="background: #333;"><th>ID</th><th>User</th><th>Response Text</th><th>JS Normalized</th><th>SQL Normalized</th></tr>
-            ${trueResponses.map(r => {
-              const jsNorm = normalizeAnswer(r.response_text || '');
-              const sqlNorm = sqlNormalize(r.response_text || '');
-              return `<tr>
-                <td>${r.id}</td>
-                <td>${r.user_email}</td>
-                <td><code>${(r.response_text || '').substring(0, 50)}</code></td>
-                <td><code>${jsNorm}</code></td>
-                <td><code>${sqlNorm}</code></td>
-              </tr>`;
-            }).join('')}
-          </table>
-        ` : ''}
-        
-        ${falseResponses.length > 0 ? `
-          <h2 style="color: #f44336;">False Overrides (${falseResponses.length})</h2>
-          <table border="1" cellpadding="8" style="border-collapse: collapse; margin-bottom: 24px; background: #1a1a1a;">
-            <tr style="background: #333;"><th>ID</th><th>User</th><th>Response Text</th><th>JS Normalized</th><th>SQL Normalized</th></tr>
-            ${falseResponses.map(r => {
-              const jsNorm = normalizeAnswer(r.response_text || '');
-              const sqlNorm = sqlNormalize(r.response_text || '');
-              return `<tr>
-                <td>${r.id}</td>
-                <td>${r.user_email}</td>
-                <td><code>${(r.response_text || '').substring(0, 50)}</code></td>
-                <td><code>${jsNorm}</code></td>
-                <td><code>${sqlNorm}</code></td>
-              </tr>`;
-            }).join('')}
-          </table>
-        ` : ''}
-        
-        ${nullResponses.length > 0 ? `
-          <h2 style="color: #ff9800;">NULL Overrides (${nullResponses.length})</h2>
-          <table border="1" cellpadding="8" style="border-collapse: collapse; margin-bottom: 24px; background: #1a1a1a;">
-            <tr style="background: #333;"><th>ID</th><th>User</th><th>Response Text</th><th>JS Normalized</th><th>SQL Normalized</th></tr>
-            ${nullResponses.map(r => {
-              const jsNorm = normalizeAnswer(r.response_text || '');
-              const sqlNorm = sqlNormalize(r.response_text || '');
-              return `<tr>
-                <td>${r.id}</td>
-                <td>${r.user_email}</td>
-                <td><code>${(r.response_text || '').substring(0, 50)}</code></td>
-                <td><code>${jsNorm}</code></td>
-                <td><code>${sqlNorm}</code></td>
-              </tr>`;
-            }).join('')}
-          </table>
-        ` : ''}
-        
-        <form method="post" action="/admin/quiz/${quizId}/fix-group" style="margin-top: 24px; padding: 16px; background: #222; border-radius: 4px;">
-          <input type="hidden" name="question_number" value="${questionNumber}">
-          <input type="hidden" name="norm_response" value="${normResponse}">
-          <p><strong>Fix this group:</strong></p>
-          <button type="submit" name="action" value="accept" style="background: #4CAF50; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; margin-right: 8px;">Set All to TRUE</button>
-          <button type="submit" name="action" value="reject" style="background: #f44336; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; margin-right: 8px;">Set All to FALSE</button>
-          <button type="submit" name="action" value="clear" style="background: #ff9800; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer;">Clear All</button>
-        </form>
-      </body></html>
-    `);
-  } catch (e) {
-    console.error(e);
-    res.status(500).send('Error: ' + e.message);
-  }
-});
-
-// --- Admin: Fix a specific mixed group ---
-app.post('/admin/quiz/:id/fix-group', requireAdmin, async (req, res) => {
-  try {
-    const quizId = Number(req.params.id);
-    const questionNumber = Number(req.body.question_number);
-    const normResponse = String(req.body.norm_response || '');
-    const action = String(req.body.action || '').toLowerCase();
-    
-    const question = (await pool.query('SELECT id FROM questions WHERE quiz_id=$1 AND number=$2', [quizId, questionNumber])).rows[0];
-    if (!question) return res.status(404).send('Question not found');
-    
-    // Get all responses and normalize using SQL normalization (same as debug query)
-    const allResponses = await pool.query(
-      'SELECT id, response_text FROM responses WHERE question_id=$1 AND submitted_at IS NOT NULL',
-      [question.id]
-    );
-    
-    // Find matching IDs using SQL normalization (same as debug query)
-    const matchingIds = [];
-    for (const r of allResponses.rows) {
-      const norm = sqlNormalize(r.response_text || '');
-      if (norm === normResponse) {
-        matchingIds.push(r.id);
-      }
-    }
-    
-    if (matchingIds.length === 0) {
-      return res.redirect(`/admin/quiz/${quizId}/debug-ungraded?error=nomatch`);
-    }
-    
-    let val = null;
-    if (action === 'accept') val = true;
-    else if (action === 'reject') val = false;
-    
-    await pool.query(
-      'UPDATE responses SET override_correct = $1, override_version = COALESCE(override_version, 0) + 1, override_updated_at = NOW(), override_updated_by = $3 WHERE id = ANY($2)',
-      [val, matchingIds, getAdminEmail() || 'admin']
-    );
-    
-    return res.redirect(`/admin/quiz/${quizId}/debug-ungraded?fixed=1`);
-  } catch (e) {
-    console.error(e);
-    res.status(500).send('Error: ' + e.message);
-  }
-});
-
-// --- Admin: Auto-fix mixed states for a quiz ---
-app.post('/admin/quiz/:id/fix-mixed', requireAdmin, async (req, res) => {
-  try {
-    const quizId = Number(req.params.id);
-    const quiz = (await pool.query('SELECT id, title FROM quizzes WHERE id=$1', [quizId])).rows[0];
-    if (!quiz) return res.status(404).send('Quiz not found');
-    
-    // Get all questions for this quiz
-    const questions = (await pool.query('SELECT id, number FROM questions WHERE quiz_id=$1', [quizId])).rows;
-    let fixedCount = 0;
-    
-    for (const question of questions) {
-      // Get all responses for this question
-      const allResponses = await pool.query(
-        'SELECT id, response_text, override_correct FROM responses WHERE question_id=$1 AND submitted_at IS NOT NULL',
-        [question.id]
-      );
-      
-      // Get all accepted answers for this question
-      const acceptedAnswers = await pool.query(
-        'SELECT response_text FROM responses WHERE question_id=$1 AND override_correct=true AND submitted_at IS NOT NULL',
-        [question.id]
-      );
-      const acceptedNorms = new Set(acceptedAnswers.rows.map(r => normalizeAnswer(r.response_text || '')));
-      
-      // Group by normalized text
-      const normGroups = new Map();
-      for (const r of allResponses.rows) {
-        const norm = normalizeAnswer(r.response_text || '');
-        if (!normGroups.has(norm)) normGroups.set(norm, []);
-        normGroups.get(norm).push(r);
-      }
-      
-      // Check each group for mixed states and fix them
-      // Also fix groups where some are accepted (true) and some are ungraded (NULL)
-      for (const [norm, group] of normGroups.entries()) {
-        const overrideValues = group.map(r => r.override_correct).filter(v => v !== null);
-        const nullValues = group.filter(r => r.override_correct === null);
-        const hasTrue = overrideValues.some(v => v === true);
-        const hasFalse = overrideValues.some(v => v === false);
-        const hasNull = nullValues.length > 0;
-        
-        // Fix mixed states: some TRUE and some FALSE
-        if (hasTrue && hasFalse) {
-          // Mixed state detected - determine the correct value
-          let fixValue;
-          
-          // CRITICAL: If this normalized text has been accepted (is in acceptedNorms) OR
-          // if ANY response in this group has override_correct=true (meaning it was accepted),
-          // ALL responses should be true, regardless of the count
-          if (acceptedNorms.has(norm) || hasTrue) {
-            fixValue = true;
-            console.log(`[fix-mixed] Q${question.number}: Mixed group "${norm}" has accepted responses, setting all ${group.length} to TRUE`);
-          } else {
-            // Otherwise, use the most common value
-            const trueCount = overrideValues.filter(v => v === true).length;
-            const falseCount = overrideValues.filter(v => v === false).length;
-            fixValue = trueCount >= falseCount ? true : false;
-            console.log(`[fix-mixed] Q${question.number}: Mixed group "${norm}" using most common value: ${fixValue} (${trueCount} true, ${falseCount} false)`);
-          }
-          
-          const fixIds = group.map(r => r.id);
-          
-          await pool.query(
-            'UPDATE responses SET override_correct = $1, override_version = COALESCE(override_version, 0) + 1, override_updated_at = NOW(), override_updated_by = $3 WHERE id = ANY($2)',
-            [fixValue, fixIds, getAdminEmail() || 'admin']
-          );
-          
-          fixedCount++;
-          console.log(`[fix-mixed] Q${question.number}: Fixed ${fixIds.length} responses with norm "${norm}" to ${fixValue} (accepted: ${acceptedNorms.has(norm)}, hasTrue: ${hasTrue}, ${overrideValues.filter(v => v === true).length} true, ${overrideValues.filter(v => v === false).length} false)`);
-        }
-        // Fix groups where some are accepted (true) and some are ungraded (NULL)
-        // If the normalized text is accepted, all NULL responses should be set to TRUE
-        else if (hasTrue && hasNull && (acceptedNorms.has(norm) || hasTrue)) {
-          const nullIds = nullValues.map(r => r.id);
-          
-          await pool.query(
-            'UPDATE responses SET override_correct = TRUE, override_version = COALESCE(override_version, 0) + 1, override_updated_at = NOW(), override_updated_by = $2 WHERE id = ANY($1)',
-            [nullIds, getAdminEmail() || 'admin']
-          );
-          
-          fixedCount++;
-          console.log(`[fix-mixed] Q${question.number}: Fixed ${nullIds.length} ungraded responses with norm "${norm}" to TRUE (accepted answer)`);
-        }
-      }
-    }
-    
-    return res.redirect(`/admin/quiz/${quizId}/grade?fixed=${fixedCount}`);
-  } catch (e) {
-    console.error(e);
-    res.status(500).send('Failed to fix mixed states: ' + e.message);
-  }
-});
-
 // --- Admin: grading UI (per quiz) ---
 app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
   try {
@@ -9244,86 +8359,19 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
     }
     // Build nav and sections
     const qList = Array.from(byQ.values()).sort((a,b)=>a.number-b.number);
-    
-    // Pre-fetch all question IDs and accepted answers to avoid async in map
-    const questionIds = new Map();
-    const acceptedAnswersCache = new Map(); // questionId -> Set of normalized accepted answers
-    for (const sec of qList) {
-      const qIdResult = await pool.query('SELECT id FROM questions WHERE quiz_id=$1 AND number=$2', [id, sec.number]);
-      if (qIdResult.rows.length > 0) {
-        const questionId = qIdResult.rows[0].id;
-        questionIds.set(sec.number, questionId);
-        
-        // Pre-fetch all accepted answers for this question
-        const acceptedRows = await pool.query(
-          'SELECT response_text FROM responses WHERE question_id=$1 AND override_correct=true',
-          [questionId]
-        );
-        const acceptedNorms = new Set();
-        for (const row of acceptedRows.rows) {
-          const norm = normalizeAnswer(row.response_text || '');
-          if (norm) acceptedNorms.add(norm);
-        }
-        acceptedAnswersCache.set(questionId, acceptedNorms);
-      }
-    }
-    
     const nav = qList.map(sec => {
-      // count ungraded groups (matching the display filter logic)
-      // Count groups that would be shown in "awaiting review" mode
+      // count ungraded (override null and auto incorrect)
       let ungraded = 0;
+      const all = Array.from(sec.answers.values()).flat();
       let flaggedCount = 0;
-      const allGroups = Array.from(sec.answers.entries());
-      const questionId = questionIds.get(sec.number);
-      const acceptedNorms = questionId ? acceptedAnswersCache.get(questionId) : new Set();
-      
-      for (const [ans, arr] of allGroups) {
-        if (arr.length === 0) continue;
-        const firstText = (arr[0].response_text || '').trim();
-        const isBlank = !firstText || normalizeAnswer(firstText) === '';
-        
-        // Check for mixed/flagged status BEFORE checking blank (matching display filter logic)
-        const overrides = arr.map(r => typeof r.override_correct === 'boolean' ? r.override_correct : null);
-        const isMixed = overrides.some(v => v === true) && overrides.some(v => v === false);
-        const anyFlagged = arr.some(r => r.flagged === true);
-        
-        // CRITICAL: Match display filter exactly - mixed/flagged are always shown, even if blank
-        // Otherwise, skip blank groups
-        if (!isMixed && !anyFlagged && isBlank) continue;
-        
-        if (anyFlagged) flaggedCount++;
-        
-        // Check if this group would be shown in "awaiting review" mode
-        // CRITICAL: Must check BOTH auto-correct AND manually accepted answers
-        const auto = isCorrectAnswer(firstText, sec.answer);
-        const normText = normalizeAnswer(firstText);
-        const accepted = acceptedNorms.has(normText);
-        const hasOverride = overrides.some(v => v !== null);
-        
-        // CRITICAL: A group is "ungraded" (needs review) if:
-        // - Flagged (needs attention)
-        // - Mixed (inconsistent state, needs fixing)
-        // - Has ANY ungraded responses (NULL override_correct) AND is NOT blank - blank ungraded responses are auto-rejected
-        // - NOT auto-correct AND NOT manually accepted AND has NO override (truly awaiting review)
-        // 
-        // Groups with overrides (even if false/rejected) are NOT ungraded - they've been reviewed
-        // Groups that are auto-correct OR manually accepted are NOT ungraded - they're correct
-        // Blank groups with NULL override_correct are NOT ungraded - they're auto-rejected by gradeQuiz
-        const hasUngraded = overrides.some(v => v === null);
-        // Only count hasUngraded if the group is NOT blank (blank ungraded responses are auto-rejected)
-        // CRITICAL: This must match the display filter logic exactly:
-        // - Display filter filters out blanks BEFORE checking ungraded status (unless mixed/flagged)
-        // - So blank groups with hasUngraded=true are filtered out and never shown
-        // - Therefore, we should NOT count blank groups with hasUngraded=true
-        const isUngraded = anyFlagged || isMixed || (hasUngraded && !isBlank) || (!auto && !accepted && !hasOverride);
-        
-        if (isUngraded) {
-          ungraded++;
-          // Debug: log what's being counted (remove after debugging)
-          console.log(`[GRADER DEBUG] Q${sec.number}: Counting ungraded group - blank:${isBlank}, flagged:${anyFlagged}, mixed:${isMixed}, hasUngraded:${hasUngraded}, auto:${auto}, accepted:${accepted}, hasOverride:${hasOverride}, firstText:"${firstText.substring(0, 20)}"`);
-        }
+      for (const r of all) {
+        const txt = r.response_text || '';
+        const isBlank = normalizeAnswer(txt) === '';
+        if (isBlank) { if (r.flagged === true) flaggedCount++; continue; }
+        const auto = isCorrectAnswer(txt, sec.answer);
+        if (typeof r.override_correct !== 'boolean' && !auto) ungraded++;
+        if (r.flagged === true) flaggedCount++;
       }
-      
       const meta = [];
       if (ungraded > 0) meta.push(`${ungraded} awaiting`);
       if (flaggedCount > 0) meta.push(`${flaggedCount} flagged`);
@@ -9334,23 +8382,11 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
       // Build rows: awaiting only (default) or all (when show=all)
       let list = Array.from(sec.answers.entries());
       const includeAllForThis = showSet.has(sec.number);
-      // Filter out blank responses EXCEPT if they're mixed (mixed responses must always be visible)
-      list = list.filter(([ans, arr]) => {
-        if (arr.length === 0) return false;
+      // ALWAYS filter out blank responses - they should never appear on grading page
+        list = list.filter(([ans, arr]) => {
+          if (arr.length === 0) return false;
         const firstText = (arr[0].response_text || '').trim();
-        const isBlank = !firstText || normalizeAnswer(firstText) === '';
-        
-        // Check for mixed status BEFORE filtering blanks
-        const overrides = arr.map(r => typeof r.override_correct === 'boolean' ? r.override_correct : null);
-        const isMixed = overrides.some(v => v === true) && overrides.some(v => v === false);
-        const anyFlagged = arr.some(r => r.flagged === true);
-        
-        // CRITICAL: Always show mixed and flagged responses, even if blank
-        // Mixed answers indicate inconsistency and must be visible for correction
-        if (isMixed || anyFlagged) return true;
-        
-        // Otherwise, filter out blanks
-        if (isBlank) return false;
+        if (!firstText || normalizeAnswer(firstText) === '') return false; // blanks NEVER shown
         return true;
       });
       
@@ -9360,46 +8396,18 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
           const auto = isCorrectAnswer(firstText, sec.answer);
           const overrides = arr.map(r => typeof r.override_correct === 'boolean' ? r.override_correct : null);
           const hasOverride = overrides.some(v => v !== null);
-          const hasUngraded = overrides.some(v => v === null); // Check if ANY response is ungraded (NULL)
           const anyFlagged = arr.some(r => r.flagged === true);
           // Check if this is a "mixed" answer (some overrides are true, some are false)
           const isMixed = overrides.some(v => v === true) && overrides.some(v => v === false);
-          
-          // CRITICAL: Must check BOTH auto-correct AND manually accepted answers (matching counter logic)
-          const questionId = questionIds.get(sec.number);
-          const acceptedNorms = questionId ? acceptedAnswersCache.get(questionId) : new Set();
-          const normText = normalizeAnswer(firstText);
-          const accepted = acceptedNorms.has(normText);
-          
-          // CRITICAL: Always show:
-          // 1. Flagged answers (need attention)
-          // 2. Mixed answers (inconsistent state, needs fixing)
-          // 3. Groups with ungraded responses (NULL) AND NOT blank - blank ungraded responses are auto-rejected
-          // 4. Truly awaiting review (not auto-correct AND not manually accepted AND no override)
-          // This MUST match the counter logic exactly!
-          // Note: Blank groups are already filtered out above, but we check !isBlank here for consistency
-          const isBlank = !firstText || normalizeAnswer(firstText) === '';
-          return anyFlagged || isMixed || (hasUngraded && !isBlank) || (!auto && !accepted && !hasOverride);
+          // Show if flagged OR mixed OR truly awaiting review
+          return anyFlagged || isMixed || (!auto && !hasOverride);
         });
-      } else {
-        // Even when showing all, prioritize mixed answers by ensuring they're included
-        // (They should already be included, but this makes it explicit)
-        // Mixed answers are already in the list since includeAllForThis shows everything
       }
-      // Sort so flagged groups and mixed answers appear first (prioritize items needing attention)
+      // Sort so flagged groups appear first
       list.sort((a, b) => {
         const aFlag = a[1].some(r => r.flagged === true) ? 1 : 0;
         const bFlag = b[1].some(r => r.flagged === true) ? 1 : 0;
-        if (aFlag !== bFlag) return bFlag - aFlag;
-        
-        // If both have same flag status, prioritize mixed answers
-        const aOverrides = a[1].map(r => typeof r.override_correct === 'boolean' ? r.override_correct : null);
-        const bOverrides = b[1].map(r => typeof r.override_correct === 'boolean' ? r.override_correct : null);
-        const aMixed = aOverrides.some(v => v === true) && aOverrides.some(v => v === false);
-        const bMixed = bOverrides.some(v => v === true) && bOverrides.some(v => v === false);
-        if (aMixed !== bMixed) return bMixed ? 1 : -1;
-        
-        return 0;
+        return bFlag - aFlag;
       });
       const items = list.map(([ans, arr]) => {
         const auto = arr.length && isCorrectAnswer(arr[0].response_text || '', sec.answer);
@@ -9492,15 +8500,10 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
           <h1 class=\"grader-title\">Grading: ${quiz.title}</h1>
           ${isStale ? '<div style="background:#ffefef;border:1px solid #cc5555;color:#5a1a1a;padding:10px;border-radius:6px;margin-bottom:10px;">Another grader changed one or more items you were viewing. Please refresh to see the latest state.</div>' : ''}
           ${req.query.regraded ? `<div style="background:#efffef;border:1px solid #55cc55;color:#1a5a1a;padding:10px;border-radius:6px;margin-bottom:10px;">✓ Regraded ${req.query.regraded} player${req.query.regraded !== '1' ? 's' : ''}${req.query.email ? ` (${req.query.email})` : ''}</div>` : ''}
-          ${req.query.fixed ? `<div style="background:#efffef;border:1px solid #55cc55;color:#1a5a1a;padding:10px;border-radius:6px;margin-bottom:10px;">✓ Fixed ${req.query.fixed} mixed state${req.query.fixed !== '1' ? 's' : ''}</div>` : ''}
-          <div class=\"grader-date\">Viewing: <strong>Awaiting review</strong> by default (🚩 flagged and ⚠️ mixed answers always shown and prioritized). Use "Show graded / Hide graded" in each question section to include graded rows for that question.</div>
+          <div class=\"grader-date\">Viewing: <strong>Awaiting review</strong> by default (🚩 flagged always shown and prioritized). Use "Show graded / Hide graded" in each question section to include graded rows for that question.</div>
           <form method=\"post\" action=\"/admin/quiz/${id}/regrade\" class=\"btn-row\">
             <button class=\"btn-save\" type=\"submit\">Regrade All Players</button>
-            <form method=\"post\" action=\"/admin/quiz/${id}/fix-mixed\" style=\"display:inline;margin-left:8px;\">
-              <button class=\"btn-save\" type=\"submit\" style=\"background:#ff9800;\">Fix Mixed States</button>
-            </form>
             <a class=\"ta-btn ta-btn-outline\" href=\"/admin/quiz/${id}\" style=\"margin-left:8px;\">Back</a>
-            <a class=\"ta-btn ta-btn-outline\" href=\"/admin/quiz/${id}/debug-ungraded\" style=\"margin-left:8px;\">Debug</a>
           </form>
           <div class=\"grader-bar\">${nav}</div>
           ${sections}
@@ -9524,119 +8527,25 @@ app.post('/admin/quiz/:id/override', requireAdmin, async (req, res) => {
     const q = await pool.query('SELECT id FROM questions WHERE quiz_id=$1 AND number=$2', [quizId, qNumber]);
     if (q.rows.length === 0) return res.status(404).send('Question not found');
     const questionId = q.rows[0].id;
-    // CRITICAL: Find ALL responses with this normalized text, not just the ones currently visible
-    // We need to fetch ALL submitted responses and normalize them to find ALL matches
-    // This prevents "Mixed" states where some responses with the same normalized text are updated but others aren't
-    const resp = await pool.query('SELECT id, response_text FROM responses WHERE question_id=$1 AND submitted_at IS NOT NULL', [questionId]);
-    
-    // Find ALL responses that normalize to the same value
-    const matchingIds = [];
-    for (const r of resp.rows) {
-      const rNorm = normalizeAnswer(r.response_text || '');
-      if (rNorm === norm) {
-        matchingIds.push(r.id);
-      }
-    }
-    
-    if (matchingIds.length === 0) { 
-      return res.redirect(`/admin/quiz/${quizId}/grade`); 
-    }
-    
-    // CRITICAL: Ensure ALL responses with this normalized text are updated together
-    // This prevents "Mixed" states where some responses are accepted and others are rejected
-    // All responses with the same normalized text should have the same override_correct value
+    // Find all response ids for this question whose normalized text matches the provided norm key
+    const resp = await pool.query('SELECT id, response_text FROM responses WHERE question_id=$1', [questionId]);
+    const ids = resp.rows.filter(r => normalizeAnswer(r.response_text || '') === norm).map(r => r.id);
+    if (ids.length === 0) { return res.redirect(`/admin/quiz/${quizId}/grade`); }
     // Optimistic check: ensure no one has updated these since the version we rendered
-    const ver = await pool.query('SELECT MAX(override_version) AS v FROM responses WHERE id = ANY($1)', [matchingIds]);
+    const ver = await pool.query('SELECT MAX(override_version) AS v FROM responses WHERE id = ANY($1)', [ids]);
     const currentMax = Number(ver.rows[0].v || 0);
     if (currentMax !== expectedVersion) {
       return res.redirect(`/admin/quiz/${quizId}/grade?stale=1`);
     }
-    
     let val = null;
     if (action === 'accept') val = true;
     else if (action === 'reject') val = false;
     const updatedBy = getAdminEmail() || 'admin';
-    
-    // CRITICAL: Update ALL matching responses in a single transaction to ensure consistency
-    // Use a transaction to ensure atomicity - either all update or none do
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
-      
-      if (action === 'accept' || action === 'reject') {
-        await client.query(
-          'UPDATE responses SET override_correct = $1, flagged = FALSE, override_version = override_version + 1, override_updated_at = NOW(), override_updated_by = $3 WHERE id = ANY($2)',
-          [val, matchingIds, updatedBy]
-        );
-      } else {
-        await client.query(
-          'UPDATE responses SET override_correct = $1, override_version = override_version + 1, override_updated_at = NOW(), override_updated_by = $3 WHERE id = ANY($2)',
-          [val, matchingIds, updatedBy]
-        );
-      }
-      
-      await client.query('COMMIT');
-    } catch (err) {
-      await client.query('ROLLBACK');
-      throw err;
-    } finally {
-      client.release();
+    if (action === 'accept' || action === 'reject') {
+      await pool.query('UPDATE responses SET override_correct = $1, flagged = FALSE, override_version = override_version + 1, override_updated_at = NOW(), override_updated_by = $3 WHERE id = ANY($2)', [val, ids, updatedBy]);
+    } else {
+      await pool.query('UPDATE responses SET override_correct = $1, override_version = override_version + 1, override_updated_at = NOW(), override_updated_by = $3 WHERE id = ANY($2)', [val, ids, updatedBy]);
     }
-    
-    // CRITICAL SAFEGUARD: After updating, verify no mixed states exist for ALL normalized texts
-    // Check ALL normalized texts, not just the one that was updated, to catch any inconsistencies
-    const verifyResp = await pool.query('SELECT id, response_text, override_correct FROM responses WHERE question_id=$1 AND submitted_at IS NOT NULL', [questionId]);
-    
-    // Get all accepted answers for this question
-    const acceptedAnswers = await pool.query(
-      'SELECT response_text FROM responses WHERE question_id=$1 AND override_correct=true AND submitted_at IS NOT NULL',
-      [questionId]
-    );
-    const acceptedNorms = new Set(acceptedAnswers.rows.map(r => normalizeAnswer(r.response_text || '')));
-    
-    const normGroups = new Map();
-    for (const r of verifyResp.rows) {
-      const rNorm = normalizeAnswer(r.response_text || '');
-      if (!normGroups.has(rNorm)) normGroups.set(rNorm, []);
-      normGroups.get(rNorm).push(r);
-    }
-    
-    // Check for mixed states and fix them for ALL normalized texts
-    for (const [normKey, group] of normGroups.entries()) {
-      const overrideValues = group.map(r => r.override_correct).filter(v => v !== null);
-      const hasTrue = overrideValues.some(v => v === true);
-      const hasFalse = overrideValues.some(v => v === false);
-      
-      if (hasTrue && hasFalse) {
-        // Mixed state detected! Determine the correct value
-        let fixValue;
-        
-        // CRITICAL: If this normalized text has been accepted (is in acceptedNorms),
-        // ALL responses should be true, regardless of the count
-        if (acceptedNorms.has(normKey)) {
-          fixValue = true;
-        } else {
-          // Otherwise, use the most common value
-          const trueCount = overrideValues.filter(v => v === true).length;
-          const falseCount = overrideValues.filter(v => v === false).length;
-          fixValue = trueCount >= falseCount ? true : false; // Prefer true if tied
-        }
-        
-        const fixIds = group.map(r => r.id);
-        console.warn(`[override] Mixed state detected for normalized text "${normKey}", fixing ${fixIds.length} responses to ${fixValue} (accepted: ${acceptedNorms.has(normKey)}, ${overrideValues.filter(v => v === true).length} true, ${overrideValues.filter(v => v === false).length} false)`);
-        await pool.query(
-          'UPDATE responses SET override_correct = $1, override_version = override_version + 1, override_updated_at = NOW(), override_updated_by = $3 WHERE id = ANY($2)',
-          [fixValue, fixIds, updatedBy]
-        );
-      }
-    }
-    
-    // Regrade all affected users to recalculate points
-    const affectedUsers = await pool.query('SELECT DISTINCT user_email FROM responses WHERE id = ANY($1)', [matchingIds]);
-    for (const user of affectedUsers.rows) {
-      await gradeQuiz(pool, quizId, user.user_email);
-    }
-    
     res.redirect(`/admin/quiz/${quizId}/grade`);
   } catch (e) {
     console.error(e);
@@ -9665,13 +8574,6 @@ app.post('/admin/quiz/:id/override-all', requireAdmin, async (req, res) => {
       const updatedBy = getAdminEmail() || 'admin';
       await pool.query('UPDATE responses SET override_correct = $1, override_version = override_version + 1, override_updated_at = NOW(), override_updated_by = $3 WHERE question_id=$2', [val, questionId, updatedBy]);
     }
-    
-    // Regrade all affected users to recalculate points
-    const affectedUsers = await pool.query('SELECT DISTINCT user_email FROM responses WHERE question_id=$1', [questionId]);
-    for (const user of affectedUsers.rows) {
-      await gradeQuiz(pool, quizId, user.user_email);
-    }
-    
     res.redirect(`/admin/quiz/${quizId}/grade`);
   } catch (e) {
     console.error(e);
@@ -9704,12 +8606,7 @@ app.post('/admin/quiz/:id/regrade-user', requireAdmin, async (req, res) => {
       return res.status(400).send('Email required');
     }
     await gradeQuiz(pool, quizId, userEmail);
-    const redirectTo = req.body.redirect_to || 'responses';
-    if (redirectTo === 'responses') {
-      res.redirect(`/admin/quiz/${quizId}/responses?email=${encodeURIComponent(userEmail)}&regraded=1`);
-    } else {
-      res.redirect(`/admin/quiz/${quizId}/grade?regraded=1&email=${encodeURIComponent(userEmail)}`);
-    }
+    res.redirect(`/admin/quiz/${quizId}/grade?regraded=1&email=${encodeURIComponent(userEmail)}`);
   } catch (e) {
     console.error(e);
     res.status(500).send('Failed to regrade user');
@@ -9732,9 +8629,9 @@ app.get('/admin/quiz/:id/responses', requireAdmin, async (req, res) => {
     // Get all questions for this quiz
     const questions = (await pool.query('SELECT * FROM questions WHERE quiz_id=$1 ORDER BY number ASC', [quizId])).rows;
     
-    // Get all unique players who have SUBMITTED responses for this quiz
-    // Only show players who have actually submitted (submitted_at IS NOT NULL)
-    // Autosave-only players (submitted_at IS NULL) should NOT appear
+    // Get all unique players who have responses for this quiz
+    // Include both submitted (submitted_at IS NOT NULL) and unsubmitted (submitted_at IS NULL) players
+    // This helps catch players who appear on leaderboard but don't have submitted_at set
     const showAll = req.query.show_all === 'true';
     const players = (await pool.query(`
       SELECT DISTINCT 
@@ -9746,13 +8643,13 @@ app.get('/admin/quiz/:id/responses', requireAdmin, async (req, res) => {
         COUNT(*) as total_response_count
       FROM responses r
       LEFT JOIN players p ON p.email = r.user_email
-      WHERE r.quiz_id = $1 AND r.submitted_at IS NOT NULL
+      WHERE r.quiz_id = $1 ${showAll ? '' : 'AND r.submitted_at IS NOT NULL'}
       GROUP BY r.user_email, p.username, p.email
-      ORDER BY last_submitted_at DESC
+      ORDER BY last_submitted_at DESC NULLS LAST
     `, [quizId])).rows;
     
-    // Get all SUBMITTED responses for this quiz
-    // Only include responses that have been submitted (submitted_at IS NOT NULL)
+    // Get all responses for this quiz
+    // If showAll=true, include unsubmitted responses too
     const allResponses = (await pool.query(`
       SELECT 
         r.user_email,
@@ -9768,7 +8665,7 @@ app.get('/admin/quiz/:id/responses', requireAdmin, async (req, res) => {
         qq.answer as correct_answer
       FROM responses r
       JOIN questions qq ON qq.id = r.question_id
-      WHERE r.quiz_id = $1 AND r.submitted_at IS NOT NULL
+      WHERE r.quiz_id = $1 ${showAll ? '' : 'AND r.submitted_at IS NOT NULL'}
       ORDER BY r.user_email, qq.number ASC
     `, [quizId])).rows;
     
@@ -9918,11 +8815,6 @@ app.get('/admin/quiz/:id/responses', requireAdmin, async (req, res) => {
             </div>
             <div>
               <a href="/admin/players/${encodeURIComponent(player.user_email)}" class="ta-btn ta-btn-small">View Player</a>
-              <form method="POST" action="/admin/quiz/${quizId}/regrade-user" style="display:inline;margin-left:8px;">
-                <input type="hidden" name="email" value="${player.user_email}">
-                <input type="hidden" name="redirect_to" value="responses">
-                <button type="submit" class="ta-btn ta-btn-small" style="background:#1a3a2a;border-color:#55cc55;color:#88ff88;">Regrade</button>
-              </form>
               <form method="POST" action="/admin/quiz/${quizId}/clear-submission" style="display:inline;margin-left:8px;" onsubmit="return confirm('Are you sure you want to clear this player\\'s submission? They will be able to resubmit the quiz.');">
                 <input type="hidden" name="email" value="${player.user_email}">
                 <button type="submit" class="ta-btn ta-btn-small" style="background:#2a4a1a;border-color:#55cc55;color:#88ff88;">Allow Resubmit</button>
@@ -9962,7 +8854,6 @@ app.get('/admin/quiz/:id/responses', requireAdmin, async (req, res) => {
           <h1 class="ta-page-title">Player Responses: ${quiz.title || `Quiz #${quizId}`}</h1>
           ${req.query.updated ? '<div style="background:#efffef;border:1px solid #55cc55;color:#1a5a1a;padding:10px;border-radius:6px;margin-bottom:16px;">✓ Response updated successfully</div>' : ''}
           ${req.query.deleted ? '<div style="background:#ffefef;border:1px solid #cc5555;color:#5a1a1a;padding:10px;border-radius:6px;margin-bottom:16px;">✓ Response deleted successfully</div>' : ''}
-          ${req.query.regraded ? '<div style="background:#efffef;border:1px solid #55cc55;color:#1a5a1a;padding:10px;border-radius:6px;margin-bottom:16px;">✓ Player regraded successfully. Points have been recalculated.</div>' : ''}
           ${req.query.cleared ? '<div style="background:#efffef;border:1px solid #55cc55;color:#1a5a1a;padding:10px;border-radius:6px;margin-bottom:16px;">✓ Submission cleared - player can now resubmit</div>' : ''}
           ${req.query.auto_fix === 'true' && playersWithAllEmpty.length > 0 ? `<div style="background:#efffef;border:1px solid #55cc55;color:#1a5a1a;padding:10px;border-radius:6px;margin-bottom:16px;">✓ Cleared submission status for ${playersWithAllEmpty.length} player${playersWithAllEmpty.length !== 1 ? 's' : ''} with all empty responses - they can now resubmit</div>` : ''}
           ${playersWithAllEmpty.length > 0 && req.query.auto_fix !== 'true' ? `<div style="background:#ffefef;border:2px solid #ff9800;color:#5a1a1a;padding:16px;border-radius:8px;margin-bottom:16px;">
@@ -10224,14 +9115,8 @@ app.post('/admin/quiz/:id/edit-response', requireAdmin, async (req, res) => {
       [quizId, questionId, userEmail]
     )).rows[0];
     
-    // Preserve submitted_at - admin edits should NOT mark responses as submitted
-    // Only preserve existing submitted_at, never set it to a new date
-    const submittedAt = existing && existing.submitted_at ? existing.submitted_at : null;
-    
-    // Get old response text to check if normalized text changed
-    const oldResponseText = existing ? (existing.response_text || '').trim() : '';
-    const oldNorm = normalizeAnswer(oldResponseText);
-    const newNorm = normalizeAnswer(responseText);
+    const wasSubmitted = existing && existing.submitted_at;
+    const submittedAt = wasSubmitted ? existing.submitted_at : (responseText ? new Date() : null);
     
     if (existing) {
       // Update existing response
@@ -10242,46 +9127,12 @@ app.post('/admin/quiz/:id/edit-response', requireAdmin, async (req, res) => {
         [responseText, isLocked, submittedAt, quizId, questionId, userEmail]
       );
     } else {
-      // Create new response - never set submitted_at on new admin-created responses
+      // Create new response
       await pool.query(
         `INSERT INTO responses (quiz_id, question_id, user_email, response_text, locked, submitted_at)
          VALUES ($1, $2, $3, $4, $5, $6)`,
-        [quizId, questionId, userEmail, responseText, isLocked, null]
+        [quizId, questionId, userEmail, responseText, isLocked, submittedAt]
       );
-    }
-    
-    // CRITICAL: If response text changed and this is a submitted response, ensure consistency
-    // If the new normalized text matches other responses with overrides, apply the same override
-    if (submittedAt && newNorm !== oldNorm && newNorm) {
-      // Find all responses with the same normalized text for this question
-      const allMatching = await pool.query(
-        'SELECT id, response_text, override_correct FROM responses WHERE question_id=$1 AND submitted_at IS NOT NULL',
-        [questionId]
-      );
-      
-      const matchingGroup = [];
-      for (const r of allMatching.rows) {
-        const rNorm = normalizeAnswer(r.response_text || '');
-        if (rNorm === newNorm) {
-          matchingGroup.push(r);
-        }
-      }
-      
-      // Check if any in the group have an override
-      const overrideValues = matchingGroup.map(r => r.override_correct).filter(v => v !== null);
-      if (overrideValues.length > 0) {
-        // Use the most common override value, or true if tied
-        const trueCount = overrideValues.filter(v => v === true).length;
-        const falseCount = overrideValues.filter(v => v === false).length;
-        const targetOverride = trueCount >= falseCount ? true : false;
-        
-        // Update ALL responses with this normalized text to have the same override
-        const matchingIds = matchingGroup.map(r => r.id);
-        await pool.query(
-          'UPDATE responses SET override_correct = $1, override_version = COALESCE(override_version, 0) + 1, override_updated_at = NOW(), override_updated_by = $3 WHERE id = ANY($2)',
-          [targetOverride, matchingIds, getAdminEmail() || 'admin']
-        );
-      }
     }
     
     // If locking this question, unlock all other questions for this user/quiz
@@ -10299,33 +9150,6 @@ app.post('/admin/quiz/:id/edit-response', requireAdmin, async (req, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).send('Failed to save response');
-  }
-});
-
-// --- Admin: Clear submission status for a specific player ---
-app.post('/admin/quiz/:id/clear-submission', requireAdmin, express.urlencoded({ extended: true }), async (req, res) => {
-  try {
-    const quizId = Number(req.params.id);
-    const userEmail = String(req.body.email || '').toLowerCase().trim();
-    
-    if (!userEmail) {
-      return res.status(400).send('Email required');
-    }
-    
-    // Verify quiz exists
-    const quiz = (await pool.query('SELECT * FROM quizzes WHERE id=$1', [quizId])).rows[0];
-    if (!quiz) return res.status(404).send('Quiz not found');
-    
-    // Clear submission status for this player
-    await pool.query(
-      'UPDATE responses SET submitted_at = NULL WHERE quiz_id=$1 AND user_email=$2',
-      [quizId, userEmail]
-    );
-    
-    return res.redirect(`/admin/quiz/${quizId}/responses?email=${encodeURIComponent(userEmail)}&cleared=1`);
-  } catch (e) {
-    console.error(e);
-    res.status(500).send('Failed to clear submission');
   }
 });
 
@@ -10399,7 +9223,7 @@ app.get('/admin/quiz/:id/analytics', requireAdmin, async (req, res) => {
     const participants = (await pool.query(`
       SELECT COUNT(DISTINCT user_email) as count
       FROM responses
-      WHERE quiz_id=$1 AND submitted_at IS NOT NULL
+      WHERE quiz_id=$1
     `, [quizId])).rows[0].count;
     const participationRate = totalPlayers > 0 ? ((participants / totalPlayers) * 100).toFixed(1) : 0;
     
@@ -10412,7 +9236,7 @@ app.get('/admin/quiz/:id/analytics', requireAdmin, async (req, res) => {
           r.created_at,
           COUNT(*) as response_count
         FROM responses r
-        WHERE r.question_id=$1 AND r.submitted_at IS NOT NULL
+        WHERE r.question_id=$1
         GROUP BY r.response_text, r.override_correct, r.created_at
         ORDER BY response_count DESC
       `, [q.id])).rows;
