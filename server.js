@@ -9497,14 +9497,52 @@ app.get('/admin/quiz/:id/find-deleted-submissions', requireAdmin, async (req, re
             </ul>
           </div>
           
+          <div style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:20px;margin-bottom:24px;">
+            <h2 style="color:#ffd700;margin-top:0;">Session Table Check</h2>
+            <p style="opacity:0.8;">Sessions are stored in PostgreSQL but expire after 30 days.</p>
+            <p style="opacity:0.8;margin-top:12px;font-size:14px;">
+              <strong>Note:</strong> If quiz ${id} submissions were more than 30 days ago, 
+              session data won't be available. Run the diagnostic script to check active sessions: 
+              <code style="background:#2a2a2a;padding:2px 6px;border-radius:4px;">node check-additional-sources.js ${id}</code>
+            </p>
+          </div>
+          
           <div style="background:#1a1a1a;border:1px solid #333;border-radius:8px;padding:20px;">
             <h2 style="color:#ffd700;margin-top:0;">Other Sources to Check</h2>
-            <ul style="opacity:0.9;">
-              <li><strong>Server logs:</strong> Check for POST requests to <code>/quiz/${id}/submit</code></li>
-              <li><strong>Application logs:</strong> Look for <code>[gradeQuiz]</code> entries for quiz ${id}</li>
-              <li><strong>Database logs:</strong> If PostgreSQL query logging is enabled, check for DELETE operations</li>
-              <li><strong>Email notifications:</strong> Check if any emails were sent related to quiz ${id}</li>
-            </ul>
+            <div style="opacity:0.9;">
+              <h3 style="color:#ffaa44;margin-top:0;font-size:16px;">1. Server Console Logs (MOST RELIABLE)</h3>
+              <p style="margin-bottom:8px;">The application logs every submission with user email:</p>
+              <pre style="background:#2a2a2a;padding:12px;border-radius:4px;overflow-x:auto;font-size:12px;">[submit] Quiz ${id}, User &lt;email&gt;: Graded X questions, total points: Y
+[gradeQuiz] Quiz ${id}, User &lt;email&gt;: X questions graded, total points: Y</pre>
+              <p style="margin-top:12px;margin-bottom:4px;"><strong>Where to find logs:</strong></p>
+              <ul style="margin-top:4px;padding-left:20px;">
+                <li><strong>Railway:</strong> Dashboard → Deployments → View Logs</li>
+                <li><strong>Heroku:</strong> <code>heroku logs --tail --app &lt;app-name&gt;</code></li>
+                <li><strong>Docker:</strong> <code>docker logs &lt;container-name&gt;</code></li>
+                <li><strong>PM2:</strong> <code>pm2 logs</code></li>
+                <li><strong>Systemd:</strong> <code>journalctl -u &lt;service-name&gt;</code></li>
+                <li><strong>Local:</strong> Terminal/console where server was running</li>
+              </ul>
+              <p style="margin-top:12px;"><strong>Search for:</strong> <code>[submit] Quiz ${id}</code> or <code>[gradeQuiz] Quiz ${id}</code></p>
+              
+              <h3 style="color:#ffaa44;margin-top:24px;font-size:16px;">2. PostgreSQL Query Logs</h3>
+              <p>If query logging is enabled, check for:</p>
+              <ul style="padding-left:20px;">
+                <li><code>INSERT INTO responses ... WHERE quiz_id = ${id}</code></li>
+                <li><code>DELETE FROM questions WHERE quiz_id = ${id}</code></li>
+                <li>CASCADE DELETE operations</li>
+              </ul>
+              
+              <h3 style="color:#ffaa44;margin-top:24px;font-size:16px;">3. Web Server Access Logs</h3>
+              <p>If using a reverse proxy (nginx, Apache), check access logs for:</p>
+              <ul style="padding-left:20px;">
+                <li><code>POST /quiz/${id}/submit</code> requests</li>
+                <li>Includes IP addresses and timestamps</li>
+              </ul>
+              
+              <h3 style="color:#ffaa44;margin-top:24px;font-size:16px;">4. Email Notifications</h3>
+              <p>Check if any emails were sent related to quiz ${id} submissions (unlikely, but possible)</p>
+            </div>
           </div>
           
           <div style="margin-top:24px;">
