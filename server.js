@@ -10979,9 +10979,10 @@ app.post('/admin/quiz/:id/clear-submission', requireAdmin, express.urlencoded({ 
     const player = (await pool.query('SELECT username, email FROM players WHERE email=$1', [userEmail])).rows[0];
     const playerName = player?.username || userEmail;
     
-    // Clear submission status for this player
+    // Clear submission status and reset locked question for this player
+    // Reset all locked questions so player can choose fresh on resubmit
     await pool.query(
-      'UPDATE responses SET submitted_at = NULL WHERE quiz_id=$1 AND user_email=$2',
+      'UPDATE responses SET submitted_at = NULL, locked = FALSE WHERE quiz_id=$1 AND user_email=$2',
       [quizId, userEmail]
     );
     
@@ -11050,9 +11051,10 @@ app.post('/admin/quiz/:id/clear-all-empty-submissions', requireAdmin, async (req
       const player = (await pool.query('SELECT username, email FROM players WHERE email=$1', [row.user_email])).rows[0];
       const playerName = player?.username || row.user_email;
       
-      // Clear submission status
+      // Clear submission status and reset locked question
+      // Reset all locked questions so players can choose fresh on resubmit
       await pool.query(
-        'UPDATE responses SET submitted_at = NULL WHERE quiz_id=$1 AND user_email=$2',
+        'UPDATE responses SET submitted_at = NULL, locked = FALSE WHERE quiz_id=$1 AND user_email=$2',
         [quizId, row.user_email]
       );
       
