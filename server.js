@@ -7716,37 +7716,56 @@ app.post('/quiz/:id/submit', requireAuthOrAdmin, async (req, res) => {
       const norm = normalizeAnswer(val);
       
       // Check 1: Does it match the correct answer? (auto-correct)
+      // CRITICAL: This check MUST take precedence over everything else
       const matchesCorrect = isCorrectAnswer(val, q.answer);
+      if (matchesCorrect) {
+        console.log(`[submit] Q${q.number}: isCorrectAnswer("${val}", "${q.answer}") = TRUE`);
+      } else {
+        // Log when it doesn't match to help debug
+        const normVal = normalizeAnswer(val);
+        const normAnswer = normalizeAnswer(q.answer);
+        console.log(`[submit] Q${q.number}: isCorrectAnswer("${val}", "${q.answer}") = FALSE (norm: "${normVal}" vs "${normAnswer}")`);
+      }
       
       // Check 2: Does it match any previously accepted answer?
       const matchesAccepted = await isAcceptedAnswer(pool, q.id, val);
       
-      // Check 3: Does it match any previously rejected answer?
-      // Get all rejected responses and check if any normalize to the same value
-      const { rows: rejectedResponses } = await pool.query(
-        `SELECT response_text FROM responses 
-         WHERE question_id=$1 AND override_correct=false AND submitted_at IS NOT NULL`,
-        [q.id]
-      );
-      let matchesRejected = false;
-      for (const row of rejectedResponses.rows) {
-        if (normalizeAnswer(row.response_text || '') === norm) {
-          matchesRejected = true;
-          break;
+      // Determine final override value:
+      // Priority 1: If matches correct answer → ALWAYS TRUE (correct answers can NEVER be false)
+      // Priority 2: If matches accepted answer → TRUE
+      // Priority 3: Check if matches rejected answer → FALSE
+      // Priority 4: If unique → NULL (ungraded, will show as needing grading)
+      let finalOverride = null; // Default to ungraded (unique answers)
+      
+      if (matchesCorrect) {
+        // CRITICAL: Correct answers are ALWAYS TRUE, no exceptions
+        finalOverride = true;
+        console.log(`[submit] Q${q.number}: "${val}" matches correct answer "${q.answer}" → setting to TRUE`);
+      } else if (matchesAccepted) {
+        finalOverride = true; // Accepted answer
+        console.log(`[submit] Q${q.number}: "${val}" matches accepted answer → setting to TRUE`);
+      } else {
+        // Only check rejected if it doesn't match correct/accepted
+        const { rows: rejectedResponses } = await pool.query(
+          `SELECT response_text FROM responses 
+           WHERE question_id=$1 AND override_correct=false AND submitted_at IS NOT NULL`,
+          [q.id]
+        );
+        let matchesRejected = false;
+        for (const row of rejectedResponses.rows) {
+          if (normalizeAnswer(row.response_text || '') === norm) {
+            matchesRejected = true;
+            break;
+          }
+        }
+        
+        if (matchesRejected) {
+          finalOverride = false; // Incorrect
+          console.log(`[submit] Q${q.number}: "${val}" matches rejected answer → setting to FALSE`);
+        } else {
+          console.log(`[submit] Q${q.number}: "${val}" is unique → setting to NULL (ungraded)`);
         }
       }
-      
-      // Determine final override value:
-      // - If matches correct answer OR accepted answer → TRUE (correct)
-      // - If matches rejected answer → FALSE (incorrect)
-      // - If unique → NULL (ungraded, will show as needing grading)
-      let finalOverride = null; // Default to ungraded (unique answers)
-      if (matchesCorrect || matchesAccepted) {
-        finalOverride = true; // Correct
-      } else if (matchesRejected) {
-        finalOverride = false; // Incorrect
-      }
-      // If unique (doesn't match anything), finalOverride stays null (ungraded)
       
       // CRITICAL: Insert/update the new response with the determined override value
       await pool.query(
@@ -7759,6 +7778,7 @@ app.post('/quiz/:id/submit', requireAuthOrAdmin, async (req, res) => {
       // Only sync if we have a definitive override value (true or false), not null
       if (finalOverride !== null) {
         await syncOverrideForNormalizedText(pool, q.id, val, finalOverride);
+        console.log(`[submit] Q${q.number}: Synced all matching responses for "${val}" to ${finalOverride}`);
       }
     }
     
