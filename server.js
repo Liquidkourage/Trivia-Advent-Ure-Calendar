@@ -7718,16 +7718,22 @@ app.post('/quiz/:id/submit', requireAuthOrAdmin, async (req, res) => {
       // CRITICAL: First check - if ANY existing response with this normalized text is TRUE,
       // then ALL responses with this normalized text MUST be TRUE (prevents mixed states)
       // This is the most reliable check - it doesn't depend on answer matching logic
-      const allTrueResponses = await pool.query(
-        `SELECT response_text FROM responses 
-         WHERE question_id=$1 AND submitted_at IS NOT NULL AND override_correct=true`,
+      // Get ALL responses for this question to check normalization
+      const allResponsesForQuestion = await pool.query(
+        `SELECT response_text, override_correct FROM responses 
+         WHERE question_id=$1 AND submitted_at IS NOT NULL`,
         [q.id]
       );
       let hasExistingTrue = false;
-      for (const row of allTrueResponses.rows) {
-        if (normalizeAnswer(row.response_text || '') === norm) {
-          hasExistingTrue = true;
-          break;
+      let hasExistingFalse = false;
+      for (const row of allResponsesForQuestion.rows) {
+        const rowNorm = normalizeAnswer(row.response_text || '');
+        if (rowNorm === norm) {
+          if (row.override_correct === true) {
+            hasExistingTrue = true;
+          } else if (row.override_correct === false) {
+            hasExistingFalse = true;
+          }
         }
       }
       
@@ -7748,29 +7754,28 @@ app.post('/quiz/:id/submit', requireAuthOrAdmin, async (req, res) => {
       if (hasExistingTrue) {
         // CRITICAL: If ANY response with this normalized text is TRUE, ALL must be TRUE
         // This is the most reliable check and prevents mixed states
-        // Proactively fix any FALSE responses in this group BEFORE inserting
         finalOverride = true;
         
-        // Find and fix any FALSE responses with this normalized text immediately
+        // Find and fix ANY non-TRUE responses (FALSE or NULL) with this normalized text immediately
         const allResponsesForSync = await pool.query(
           `SELECT id, response_text, override_correct FROM responses 
            WHERE question_id=$1 AND submitted_at IS NOT NULL`,
           [q.id]
         );
-        const falseIdsToFix = [];
+        const idsToFix = [];
         for (const row of allResponsesForSync.rows) {
           const rowNorm = normalizeAnswer(row.response_text || '');
-          if (rowNorm === norm && row.override_correct === false) {
-            falseIdsToFix.push(row.id);
+          if (rowNorm === norm && row.override_correct !== true) {
+            idsToFix.push(row.id);
           }
         }
-        if (falseIdsToFix.length > 0) {
-          // Fix any FALSE responses to TRUE immediately
+        if (idsToFix.length > 0) {
+          // Fix any FALSE or NULL responses to TRUE immediately
           await pool.query(
             `UPDATE responses 
              SET override_correct = TRUE, override_version = COALESCE(override_version, 0) + 1, override_updated_at = NOW()
              WHERE id = ANY($1)`,
-            [falseIdsToFix]
+            [idsToFix]
           );
         }
       } else if (matchesCorrect) {
