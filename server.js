@@ -9662,7 +9662,9 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
         // - Display filter filters out blanks BEFORE checking ungraded status (unless mixed/flagged)
         // - So blank groups with hasUngraded=true are filtered out and never shown
         // - Therefore, we should NOT count blank groups with hasUngraded=true
-        const isUngraded = anyFlagged || isMixed || (hasUngraded && !isBlank) || (!auto && !accepted && !hasOverride);
+        // Show auto-correct responses that have been auto-graded - they may need manual verification
+        const isAutoGraded = auto && hasOverride && !isBlank;
+        const isUngraded = anyFlagged || isMixed || (hasUngraded && !isBlank) || (!auto && !accepted && !hasOverride) || isAutoGraded;
         
         if (isUngraded) {
           ungraded++;
@@ -9723,10 +9725,14 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
           // 2. Mixed answers (inconsistent state, needs fixing)
           // 3. Groups with ungraded responses (NULL) AND NOT blank - blank ungraded responses are auto-rejected
           // 4. Truly awaiting review (not auto-correct AND not manually accepted AND no override)
+          // 5. Auto-correct responses that have been auto-graded (have override_correct set) - they may need verification
           // This MUST match the counter logic exactly!
           // Note: Blank groups are already filtered out above, but we check !isBlank here for consistency
           const isBlank = !firstText || normalizeAnswer(firstText) === '';
-          return anyFlagged || isMixed || (hasUngraded && !isBlank) || (!auto && !accepted && !hasOverride);
+          // Show auto-correct responses that have been auto-graded (override_correct is TRUE/FALSE, not NULL)
+          // These are shown because they may need manual verification even though they're auto-correct
+          const isAutoGraded = auto && hasOverride && !isBlank;
+          return anyFlagged || isMixed || (hasUngraded && !isBlank) || (!auto && !accepted && !hasOverride) || isAutoGraded;
         });
       } else {
         // Even when showing all, prioritize mixed answers by ensuring they're included
