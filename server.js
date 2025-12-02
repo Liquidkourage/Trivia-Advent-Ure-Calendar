@@ -1193,6 +1193,111 @@ async function syncOverrideForNormalizedText(pool, questionId, responseText, ove
   }
 }
 
+// Fix mixed states for all questions in a quiz using majority-vote logic
+async function fixMixedStatesForQuiz(pool, quizId) {
+  try {
+    // Get all questions for this quiz
+    const { rows: questions } = await pool.query(
+      'SELECT id, answer FROM questions WHERE quiz_id = $1',
+      [quizId]
+    );
+    
+    for (const question of questions) {
+      // Get all submitted responses for this question
+      const { rows: allResponses } = await pool.query(
+        `SELECT id, response_text, override_correct FROM responses 
+         WHERE question_id=$1 AND submitted_at IS NOT NULL`,
+        [question.id]
+      );
+      
+      // Group responses by normalized text
+      const byNormalized = new Map();
+      for (const response of allResponses) {
+        const norm = normalizeAnswer(response.response_text || '');
+        if (!norm) continue;
+        
+        if (!byNormalized.has(norm)) {
+          byNormalized.set(norm, []);
+        }
+        byNormalized.get(norm).push(response);
+      }
+      
+      // For each normalized text group, check for mixed states and fix using majority vote
+      for (const [norm, responses] of byNormalized) {
+        if (responses.length === 0) continue;
+        
+        // Count correct vs incorrect
+        let correctCount = 0;
+        let incorrectCount = 0;
+        let hasExplicitTrue = false;
+        const responseIds = [];
+        
+        for (const response of responses) {
+          responseIds.push(response.id);
+          
+          // Determine if this response is correct:
+          // - override_correct = TRUE → correct
+          // - override_correct = FALSE → incorrect
+          // - override_correct = NULL → check auto-correct
+          if (response.override_correct === true) {
+            correctCount++;
+            hasExplicitTrue = true; // Track if ANY response is explicitly TRUE
+          } else if (response.override_correct === false) {
+            incorrectCount++;
+          } else {
+            // NULL override: check if it matches the correct answer (auto-correct)
+            const isAutoCorrect = isCorrectAnswer(response.response_text, question.answer);
+            if (isAutoCorrect) {
+              correctCount++;
+            } else {
+              incorrectCount++;
+            }
+          }
+        }
+        
+        // Determine the correct override value using majority vote
+        // PRIORITY: If ANY response is explicitly TRUE, ALL must be TRUE (prevents mixed states)
+        let targetOverride = null;
+        if (hasExplicitTrue) {
+          // If ANY response is TRUE, ALL must be TRUE - this is the highest priority
+          targetOverride = true;
+        } else if (correctCount > incorrectCount) {
+          targetOverride = true;
+        } else if (incorrectCount > correctCount) {
+          targetOverride = false;
+        } else {
+          // Tie: use auto-correct as tiebreaker
+          const sampleResponse = responses[0].response_text;
+          targetOverride = isCorrectAnswer(sampleResponse, question.answer) ? true : null;
+        }
+        
+        // If we have a determined value, sync all responses to that value
+        // This ensures all responses with the same normalized text have the same override_correct
+        if (targetOverride !== null && responseIds.length > 0) {
+          // Check current state to see if we need to update
+          const currentStates = responses.map(r => r.override_correct);
+          const hasMixedStates = new Set(currentStates).size > 1 || currentStates.some(s => s !== targetOverride);
+          
+          if (hasMixedStates) {
+            const updated = await pool.query(
+              `UPDATE responses 
+               SET override_correct = $1, override_version = COALESCE(override_version, 0) + 1, override_updated_at = NOW()
+               WHERE id = ANY($2) AND override_correct IS DISTINCT FROM $1
+               RETURNING id`,
+              [targetOverride, responseIds]
+            );
+            if (updated.rows.length > 0) {
+              console.log(`[fixMixedStatesForQuiz] Fixed ${updated.rows.length} mixed states for Q${question.id}, norm="${norm}", target=${targetOverride}, correctCount=${correctCount}, incorrectCount=${incorrectCount}`);
+            }
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.error(`[fixMixedStatesForQuiz] Error fixing mixed states for quiz ${quizId}:`, e);
+  }
+}
+
 async function gradeQuiz(pool, quizId, userEmail) {
   try {
     const { rows: qs } = await pool.query('SELECT id, number, answer FROM questions WHERE quiz_id=$1 ORDER BY number ASC', [quizId]);
@@ -6598,11 +6703,16 @@ app.get('/quiz/:id', async (req, res) => {
     const unlockUtc = new Date(quiz.unlock_at);
     const freezeUtc = new Date(quiz.freeze_at);
     const { rows: qs } = await pool.query('SELECT * FROM questions WHERE quiz_id = $1 ORDER BY number ASC', [id]);
+    
+    // Fix any mixed states using majority-vote logic when quiz page loads
+    await fixMixedStatesForQuiz(pool, id);
+    
     const isAdmin = await isAdminUser(req);
     const previewAsPlayer = req.query.preview === 'player' && isAdmin; // Admin can preview as player
     // In preview mode, simulate the quiz as unlocked so admin can see what players will see
     const locked = previewAsPlayer ? false : (nowUtc < unlockUtc);
-    const status = locked ? 'Locked' : (nowUtc >= freezeUtc ? 'Finalized' : 'Unlocked');
+    // Status: "Finalized" means leaderboard is frozen (24h window), but quiz remains open for submissions
+    const status = locked ? 'Locked' : (nowUtc >= freezeUtc ? 'Open (Leaderboard Finalized)' : 'Unlocked');
     const loggedIn = !!req.session.user || req.session.isAdmin === true;
     const email = String(req.session.user ? (req.session.user.email || '') : (req.session.isAdmin === true ? getAdminEmail() : '')).toLowerCase();
     let existingMap = new Map();
@@ -6736,8 +6846,8 @@ app.get('/quiz/:id', async (req, res) => {
         ${qs.map((q, idx)=>{
           const val = existingMap.get(q.id) || '';
           const checked = existingLockedId === q.id ? 'checked' : '';
-          const disable = nowUtc >= freezeUtc ? 'disabled' : '';
-          const required = (q.number === 1 && !(nowUtc >= freezeUtc)) ? 'required' : '';
+          // Quiz remains open indefinitely - no disabling based on freeze_at
+          const required = q.number === 1 ? 'required' : '';
           // Highlight the "ask" text within the question text
           let highlightedText = String(q.text || '');
           const ask = String(q.ask || '').trim();
@@ -6759,17 +6869,17 @@ app.get('/quiz/:id', async (req, res) => {
                 <div class=\"quiz-qnum\">Q${q.number} <span style=\"font-size:14px;opacity:0.7;\">(${idx + 1} of ${qs.length})</span></div>
                 <span class=\"quiz-cat\">${q.category || 'General'}</span>
               </div>
-              <label class=\"quiz-lock\"><input type=\"radio\" name=\"locked\" value=\"${q.id}\" ${checked} ${disable} ${required}/> Lock this question</label>
+              <label class=\"quiz-lock\"><input type=\"radio\" name=\"locked\" value=\"${q.id}\" ${checked} ${required}/> Lock this question</label>
             </div>
             <div class=\"quiz-text\">${highlightedText}</div>
             <div class=\"quiz-answer\">
-              <label>Your answer <input name=\"q${q.number}\" data-question-id=\"${q.id}\" value=\"${val.replace(/\"/g,'&quot;')}\" ${disable} autocomplete=\"off\"/></label>
+              <label>Your answer <input name=\"q${q.number}\" data-question-id=\"${q.id}\" value=\"${val.replace(/\"/g,'&quot;')}\" autocomplete=\"off\"/></label>
             </div>
           </div>`;
         }).join('')}
         <div class=\"quiz-actions\">
-          <button type=\"button\" id=\"review-btn\" class=\"ta-btn ta-btn-outline\" style=\"margin-right:8px;\" ${nowUtc >= freezeUtc ? 'disabled' : ''}>Review Answers</button>
-          <button class=\"quiz-submit ta-btn ta-btn-primary\" type=\"submit\" id=\"submit-btn\" ${nowUtc >= freezeUtc ? 'disabled' : ''}>Submit Quiz</button>
+          <button type=\"button\" id=\"review-btn\" class=\"ta-btn ta-btn-outline\" style=\"margin-right:8px;\">Review Answers</button>
+          <button class=\"quiz-submit ta-btn ta-btn-primary\" type=\"submit\" id=\"submit-btn\">Submit Quiz</button>
         </div>
         <div id="review-panel" style="display:none;margin-top:24px;padding:20px;background:#1a1a1a;border:2px solid #ffd700;border-radius:8px;">
           <h3 style="margin:0 0 16px 0;color:#ffd700;">Review Your Answers</h3>
@@ -7847,13 +7957,9 @@ app.get('/leaderboard', async (req, res) => {
 app.post('/quiz/:id/submit', requireAuthOrAdmin, async (req, res) => {
   try {
     const id = Number(req.params.id);
-    // Prevent changes after freeze
-    const qinfo = await pool.query('SELECT freeze_at, author_email FROM quizzes WHERE id=$1', [id]);
+    // Get quiz info (freeze_at is only used for leaderboard filtering, not submission blocking)
+    const qinfo = await pool.query('SELECT author_email FROM quizzes WHERE id=$1', [id]);
     if (!qinfo.rows.length) return res.status(404).send('Quiz not found');
-      const freezeUtc = new Date(qinfo.rows[0].freeze_at);
-      if (new Date() >= freezeUtc) {
-        return res.redirect(`/quiz/${id}?recap=1`);
-      }
     const authorEmail = (qinfo.rows[0].author_email || '').toLowerCase();
     const email = (req.session.user && req.session.user.email ? req.session.user.email : getAdminEmail()).toLowerCase();
     if (authorEmail && authorEmail === email) {
@@ -7913,13 +8019,14 @@ app.post('/quiz/:id/submit', requireAuthOrAdmin, async (req, res) => {
       
       // Get ALL existing responses with the same normalized text for this question
       const allResponsesForQuestion = await pool.query(
-        `SELECT response_text, override_correct FROM responses 
+        `SELECT id, response_text, override_correct FROM responses 
          WHERE question_id=$1 AND submitted_at IS NOT NULL`,
         [q.id]
       );
       
       let correctCount = 0;
       let incorrectCount = 0;
+      let hasExplicitTrue = false;
       const matchingIds = [];
       
       // Count correct vs incorrect for existing responses with same normalized text
@@ -7934,6 +8041,7 @@ app.post('/quiz/:id/submit', requireAuthOrAdmin, async (req, res) => {
           // - override_correct = NULL → check auto-correct (matches correct answer)
           if (row.override_correct === true) {
             correctCount++;
+            hasExplicitTrue = true; // Track if ANY response is explicitly TRUE
           } else if (row.override_correct === false) {
             incorrectCount++;
           } else {
@@ -7952,11 +8060,15 @@ app.post('/quiz/:id/submit', requireAuthOrAdmin, async (req, res) => {
       const matchesCorrect = isCorrectAnswer(val, q.answer);
       
       // Determine final override value using majority vote:
+      // PRIORITY: If ANY existing response is explicitly TRUE, ALL must be TRUE
       let finalOverride = null;
       
       if (matchingIds.length > 0) {
         // There are existing responses with same normalized text - use majority vote
-        if (correctCount > incorrectCount) {
+        if (hasExplicitTrue) {
+          // If ANY existing response is TRUE, ALL must be TRUE - highest priority
+          finalOverride = true;
+        } else if (correctCount > incorrectCount) {
           // Majority are correct → mark as TRUE
           finalOverride = true;
         } else if (incorrectCount > correctCount) {
@@ -7965,6 +8077,21 @@ app.post('/quiz/:id/submit', requireAuthOrAdmin, async (req, res) => {
         } else {
           // Tie: use auto-correct as tiebreaker
           finalOverride = matchesCorrect ? true : null;
+        }
+        
+        // CRITICAL: Immediately sync existing matching responses to the majority vote
+        // This prevents mixed states before we even insert the new response
+        if (finalOverride !== null && matchingIds.length > 0) {
+          const syncResult = await pool.query(
+            `UPDATE responses 
+             SET override_correct = $1, override_version = COALESCE(override_version, 0) + 1, override_updated_at = NOW()
+             WHERE id = ANY($2) AND override_correct IS DISTINCT FROM $1
+             RETURNING id`,
+            [finalOverride, matchingIds]
+          );
+          if (syncResult.rows.length > 0) {
+            console.log(`[submit] Synced ${syncResult.rows.length} existing responses for Q${q.id}, norm="${norm}", target=${finalOverride}, correctCount=${correctCount}, incorrectCount=${incorrectCount}`);
+          }
         }
       } else {
         // No existing responses with same normalized text - use standard logic
@@ -8009,8 +8136,8 @@ app.post('/quiz/:id/submit', requireAuthOrAdmin, async (req, res) => {
         [id, q.id, email, val, isLocked, submittedAt, finalOverride]
       );
       
-      // CRITICAL: Sync ALL matching responses (including the newly inserted one) to the determined value
-      // This ensures all responses with the same normalized text have the same override_correct value
+      // CRITICAL: Final sync to ensure ALL matching responses (including newly inserted) are consistent
+      // This is a safeguard to catch any edge cases
       if (finalOverride !== null) {
         await syncOverrideForNormalizedText(pool, q.id, val, finalOverride);
       }
@@ -8029,6 +8156,9 @@ app.post('/quiz/:id/submit', requireAuthOrAdmin, async (req, res) => {
       console.error(`[submit] No submitted responses found for quiz ${id}, user ${email} after save`);
       return res.status(500).send('Failed to save responses');
     }
+    
+    // CRITICAL: Fix any remaining mixed states after all submissions are processed
+    await fixMixedStatesForQuiz(pool, id);
     
     // grade and redirect to recap
     const gradeResult = await gradeQuiz(pool, id, email);
