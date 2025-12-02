@@ -10989,7 +10989,7 @@ app.post('/admin/quiz/:id/clear-submission', requireAdmin, express.urlencoded({ 
     try {
       const quizTitle = quiz.title || `Quiz #${quizId}`;
       const subject = `Your ${quizTitle} submission has been reopened`;
-      const emailText = `Hi ${playerName},\n\nWe noticed that your submission for "${quizTitle}" was submitted but didn't contain any answers. We've reopened the quiz for you so you can resubmit with your actual answers.\n\nPlease visit the quiz page and submit your answers again. We apologize for any inconvenience.\n\nThank you,\nTrivia Advent-ure Team`;
+      const emailText = `Hi ${playerName},\n\nWe noticed that your submission for "${quizTitle}" was submitted but didn't contain any answers. This was likely due to submitting while the site was being updated - we're still actively working on improvements and updates, and sometimes submissions can be affected during these updates.\n\nWe've reopened the quiz for you so you can resubmit with your actual answers. Please visit the quiz page and submit your answers again.\n\nWe apologize for any inconvenience, and thank you for your patience as we continue to improve the site.\n\nThank you,\nTrivia Advent-ure Team`;
       
       await sendPlainEmail(userEmail, subject, emailText);
       console.log(`[clear-submission] Sent reopening email to ${userEmail} for quiz ${quizId}`);
@@ -11059,7 +11059,7 @@ app.post('/admin/quiz/:id/clear-all-empty-submissions', requireAdmin, async (req
       // Send email notification
       try {
         const subject = `Your ${quizTitle} submission has been reopened`;
-        const emailText = `Hi ${playerName},\n\nWe noticed that your submission for "${quizTitle}" was submitted but didn't contain any answers. We've reopened the quiz for you so you can resubmit with your actual answers.\n\nPlease visit the quiz page and submit your answers again. We apologize for any inconvenience.\n\nThank you,\nTrivia Advent-ure Team`;
+        const emailText = `Hi ${playerName},\n\nWe noticed that your submission for "${quizTitle}" was submitted but didn't contain any answers. This was likely due to submitting while the site was being updated - we're still actively working on improvements and updates, and sometimes submissions can be affected during these updates.\n\nWe've reopened the quiz for you so you can resubmit with your actual answers. Please visit the quiz page and submit your answers again.\n\nWe apologize for any inconvenience, and thank you for your patience as we continue to improve the site.\n\nThank you,\nTrivia Advent-ure Team`;
         
         await sendPlainEmail(row.user_email, subject, emailText);
         console.log(`[clear-all-empty-submissions] Sent reopening email to ${row.user_email} for quiz ${quizId}`);
