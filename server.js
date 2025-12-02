@@ -7809,10 +7809,37 @@ app.post('/quiz/:id/submit', requireAuthOrAdmin, async (req, res) => {
         [id, q.id, email, val, isLocked, submittedAt, finalOverride]
       );
       
-      // CRITICAL: Sync ALL matching responses to the same override value
-      // This ensures no mixed states - all matching normalized responses have the same value
-      // Always sync if we have a definitive override value (true or false), not null
-      if (finalOverride !== null) {
+      // CRITICAL: ALWAYS sync ALL matching responses after insertion
+      // This is the final safeguard to prevent mixed states
+      // Priority: If ANY response is TRUE, ALL must be TRUE (even if we just inserted FALSE)
+      // Re-check after insertion to catch any edge cases
+      const postInsertCheck = await pool.query(
+        `SELECT id, response_text, override_correct FROM responses 
+         WHERE question_id=$1 AND submitted_at IS NOT NULL`,
+        [q.id]
+      );
+      let postHasTrue = false;
+      const postMatchingIds = [];
+      for (const row of postInsertCheck.rows) {
+        const rowNorm = normalizeAnswer(row.response_text || '');
+        if (rowNorm === norm) {
+          postMatchingIds.push(row.id);
+          if (row.override_correct === true) {
+            postHasTrue = true;
+          }
+        }
+      }
+      
+      // If ANY response is TRUE after insertion, ALL must be TRUE (fix any FALSE/NULL)
+      if (postHasTrue && postMatchingIds.length > 0) {
+        await pool.query(
+          `UPDATE responses 
+           SET override_correct = TRUE, override_version = COALESCE(override_version, 0) + 1, override_updated_at = NOW()
+           WHERE id = ANY($1) AND override_correct IS NOT TRUE`,
+          [postMatchingIds]
+        );
+      } else if (finalOverride !== null) {
+        // Otherwise, sync to the determined override value
         await syncOverrideForNormalizedText(pool, q.id, val, finalOverride);
       }
     }
