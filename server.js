@@ -7736,13 +7736,13 @@ app.post('/quiz/:id/submit', requireAuthOrAdmin, async (req, res) => {
         finalOverride = true; // Accepted answer
       } else {
         // Only check rejected if it doesn't match correct/accepted
-        const { rows: rejectedResponses } = await pool.query(
+        const rejectedResponsesResult = await pool.query(
           `SELECT response_text FROM responses 
            WHERE question_id=$1 AND override_correct=false AND submitted_at IS NOT NULL`,
           [q.id]
         );
         let matchesRejected = false;
-        for (const row of rejectedResponses.rows) {
+        for (const row of rejectedResponsesResult.rows) {
           if (normalizeAnswer(row.response_text || '') === norm) {
             matchesRejected = true;
             break;
