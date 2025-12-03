@@ -7813,6 +7813,7 @@ app.get('/quiz/:id/leaderboard', async (req, res) => {
     const isAdmin = await isAdminUser(req);
     const allowRecapLink = !!(req.session?.user);
     const subnav = renderQuizSubnav(id, 'leaderboard', { allowRecap: allowRecapLink });
+    const modalHtml = isAdmin ? renderLeaderboardImageModal('quiz', id) : '';
     res.type('html').send(`
       ${renderHead(`Leaderboard • Quiz ${id}`, false)}
       <body class="ta-body" style="padding:24px;">
@@ -7867,7 +7868,7 @@ app.get('/quiz/:id/leaderboard', async (req, res) => {
           ` : ''}
         <p style="margin-top:16px;"><a href="/quiz/${id}" class="ta-btn ta-btn-outline">Back to Quiz</a> <a href="/calendar" class="ta-btn ta-btn-outline" style="margin-left:8px;">Calendar</a></p>
         </main>
-        ${isAdmin ? renderLeaderboardImageModal('quiz', id)}
+        ${modalHtml}
         ${renderFooter(req)}
       </body></html>
     `);
@@ -8313,7 +8314,7 @@ app.get('/quizmas/leaderboard', async (req, res) => {
         ` : ''}
         <p style="margin-top:16px;"><a href="/quizmas" class="ta-btn ta-btn-outline">Back to Quizmas</a> <a href="/leaderboard" class="ta-btn ta-btn-outline" style="margin-left:8px;">Overall Leaderboard</a></p>
         </main>
-        ${isAdmin ? renderLeaderboardImageModal('quizmas', null) : ''}
+        ${modalHtml}
         ${renderFooter(req)}
       </body></html>
     `);
@@ -8657,7 +8658,7 @@ app.get('/leaderboard', async (req, res) => {
           ` : ''}
           <p style="margin-top:16px;"><a href="/calendar" class="ta-btn ta-btn-outline">Back to Calendar</a></p>
         </main>
-        ${isAdmin ? renderLeaderboardImageModal('overall', null) : ''}
+        ${modalHtml}
         ${renderFooter(req)}
       </body></html>
     `);
