@@ -275,7 +275,7 @@ body.ta-body a:hover{color:#ffd27f;text-decoration:underline;}
   .ta-header{overflow:visible;position:relative}
   .ta-header-inner{flex-direction:row;align-items:center;gap:12px;padding:12px 16px;position:relative;overflow:visible}
   .ta-menu-toggle{display:flex}
-  .ta-nav{display:none;position:fixed;top:68px;left:0;right:0;background:rgba(0,0,0,0.95);backdrop-filter:blur(10px);flex-direction:column;padding:16px;gap:0;width:100%;border-top:1px solid rgba(255,255,255,0.1);box-shadow:0 4px 12px rgba(0,0,0,0.3);z-index:9999;transform:translateZ(0);will-change:transform}
+  .ta-nav{display:none !important;position:fixed;top:68px;left:0;right:0;background:rgba(0,0,0,0.95);backdrop-filter:blur(10px);flex-direction:column;padding:16px;gap:0;width:100%;border-top:1px solid rgba(255,255,255,0.1);box-shadow:0 4px 12px rgba(0,0,0,0.3);z-index:9999}
   .ta-nav[aria-expanded="true"]{display:flex !important;visibility:visible !important;opacity:1 !important}
   .ta-nav a{display:block;padding:12px 16px;min-height:44px;line-height:28px;margin-left:0;border-bottom:1px solid rgba(255,255,255,0.05);width:100%}
   .ta-nav a:last-child{border-bottom:none}
