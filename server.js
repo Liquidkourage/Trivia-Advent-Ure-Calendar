@@ -13080,7 +13080,7 @@ app.get('/admin/players/:email', requireAdmin, async (req, res) => {
     const totalQuizzes = quizAttempts.length;
     const totalQuestions = allResponses.length;
     const totalCorrect = allResponses.filter(r => r.override_correct === true || (r.override_correct === null && r.response_text && r.response_text.trim().toLowerCase() === r.correct_answer.trim().toLowerCase())).length;
-    const totalPoints = allResponses.reduce((sum, r) => sum + (r.points || 0), 0);
+    const totalPoints = allResponses.reduce((sum, r) => sum + Number(r.points || 0), 0);
     const avgScore = totalQuizzes > 0 ? (totalCorrect / totalQuestions * 100).toFixed(1) : 0;
     
     // Build quiz attempts HTML
