@@ -120,69 +120,39 @@
     if (spinner) spinner.remove();
   };
 
-  // Hamburger menu toggle
+  // Hamburger menu toggle - use event delegation to work regardless of load timing
   (function() {
-    let menuInitialized = false;
-    
-    function setupHamburgerMenu() {
-      // Prevent duplicate initialization
-      if (menuInitialized) return;
-      
-      const menuToggle = document.querySelector('.ta-menu-toggle');
-      const nav = document.querySelector('.ta-nav');
-      
-      if (!menuToggle || !nav) {
-        // Elements not ready yet, try again later
-        if (document.readyState === 'loading') {
-          document.addEventListener('DOMContentLoaded', setupHamburgerMenu);
-        } else {
-          setTimeout(setupHamburgerMenu, 100);
+    // Use event delegation on document body - works even if elements aren't ready yet
+    document.addEventListener('click', function(e) {
+      const menuToggle = e.target.closest('.ta-menu-toggle');
+      if (menuToggle) {
+        e.preventDefault();
+        e.stopPropagation();
+        const nav = document.querySelector('.ta-nav');
+        if (nav) {
+          const isExpanded = menuToggle.getAttribute('aria-expanded') === 'true';
+          menuToggle.setAttribute('aria-expanded', !isExpanded);
+          nav.setAttribute('aria-expanded', !isExpanded);
         }
         return;
       }
       
-      // Mark as initialized
-      menuInitialized = true;
-      
-      // Remove any existing data attributes that might interfere
-      menuToggle.removeAttribute('data-initialized');
-      nav.removeAttribute('data-initialized');
-      
-      // Set up click handler on toggle button
-      menuToggle.addEventListener('click', function(e) {
-        e.preventDefault();
-        e.stopPropagation();
-        const isExpanded = menuToggle.getAttribute('aria-expanded') === 'true';
-        menuToggle.setAttribute('aria-expanded', !isExpanded);
-        nav.setAttribute('aria-expanded', !isExpanded);
-      });
-      
-      // Close menu when clicking outside (only add once)
-      if (!document.hasHamburgerOutsideClick) {
-        document.addEventListener('click', function(e) {
-          if (!nav.contains(e.target) && !menuToggle.contains(e.target)) {
-            menuToggle.setAttribute('aria-expanded', 'false');
-            nav.setAttribute('aria-expanded', 'false');
-          }
-        });
-        document.hasHamburgerOutsideClick = true;
+      // Close menu when clicking outside
+      const nav = document.querySelector('.ta-nav');
+      const toggle = document.querySelector('.ta-menu-toggle');
+      if (nav && toggle && nav.getAttribute('aria-expanded') === 'true') {
+        if (!nav.contains(e.target) && !toggle.contains(e.target)) {
+          toggle.setAttribute('aria-expanded', 'false');
+          nav.setAttribute('aria-expanded', 'false');
+        }
       }
       
       // Close menu when clicking a nav link (mobile)
-      nav.addEventListener('click', function(e) {
-        if (e.target.tagName === 'A' && window.innerWidth <= 768) {
-          menuToggle.setAttribute('aria-expanded', 'false');
-          nav.setAttribute('aria-expanded', 'false');
-        }
-      });
-    }
-    
-    // Run immediately if DOM is ready, otherwise wait for DOMContentLoaded
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', setupHamburgerMenu);
-    } else {
-      setupHamburgerMenu();
-    }
+      if (nav && toggle && e.target.tagName === 'A' && nav.contains(e.target) && window.innerWidth <= 768) {
+        toggle.setAttribute('aria-expanded', 'false');
+        nav.setAttribute('aria-expanded', 'false');
+      }
+    }, true); // Use capture phase to catch events early
   })();
 })();
 
