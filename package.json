@@ -9,6 +9,7 @@
     "db:init": "node scripts/init-db.js"
   },
   "dependencies": {
+    "canvas": "^3.2.0",
     "connect-pg-simple": "^9.0.0",
     "cookie-parser": "^1.4.6",
     "date-fns-tz": "^3.0.0",
@@ -22,5 +23,3 @@
     "uuid": "^9.0.1"
   }
 }
-
-

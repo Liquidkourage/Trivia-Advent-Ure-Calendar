@@ -73,6 +73,8 @@ import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import multer from 'multer';
+import { createCanvas, loadImage } from 'canvas';
+import { join, dirname } from 'path';
 // Avoid timezone library; store UTC in DB and compare in UTC
 
 dotenv.config();
@@ -891,6 +893,272 @@ function utcToEtParts(d){
   // December ET assumed (UTC-5)
   const et = new Date(d.getTime() - 5*60*60*1000);
   return {y: et.getUTCFullYear(), m: et.getUTCMonth()+1, d: et.getUTCDate(), h: et.getUTCHours(), et};
+}
+
+// --- Leaderboard Image Generation ---
+async function generateLeaderboardImage({
+  players,           // Array of {rank, handle, points, correctCount?, avgPerCorrect?}
+  quizTitle,         // Optional: for per-quiz leaderboards
+  quizAuthor,        // Optional: author name
+  quizDate,          // Optional: unlock_at Date object
+  leaderboardType,   // 'quiz', 'quizmas', 'overall'
+  count = 25,        // Number of players to show
+  platform = 'facebook', // 'facebook', 'discord', 'instagram'
+  includeStats = false // Include correct count, avg per correct
+}) {
+  // Platform dimensions
+  const dimensions = {
+    facebook: { width: 1200, height: 630 },
+    discord: { width: 1200, height: 675 },
+    instagram: { width: 1080, height: 1080 }
+  };
+  
+  const { width, height } = dimensions[platform] || dimensions.facebook;
+  const canvas = createCanvas(width, height);
+  const ctx = canvas.getContext('2d');
+  
+  // Background gradient (dark theme)
+  const gradient = ctx.createLinearGradient(0, 0, 0, height);
+  gradient.addColorStop(0, '#0f1d5a');
+  gradient.addColorStop(0.6, '#15124a');
+  gradient.addColorStop(1, '#0b1338');
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, width, height);
+  
+  // Load logo
+  let logoImage = null;
+  try {
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = dirname(__filename);
+    const logoPath = join(__dirname, 'public', 'img', 'logo-banner.png');
+    logoImage = await loadImage(logoPath);
+    
+    // Draw logo (top left, scaled appropriately)
+    const logoHeight = Math.min(height * 0.15, 120);
+    const logoWidth = (logoImage.width / logoImage.height) * logoHeight;
+    const logoX = 40;
+    const logoY = 30;
+    ctx.drawImage(logoImage, logoX, logoY, logoWidth, logoHeight);
+  } catch (err) {
+    console.warn('[leaderboard-image] Could not load logo:', err.message);
+  }
+  
+  // Title section
+  let yPos = logoImage ? (logoImage ? 50 + Math.min(height * 0.15, 120) : 50) : 50;
+  const titleFontSize = platform === 'instagram' ? 48 : 42;
+  const titleY = yPos;
+  
+  ctx.fillStyle = '#ffd700';
+  ctx.font = `bold ${titleFontSize}px sans-serif`;
+  ctx.textAlign = 'left';
+  
+  let titleText = 'Leaderboard';
+  if (leaderboardType === 'quiz' && quizTitle) {
+    titleText = quizTitle;
+  } else if (leaderboardType === 'quizmas') {
+    titleText = '12 Days of Quizmas Leaderboard';
+  } else if (leaderboardType === 'overall') {
+    titleText = 'Overall Leaderboard';
+  }
+  
+  // Truncate title if too long
+  const maxTitleWidth = width - 80;
+  let displayTitle = titleText;
+  let titleMetrics = ctx.measureText(displayTitle);
+  if (titleMetrics.width > maxTitleWidth) {
+    while (titleMetrics.width > maxTitleWidth && displayTitle.length > 0) {
+      displayTitle = displayTitle.slice(0, -1);
+      titleMetrics = ctx.measureText(displayTitle + '...');
+    }
+    displayTitle += '...';
+  }
+  
+  ctx.fillText(displayTitle, 40, titleY);
+  yPos = titleY + titleFontSize + 20;
+  
+  // Author and date (for quiz leaderboards)
+  if (leaderboardType === 'quiz' && (quizAuthor || quizDate)) {
+    ctx.fillStyle = '#ffffff';
+    ctx.font = `${platform === 'instagram' ? 24 : 20}px sans-serif`;
+    let infoText = '';
+    if (quizAuthor) {
+      infoText = `by ${quizAuthor}`;
+    }
+    if (quizDate) {
+      const etParts = utcToEtParts(quizDate);
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const monthName = monthNames[etParts.m - 1];
+      const hour = etParts.h === 0 ? 12 : (etParts.h > 12 ? etParts.h - 12 : etParts.h);
+      const ampm = etParts.h < 12 ? 'AM' : 'PM';
+      const minute = String(etParts.et.getUTCMinutes()).padStart(2, '0');
+      const dateStr = `${monthName} ${etParts.d}, ${etParts.y} ${hour}:${minute} ${ampm} ET`;
+      if (infoText) {
+        infoText += ` • ${dateStr}`;
+      } else {
+        infoText = dateStr;
+      }
+    }
+    if (infoText) {
+      ctx.fillText(infoText, 40, yPos);
+      yPos += 30;
+    }
+  }
+  
+  // Players list
+  const topPlayers = players.slice(0, count);
+  const playerFontSize = platform === 'instagram' ? 28 : 24;
+  const playerLineHeight = platform === 'instagram' ? 40 : 36;
+  const startY = yPos + 20;
+  let currentY = startY;
+  
+  // Header row
+  ctx.fillStyle = '#ffd700';
+  ctx.font = `bold ${playerFontSize - 4}px sans-serif`;
+  ctx.fillText('Rank', 40, currentY);
+  ctx.fillText('Player', 120, currentY);
+  ctx.fillText('Points', width - 200, currentY);
+  if (includeStats) {
+    ctx.fillText('Stats', width - 100, currentY);
+  }
+  currentY += playerLineHeight;
+  
+  // Draw divider line
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(40, currentY - 5);
+  ctx.lineTo(width - 40, currentY - 5);
+  ctx.stroke();
+  currentY += 10;
+  
+  // Player rows
+  ctx.font = `${playerFontSize}px sans-serif`;
+  topPlayers.forEach((player, idx) => {
+    // Check if we have room
+    if (currentY + playerLineHeight > height - 40) return;
+    
+    const rank = idx + 1;
+    const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : '';
+    const rankText = medal ? `${medal} ${rank}` : `${rank}.`;
+    
+    // Rank
+    ctx.fillStyle = rank <= 3 ? '#ffd700' : '#ffffff';
+    ctx.font = `bold ${playerFontSize}px sans-serif`;
+    ctx.fillText(rankText, 40, currentY);
+    
+    // Player name (truncate if too long)
+    ctx.fillStyle = '#ffffff';
+    ctx.font = `${playerFontSize}px sans-serif`;
+    let playerName = player.handle || 'Unknown';
+    const maxNameWidth = width - (includeStats ? 400 : 300);
+    let nameMetrics = ctx.measureText(playerName);
+    if (nameMetrics.width > maxNameWidth) {
+      while (nameMetrics.width > maxNameWidth && playerName.length > 0) {
+        playerName = playerName.slice(0, -1);
+        nameMetrics = ctx.measureText(playerName + '...');
+      }
+      playerName += '...';
+    }
+    ctx.fillText(playerName, 120, currentY);
+    
+    // Points
+    ctx.fillStyle = '#ffd700';
+    ctx.font = `bold ${playerFontSize}px sans-serif`;
+    const pointsText = formatPoints(player.points || 0);
+    ctx.textAlign = 'right';
+    ctx.fillText(pointsText, width - (includeStats ? 200 : 100), currentY);
+    ctx.textAlign = 'left';
+    
+    // Stats (optional)
+    if (includeStats && player.correctCount !== undefined) {
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+      ctx.font = `${playerFontSize - 4}px sans-serif`;
+      const statsText = `${player.correctCount || 0} correct`;
+      ctx.fillText(statsText, width - 100, currentY);
+    }
+    
+    currentY += playerLineHeight;
+  });
+  
+  // Footer with site name
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+  ctx.font = `${platform === 'instagram' ? 18 : 16}px sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillText('Trivia Advent-ure', width / 2, height - 20);
+  ctx.textAlign = 'left';
+  
+  return canvas.toBuffer('image/png');
+}
+
+// Helper function to render leaderboard image modal
+function renderLeaderboardImageModal(type, quizId = null) {
+  const quizIdParam = quizId ? `&quizId=${quizId}` : '';
+  return `
+    <div id="leaderboardImageModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.8);z-index:10000;overflow-y:auto;padding:20px;">
+      <div style="max-width:800px;margin:40px auto;background:#1a1a1a;border:1px solid #333;border-radius:12px;padding:24px;">
+        <h2 style="margin-top:0;color:#ffd700;">Generate Social Media Image</h2>
+        <form id="leaderboardImageForm" style="margin-bottom:20px;">
+          <div style="margin-bottom:16px;">
+            <label style="display:block;margin-bottom:6px;font-weight:600;">Number of Players</label>
+            <select name="count" id="imageCount" style="width:100%;padding:8px;border-radius:6px;border:1px solid #555;background:#0a0a0a;color:#ffd700;">
+              <option value="3">Top 3</option>
+              <option value="5">Top 5</option>
+              <option value="10">Top 10</option>
+              <option value="25" selected>Top 25</option>
+              <option value="50">Top 50</option>
+            </select>
+          </div>
+          <div style="margin-bottom:16px;">
+            <label style="display:block;margin-bottom:6px;font-weight:600;">Platform</label>
+            <select name="platform" id="imagePlatform" style="width:100%;padding:8px;border-radius:6px;border:1px solid #555;background:#0a0a0a;color:#ffd700;">
+              <option value="facebook" selected>Facebook (1200x630)</option>
+              <option value="discord">Discord (1200x675)</option>
+              <option value="instagram">Instagram (1080x1080)</option>
+            </select>
+          </div>
+          <div style="margin-bottom:20px;">
+            <label style="display:flex;align-items:center;gap:8px;">
+              <input type="checkbox" name="includeStats" id="imageIncludeStats" />
+              <span>Include stats (correct count, etc.)</span>
+            </label>
+          </div>
+          <div style="display:flex;gap:12px;">
+            <button type="button" onclick="previewLeaderboardImage('${type}', ${quizId || 'null'})" class="ta-btn ta-btn-primary" style="flex:1;">Preview</button>
+            <button type="button" onclick="closeLeaderboardImageModal()" class="ta-btn ta-btn-outline" style="flex:1;">Cancel</button>
+          </div>
+        </form>
+        <div id="imagePreviewContainer" style="display:none;margin-top:20px;padding-top:20px;border-top:1px solid #333;">
+          <h3 style="margin-top:0;color:#ffd700;">Preview</h3>
+          <img id="imagePreview" src="" alt="Preview" style="max-width:100%;border:1px solid #555;border-radius:8px;" />
+          <div style="margin-top:16px;">
+            <a id="imageDownloadLink" href="" download class="ta-btn ta-btn-primary">Download Image</a>
+          </div>
+        </div>
+      </div>
+    </div>
+    <script>
+      function openLeaderboardImageModal(type, quizId) {
+        document.getElementById('leaderboardImageModal').style.display = 'block';
+      }
+      function closeLeaderboardImageModal() {
+        document.getElementById('leaderboardImageModal').style.display = 'none';
+        document.getElementById('imagePreviewContainer').style.display = 'none';
+      }
+      function previewLeaderboardImage(type, quizId) {
+        const count = document.getElementById('imageCount').value;
+        const platform = document.getElementById('imagePlatform').value;
+        const includeStats = document.getElementById('imageIncludeStats').checked;
+        const quizIdParam = quizId ? '&quizId=' + quizId : '';
+        const url = '/admin/leaderboard-image/preview?type=' + type + quizIdParam + '&count=' + count + '&platform=' + platform + '&includeStats=' + includeStats;
+        document.getElementById('imagePreview').src = url;
+        document.getElementById('imageDownloadLink').href = url;
+        document.getElementById('imagePreviewContainer').style.display = 'block';
+      }
+      document.getElementById('leaderboardImageModal')?.addEventListener('click', function(e) {
+        if (e.target === this) closeLeaderboardImageModal();
+      });
+    </script>
+  `;
 }
 
 // Helper function to generate HTML head with viewport meta tag
@@ -7542,6 +7810,7 @@ app.get('/quiz/:id/leaderboard', async (req, res) => {
       ? '<p style="margin-top:12px;font-size:13px;opacity:0.75;">Entries labelled "avg" represent the quiz author.</p>'
       : '';
     const header = await renderHeader(req);
+    const isAdmin = await isAdminUser(req);
     const allowRecapLink = !!(req.session?.user);
     const subnav = renderQuizSubnav(id, 'leaderboard', { allowRecap: allowRecapLink });
     res.type('html').send(`
@@ -7591,14 +7860,252 @@ app.get('/quiz/:id/leaderboard', async (req, res) => {
             </div>
             ${syntheticNote}
           </section>
+          ${isAdmin ? `
+          <section style="margin:28px 0;">
+            <button onclick="openLeaderboardImageModal('quiz', ${id})" class="ta-btn ta-btn-primary">Generate Social Image</button>
+          </section>
+          ` : ''}
         <p style="margin-top:16px;"><a href="/quiz/${id}" class="ta-btn ta-btn-outline">Back to Quiz</a> <a href="/calendar" class="ta-btn ta-btn-outline" style="margin-left:8px;">Calendar</a></p>
         </main>
+        ${isAdmin ? renderLeaderboardImageModal('quiz', id)}
         ${renderFooter(req)}
       </body></html>
     `);
   } catch (e) {
     console.error(e);
     res.status(500).send('Failed to load leaderboard');
+  }
+});
+
+// --- Admin: Generate Leaderboard Image (Preview) ---
+app.get('/admin/leaderboard-image/preview', requireAdmin, async (req, res) => {
+  try {
+    const type = String(req.query.type || ''); // 'quiz', 'quizmas', 'overall'
+    const quizId = req.query.quizId ? Number(req.query.quizId) : null;
+    const count = Math.min(Math.max(parseInt(req.query.count || 25), 1), 50);
+    const platform = String(req.query.platform || 'facebook');
+    const includeStats = String(req.query.includeStats || 'false') === 'true';
+    
+    if (!['quiz', 'quizmas', 'overall'].includes(type)) {
+      return res.status(400).send('Invalid type');
+    }
+    
+    let players = [];
+    let quizTitle = null;
+    let quizAuthor = null;
+    let quizDate = null;
+    
+    if (type === 'quiz' && quizId) {
+      const { rows: qr } = await pool.query('SELECT id, title, author, unlock_at, freeze_at FROM quizzes WHERE id = $1', [quizId]);
+      if (qr.length === 0) return res.status(404).send('Quiz not found');
+      quizTitle = qr[0].title;
+      quizAuthor = qr[0].author;
+      quizDate = qr[0].unlock_at ? new Date(qr[0].unlock_at) : null;
+      const freezeUtc = new Date(qr[0].freeze_at);
+      
+      const { rows } = await pool.query(
+        `SELECT r.user_email, COALESCE(p.username, r.user_email) AS handle, SUM(r.points) AS points, MIN(r.submitted_at) AS first_time
+         FROM responses r
+         LEFT JOIN players p ON p.email = r.user_email
+         WHERE r.quiz_id = $1 AND r.submitted_at IS NOT NULL AND r.submitted_at <= $2
+         GROUP BY r.user_email, handle`,
+        [quizId, freezeUtc]
+      );
+      
+      // Get stats if needed
+      if (includeStats) {
+        const statsRows = await pool.query(`
+          WITH normalized_responses AS (
+            SELECT r.user_email, r.question_id, r.response_text, r.override_correct, r.points, q.answer,
+              LOWER(REGEXP_REPLACE(TRIM(r.response_text), '[^a-z0-9]', '', 'g')) as norm_response,
+              LOWER(REGEXP_REPLACE(TRIM(q.answer), '[^a-z0-9]', '', 'g')) as norm_answer
+            FROM responses r
+            JOIN questions q ON q.id = r.question_id
+            WHERE r.quiz_id = $1 AND r.submitted_at IS NOT NULL AND r.submitted_at <= $2
+          ),
+          accepted_norms AS (
+            SELECT DISTINCT r2.question_id,
+              LOWER(REGEXP_REPLACE(TRIM(r2.response_text), '[^a-z0-9]', '', 'g')) as accepted_norm
+            FROM responses r2
+            WHERE r2.quiz_id = $1 AND r2.override_correct = true 
+              AND r2.response_text IS NOT NULL AND TRIM(r2.response_text) != ''
+          )
+          SELECT nr.user_email,
+            SUM(CASE 
+              WHEN nr.points > 0 THEN 1
+              WHEN nr.response_text IS NULL OR TRIM(nr.response_text) = '' THEN 0
+              WHEN nr.override_correct = true AND nr.response_text IS NOT NULL AND TRIM(nr.response_text) != '' THEN 1
+              WHEN nr.override_correct = false THEN 0
+              WHEN EXISTS (SELECT 1 FROM accepted_norms an WHERE an.question_id = nr.question_id AND an.accepted_norm = nr.norm_response) THEN 1
+              WHEN nr.norm_response = nr.norm_answer THEN 1
+              ELSE 0
+            END) as correct_count
+          FROM normalized_responses nr
+          GROUP BY nr.user_email
+        `, [quizId, freezeUtc]);
+        
+        const statsMap = new Map();
+        statsRows.rows.forEach(stat => {
+          statsMap.set((stat.user_email || '').toLowerCase(), parseInt(stat.correct_count) || 0);
+        });
+        
+        players = rows.map(r => ({
+          handle: r.handle,
+          points: Number(r.points || 0),
+          correctCount: statsMap.get((r.user_email || '').toLowerCase()) || 0
+        }));
+      } else {
+        players = rows.map(r => ({
+          handle: r.handle,
+          points: Number(r.points || 0)
+        }));
+      }
+      
+      players.sort((a, b) => b.points - a.points);
+    } else if (type === 'quizmas') {
+      const now = new Date();
+      const currentYear = now.getUTCFullYear();
+      const quizmasStart = new Date(`${currentYear}-12-26T00:00:00Z`);
+      const quizmasEnd = new Date(`${currentYear + 1}-01-07T00:00:00Z`);
+      
+      const { rows } = await pool.query(
+        `SELECT r.user_email, COALESCE(p.username, r.user_email) AS handle, SUM(r.points) AS points
+         FROM responses r
+         LEFT JOIN players p ON p.email = r.user_email
+         JOIN quizzes q ON q.id = r.quiz_id
+         WHERE (q.quiz_type = 'quizmas' OR (q.unlock_at >= $1 AND q.unlock_at < $2))
+           AND r.submitted_at IS NOT NULL
+         GROUP BY r.user_email, handle`,
+        [quizmasStart, quizmasEnd]
+      );
+      
+      players = rows.map(r => ({
+        handle: r.handle,
+        points: Number(r.points || 0)
+      }));
+      
+      if (includeStats) {
+        // Add stats for quizmas players
+        for (const player of players) {
+          const email = rows.find(r => r.handle === player.handle)?.user_email;
+          if (email) {
+            const statsResult = await pool.query(`
+              WITH normalized_responses AS (
+                SELECT r.user_email, r.question_id, r.response_text, r.override_correct, r.points, q.answer,
+                  LOWER(REGEXP_REPLACE(TRIM(r.response_text), '[^a-z0-9]', '', 'g')) as norm_response,
+                  LOWER(REGEXP_REPLACE(TRIM(q.answer), '[^a-z0-9]', '', 'g')) as norm_answer
+                FROM responses r
+                JOIN questions q ON q.id = r.question_id
+                JOIN quizzes qu ON qu.id = r.quiz_id
+                WHERE r.user_email = $1 
+                  AND (qu.quiz_type = 'quizmas' OR (qu.unlock_at >= $2 AND qu.unlock_at < $3))
+                  AND r.submitted_at IS NOT NULL
+              ),
+              accepted_norms AS (
+                SELECT DISTINCT r2.question_id,
+                  LOWER(REGEXP_REPLACE(TRIM(r2.response_text), '[^a-z0-9]', '', 'g')) as accepted_norm
+                FROM responses r2
+                WHERE r2.override_correct = true 
+                  AND r2.response_text IS NOT NULL AND TRIM(r2.response_text) != ''
+              )
+              SELECT SUM(CASE 
+                WHEN nr.points > 0 THEN 1
+                WHEN nr.response_text IS NULL OR TRIM(nr.response_text) = '' THEN 0
+                WHEN nr.override_correct = true AND nr.response_text IS NOT NULL AND TRIM(nr.response_text) != '' THEN 1
+                WHEN nr.override_correct = false THEN 0
+                WHEN EXISTS (SELECT 1 FROM accepted_norms an WHERE an.question_id = nr.question_id AND an.accepted_norm = nr.norm_response) THEN 1
+                WHEN nr.norm_response = nr.norm_answer THEN 1
+                ELSE 0
+              END) as correct_count
+              FROM normalized_responses nr
+            `, [email, quizmasStart, quizmasEnd]);
+            
+            player.correctCount = parseInt(statsResult.rows[0]?.correct_count) || 0;
+          }
+        }
+      }
+      
+      players.sort((a, b) => b.points - a.points);
+    } else if (type === 'overall') {
+      const { rows } = await pool.query(
+        `SELECT r.user_email, COALESCE(p.username, r.user_email) AS handle, SUM(r.points) AS points
+         FROM responses r
+         LEFT JOIN players p ON p.email = r.user_email
+         WHERE r.submitted_at IS NOT NULL
+         GROUP BY r.user_email, handle`
+      );
+      
+      const totals = new Map();
+      rows.forEach(r => {
+        const email = (r.user_email || '').toLowerCase();
+        const points = Number(r.points || 0);
+        const existing = totals.get(email) || { handle: r.handle || email, points: 0 };
+        existing.handle = r.handle || existing.handle;
+        existing.points += points;
+        totals.set(email, existing);
+      });
+      
+      players = Array.from(totals.values()).map(p => ({
+        handle: p.handle,
+        points: p.points
+      }));
+      
+      if (includeStats) {
+        for (const player of players) {
+          const email = Array.from(totals.keys()).find(e => totals.get(e).handle === player.handle);
+          if (email) {
+            const statsResult = await pool.query(`
+              WITH normalized_responses AS (
+                SELECT r.user_email, r.question_id, r.response_text, r.override_correct, r.points, q.answer,
+                  LOWER(REGEXP_REPLACE(TRIM(r.response_text), '[^a-z0-9]', '', 'g')) as norm_response,
+                  LOWER(REGEXP_REPLACE(TRIM(q.answer), '[^a-z0-9]', '', 'g')) as norm_answer
+                FROM responses r
+                JOIN questions q ON q.id = r.question_id
+                WHERE r.user_email = $1 AND r.submitted_at IS NOT NULL
+              ),
+              accepted_norms AS (
+                SELECT DISTINCT r2.question_id,
+                  LOWER(REGEXP_REPLACE(TRIM(r2.response_text), '[^a-z0-9]', '', 'g')) as accepted_norm
+                FROM responses r2
+                WHERE r2.override_correct = true 
+                  AND r2.response_text IS NOT NULL AND TRIM(r2.response_text) != ''
+              )
+              SELECT SUM(CASE 
+                WHEN nr.points > 0 THEN 1
+                WHEN nr.response_text IS NULL OR TRIM(nr.response_text) = '' THEN 0
+                WHEN nr.override_correct = true AND nr.response_text IS NOT NULL AND TRIM(nr.response_text) != '' THEN 1
+                WHEN nr.override_correct = false THEN 0
+                WHEN EXISTS (SELECT 1 FROM accepted_norms an WHERE an.question_id = nr.question_id AND an.accepted_norm = nr.norm_response) THEN 1
+                WHEN nr.norm_response = nr.norm_answer THEN 1
+                ELSE 0
+              END) as correct_count
+              FROM normalized_responses nr
+            `, [email]);
+            
+            player.correctCount = parseInt(statsResult.rows[0]?.correct_count) || 0;
+          }
+        }
+      }
+      
+      players.sort((a, b) => b.points - a.points);
+    }
+    
+    const imageBuffer = await generateLeaderboardImage({
+      players,
+      quizTitle,
+      quizAuthor,
+      quizDate,
+      leaderboardType: type,
+      count,
+      platform,
+      includeStats
+    });
+    
+    res.type('image/png');
+    res.send(imageBuffer);
+  } catch (e) {
+    console.error('[leaderboard-image] Error:', e);
+    res.status(500).send('Failed to generate image: ' + (e?.message || String(e)));
   }
 });
 
@@ -7799,8 +8306,14 @@ app.get('/quizmas/leaderboard', async (req, res) => {
         </table>
             </div>
           </section>
+        ${isAdmin ? `
+          <section style="margin:28px 0;">
+            <button onclick="openLeaderboardImageModal('quizmas', null)" class="ta-btn ta-btn-primary">Generate Social Image</button>
+          </section>
+        ` : ''}
         <p style="margin-top:16px;"><a href="/quizmas" class="ta-btn ta-btn-outline">Back to Quizmas</a> <a href="/leaderboard" class="ta-btn ta-btn-outline" style="margin-left:8px;">Overall Leaderboard</a></p>
         </main>
+        ${isAdmin ? renderLeaderboardImageModal('quizmas', null) : ''}
         ${renderFooter(req)}
       </body></html>
     `);
@@ -8085,6 +8598,7 @@ app.get('/leaderboard', async (req, res) => {
     }
     
     const header = await renderHeader(req);
+    const isAdmin = await isAdminUser(req);
     res.type('html').send(`
       ${renderHead('Overall Leaderboard', false)}
       <body class="ta-body">
@@ -8136,9 +8650,14 @@ app.get('/leaderboard', async (req, res) => {
             <p style="opacity:0.8;margin-bottom:20px;">View individual leaderboards for each quiz:</p>
             ${quizLinksHtml}
           </section>
-          
+          ${isAdmin ? `
+          <section style="margin:28px 0;">
+            <button onclick="openLeaderboardImageModal('overall', null)" class="ta-btn ta-btn-primary">Generate Social Image</button>
+          </section>
+          ` : ''}
           <p style="margin-top:16px;"><a href="/calendar" class="ta-btn ta-btn-outline">Back to Calendar</a></p>
         </main>
+        ${isAdmin ? renderLeaderboardImageModal('overall', null) : ''}
         ${renderFooter(req)}
       </body></html>
     `);
