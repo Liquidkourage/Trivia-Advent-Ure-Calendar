@@ -182,7 +182,7 @@ body.ta-body a:hover{color:#ffd27f;text-decoration:underline;}
   max-width:240px;
   min-width:160px;
   height:0;
-  padding-bottom:75%;
+  padding-bottom:60%;
   perspective:1000px;
   border-radius:16px;
   overflow:hidden;
@@ -214,7 +214,7 @@ body.ta-body a:hover{color:#ffd27f;text-decoration:underline;}
 .ta-door[data-day-number="23"],
 .ta-door[data-day-number="24"]{
   height:0 !important;
-  padding-bottom:75% !important;
+  padding-bottom:60% !important;
   max-height:none !important;
   min-height:0 !important;
   aspect-ratio:none !important;
