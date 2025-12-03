@@ -8600,6 +8600,7 @@ app.get('/leaderboard', async (req, res) => {
     
     const header = await renderHeader(req);
     const isAdmin = await isAdminUser(req);
+    const modalHtml = isAdmin ? renderLeaderboardImageModal('overall', null) : '';
     res.type('html').send(`
       ${renderHead('Overall Leaderboard', false)}
       <body class="ta-body">
