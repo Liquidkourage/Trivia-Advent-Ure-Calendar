@@ -74,7 +74,7 @@ import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import multer from 'multer';
 import { createCanvas, loadImage } from 'canvas';
-import { join, dirname } from 'path';
+import { join } from 'path';
 // Avoid timezone library; store UTC in DB and compare in UTC
 
 dotenv.config();
