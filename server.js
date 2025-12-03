@@ -1202,7 +1202,7 @@ async function renderHeader(req) {
        <a href="https://ko-fi.com/triviaadvent" target="_blank" rel="noopener noreferrer">Donate</a>
        <a href="/login">Login</a>`;
   
-  return `<header class="ta-header"><div class="ta-header-inner"><div class="ta-brand"><img class="ta-logo" src="/logo.svg"/><span class="ta-title">Trivia Advent‑ure</span></div><button class="ta-menu-toggle" aria-label="Toggle menu" aria-expanded="false"><span></span><span></span><span></span></button><nav class="ta-nav">${navLinks}</nav></div></header><script src="/js/common-enhancements.js?v=${ASSET_VERSION}"></script>`;
+  return `<header class="ta-header"><div class="ta-header-inner"><div class="ta-brand"><img class="ta-logo" src="/logo.svg"/><span class="ta-title">Trivia Advent‑ure</span></div><button class="ta-menu-toggle" aria-label="Toggle menu" aria-expanded="false"><span></span><span></span><span></span></button><nav class="ta-nav">${navLinks}</nav></div></header>`;
 }
 
 function renderFooter(req) {
