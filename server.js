@@ -1236,12 +1236,7 @@ async function generateLeaderboardImage({
       process.stderr.write = originalStderrWrite;
     }
   }
-} finally {
-    // Restore original stderr if we suppressed it
-    if (stderrSuppressed) {
-      process.stderr.write = originalStderrWrite;
-    }
-  }
+}
 }
 
 // Helper function to render leaderboard image modal
