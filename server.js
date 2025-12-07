@@ -7274,13 +7274,22 @@ app.get('/quiz/:id', async (req, res) => {
           const checked = existingLockedId === q.id ? 'checked' : '';
           // Quiz remains open indefinitely - no disabling based on freeze_at
           const required = q.number === 1 ? 'required' : '';
-          // Highlight the "ask" text within the question text
+          // Highlight the "ask" text within the question text and preserve line breaks
           let highlightedText = String(q.text || '');
           const ask = String(q.ask || '').trim();
+          
+          // Escape HTML first for security
+          highlightedText = highlightedText.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          // Convert line breaks to <br> tags
+          highlightedText = highlightedText.replace(/\n/g, '<br>');
+          
           if (ask) {
             try {
-              // Escape special regex characters in ask text
-              const escapedAsk = ask.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+              // Escape HTML in ask text and convert newlines to <br> to match question text format
+              let escapedAsk = ask.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+              escapedAsk = escapedAsk.replace(/\n/g, '<br>');
+              // Escape special regex characters for regex matching
+              escapedAsk = escapedAsk.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
               const re = new RegExp(escapedAsk, 'gi');
               highlightedText = highlightedText.replace(re, '<mark>$&</mark>');
             } catch (e) {
