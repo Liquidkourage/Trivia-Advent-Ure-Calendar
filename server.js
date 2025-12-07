@@ -59,6 +59,23 @@ app.get('/admin/writer-submissions/:id', requireAdmin, async (req, res) => {
   }
 });
 */
+// Suppress Fontconfig errors on Windows BEFORE importing canvas
+// Canvas library uses Fontconfig on Linux/macOS but falls back to system fonts on Windows
+// The error is printed by the native C++ library during import, so we intercept stderr first
+if (process.platform === 'win32') {
+  const originalStderrWrite = process.stderr.write.bind(process.stderr);
+  process.stderr.write = function(chunk, encoding, fd) {
+    const message = chunk.toString();
+    // Filter out Fontconfig errors - they're harmless on Windows
+    if (message.includes('Fontconfig error') || 
+        message.includes('Cannot load default config file') ||
+        message.toLowerCase().includes('fontconfig')) {
+      return true; // Suppress the message
+    }
+    return originalStderrWrite(chunk, encoding, fd);
+  };
+}
+
 import express from 'express';
 import session from 'express-session';
 import connectPgSimple from 'connect-pg-simple';
@@ -79,13 +96,6 @@ import { existsSync } from 'fs';
 // Avoid timezone library; store UTC in DB and compare in UTC
 
 dotenv.config();
-
-// Suppress Fontconfig errors on Windows (harmless warnings)
-// Canvas library uses Fontconfig on Linux/macOS but falls back to system fonts on Windows
-if (process.platform === 'win32') {
-  // Set empty Fontconfig file to suppress errors
-  process.env.FONTCONFIG_FILE = process.env.FONTCONFIG_FILE || '';
-}
 
 // Cache-busting for static assets
 function computeAssetVersion() {
