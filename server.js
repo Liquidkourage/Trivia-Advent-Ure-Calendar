@@ -1202,7 +1202,7 @@ async function renderHeader(req) {
        <a href="https://ko-fi.com/triviaadvent" target="_blank" rel="noopener noreferrer">Donate</a>
        <a href="/login">Login</a>`;
   
-  return `<header class="ta-header"><div class="ta-header-inner"><div class="ta-brand"><img class="ta-logo" src="/logo.svg"/><span class="ta-title">Trivia Advent‑ure</span></div><button class="ta-menu-toggle" aria-label="Toggle menu" aria-expanded="false"><span></span><span></span><span></span></button><nav class="ta-nav">${navLinks}</nav></div></header>`;
+  return `<header class="ta-header"><div class="ta-header-inner"><div class="ta-brand"><img class="ta-logo" src="/logo.svg"/><span class="ta-title">Trivia Advent‑ure</span></div><button class="ta-menu-toggle" aria-label="Toggle menu" aria-expanded="false"><span></span><span></span><span></span></button><nav class="ta-nav">${navLinks}</nav></div></header><script src="/js/common-enhancements.js?v=${ASSET_VERSION}"></script>`;
 }
 
 function renderFooter(req) {
@@ -7560,8 +7560,18 @@ app.post('/quiz/:id/edit', requireAuth, express.urlencoded({ extended: true }), 
       [title, authorBlurb, description, id]
     );
     
-    // Update questions
-    const questions = [];
+    // CRITICAL: Get existing questions FIRST to preserve all data
+    // This prevents accidental deletion if form submission is incomplete
+    const existingQuestions = await pool.query('SELECT id, number, text, answer, category, ask FROM questions WHERE quiz_id=$1', [id]);
+    const existingByNumber = new Map();
+    const existingById = new Map();
+    existingQuestions.rows.forEach(q => {
+      existingByNumber.set(q.number, q.id);
+      existingById.set(q.id, q);
+    });
+    
+    // Parse form data - only include questions that have both text AND answer
+    const formQuestions = [];
     for (let i = 1; i <= 10; i++) {
       const text = String(req.body[`q${i}_text`] || '').trim();
       const answer = String(req.body[`q${i}_answer`] || '').trim();
@@ -7569,26 +7579,19 @@ app.post('/quiz/:id/edit', requireAuth, express.urlencoded({ extended: true }), 
       const ask = String(req.body[`q${i}_ask`] || '').trim() || null;
       
       if (text && answer) {
-        questions.push({ number: i, text, answer, category, ask });
+        formQuestions.push({ number: i, text, answer, category, ask });
       }
     }
     
-    if (questions.length === 0) {
+    if (formQuestions.length === 0) {
       return res.status(400).send('At least one question is required');
     }
     
-    // Get existing questions to preserve IDs (critical for active quizzes with responses)
-    const existingQuestions = await pool.query('SELECT id, number FROM questions WHERE quiz_id=$1', [id]);
-    const existingByNumber = new Map();
-    existingQuestions.rows.forEach(q => {
-      existingByNumber.set(q.number, q.id);
-    });
-    
-    // Track which question numbers are being updated
+    // Track which question numbers are being updated from form
     const updatedNumbers = new Set();
     
     // Update existing questions or insert new ones (preserve IDs when possible)
-    for (const q of questions) {
+    for (const q of formQuestions) {
       if (existingByNumber.has(q.number)) {
         // Update existing question (preserves ID, so responses remain linked)
         await pool.query(
@@ -7605,19 +7608,32 @@ app.post('/quiz/:id/edit', requireAuth, express.urlencoded({ extended: true }), 
       updatedNumbers.add(q.number);
     }
     
-    // Delete questions that are no longer in the updated list (only if safe - no responses)
+    // CRITICAL SAFETY CHECK: Only delete questions that are NOT in form AND have NO responses
+    // This prevents cascade deletion of responses
     const questionsToDelete = Array.from(existingByNumber.keys()).filter(num => !updatedNumbers.has(num));
     if (questionsToDelete.length > 0) {
       const idsToDelete = questionsToDelete.map(num => existingByNumber.get(num));
-      // Only delete if no responses exist for these questions
+      
+      // Check for responses - use a more robust query
       const responsesCheck = await pool.query(
-        'SELECT COUNT(*) as count FROM responses WHERE question_id = ANY($1)',
+        'SELECT COUNT(*)::int as count FROM responses WHERE question_id = ANY($1)',
         [idsToDelete]
       );
-      if (parseInt(responsesCheck.rows[0].count) === 0) {
+      
+      // More robust count extraction
+      const responseCount = responsesCheck.rows && responsesCheck.rows[0] 
+        ? parseInt(responsesCheck.rows[0].count || '0', 10) 
+        : 0;
+      
+      if (responseCount === 0) {
+        // Safe to delete - no responses exist
         await pool.query('DELETE FROM questions WHERE id = ANY($1)', [idsToDelete]);
+        console.log(`[edit-quiz] Deleted ${idsToDelete.length} questions with no responses: ${idsToDelete.join(',')}`);
       } else {
-        console.warn(`[edit-quiz] Cannot delete questions ${idsToDelete.join(',')} - they have responses`);
+        // CRITICAL: DO NOT DELETE - responses exist!
+        // Log error and abort - this prevents data loss
+        console.error(`[edit-quiz] BLOCKED deletion of ${idsToDelete.length} questions - they have ${responseCount} response(s). Question IDs: ${idsToDelete.join(',')}`);
+        return res.status(400).send(`Cannot delete questions: ${idsToDelete.length} question(s) have ${responseCount} response(s). Questions with responses cannot be deleted. If you need to remove questions, first ensure they have no responses.`);
       }
     }
     
@@ -9611,21 +9627,32 @@ app.post('/admin/quiz/:id/questions', requireAdmin, async (req, res) => {
       updatedNumbers.add(n);
     }
     
-    // Delete questions that are no longer in the updated list (only if safe - no responses)
-    // For active quizzes, we should probably NOT delete questions that have responses
-    // So we'll only delete if they have no responses
+    // CRITICAL SAFETY CHECK: Only delete questions that are NOT in form AND have NO responses
+    // This prevents cascade deletion of responses
     const questionsToDelete = Array.from(existingByNumber.keys()).filter(num => !updatedNumbers.has(num));
     if (questionsToDelete.length > 0) {
       const idsToDelete = questionsToDelete.map(num => existingByNumber.get(num));
-      // Only delete if no responses exist for these questions
+      
+      // Check for responses - use a more robust query
       const responsesCheck = await pool.query(
-        'SELECT COUNT(*) as count FROM responses WHERE question_id = ANY($1)',
+        'SELECT COUNT(*)::int as count FROM responses WHERE question_id = ANY($1)',
         [idsToDelete]
       );
-      if (parseInt(responsesCheck.rows[0].count) === 0) {
+      
+      // More robust count extraction
+      const responseCount = responsesCheck.rows && responsesCheck.rows[0] 
+        ? parseInt(responsesCheck.rows[0].count || '0', 10) 
+        : 0;
+      
+      if (responseCount === 0) {
+        // Safe to delete - no responses exist
         await pool.query('DELETE FROM questions WHERE id = ANY($1)', [idsToDelete]);
+        console.log(`[edit-questions] Deleted ${idsToDelete.length} questions with no responses: ${idsToDelete.join(',')}`);
       } else {
-        console.warn(`[edit-questions] Cannot delete questions ${idsToDelete.join(',')} - they have responses`);
+        // CRITICAL: DO NOT DELETE - responses exist!
+        // Log error and abort - this prevents data loss
+        console.error(`[edit-questions] BLOCKED deletion of ${idsToDelete.length} questions - they have ${responseCount} response(s). Question IDs: ${idsToDelete.join(',')}`);
+        return res.status(400).send(`Cannot delete questions: ${idsToDelete.length} question(s) have ${responseCount} response(s). Questions with responses cannot be deleted. If you need to remove questions, first ensure they have no responses.`);
       }
     }
     res.redirect(`/admin/quiz/${id}`);
