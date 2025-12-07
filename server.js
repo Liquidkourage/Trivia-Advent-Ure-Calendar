@@ -61,24 +61,21 @@ app.get('/admin/writer-submissions/:id', requireAdmin, async (req, res) => {
 */
 // Suppress Fontconfig errors on Windows BEFORE importing canvas
 // Canvas library uses Fontconfig on Linux/macOS but falls back to system fonts on Windows
-// The error is printed by the native C++ library during import, so we intercept stderr first
+// The error is printed by the native C++ library, so we intercept stderr at module level
+// Note: The native library may print errors in a way that bypasses our interception,
+// but we try to catch them anyway. The errors are harmless - fonts still work on Windows.
 if (process.platform === 'win32') {
+  // Set environment variable to suppress Fontconfig warnings (may not work, but worth trying)
+  process.env.FONTCONFIG_FILE = process.env.FONTCONFIG_FILE || '';
+  
   const originalStderrWrite = process.stderr.write.bind(process.stderr);
-  process.stderr.write = function(chunk, encoding, fd) {
+  const suppressFontconfig = function(chunk, encoding, fd) {
     // Handle different call signatures
-    if (typeof chunk === 'string') {
-      if (chunk.includes('Fontconfig error') || 
-          chunk.includes('Cannot load default config file') ||
-          chunk.toLowerCase().includes('fontconfig')) {
-        return true; // Suppress the message
-      }
-    } else if (Buffer.isBuffer(chunk) || chunk instanceof Uint8Array) {
-      const message = chunk.toString('utf8');
-      if (message.includes('Fontconfig error') || 
-          message.includes('Cannot load default config file') ||
-          message.toLowerCase().includes('fontconfig')) {
-        return true; // Suppress the message
-      }
+    const message = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
+    if (message.includes('Fontconfig error') || 
+        message.includes('Cannot load default config file') ||
+        message.toLowerCase().includes('fontconfig')) {
+      return true; // Suppress the message
     }
     // Call original with all arguments
     if (arguments.length === 1) {
@@ -89,6 +86,9 @@ if (process.platform === 'win32') {
       return originalStderrWrite(chunk, encoding, fd);
     }
   };
+  
+  // Activate suppression permanently at module level
+  process.stderr.write = suppressFontconfig;
   
   // Also intercept console.error for Fontconfig errors
   const originalConsoleError = console.error.bind(console);
@@ -121,7 +121,8 @@ import multer from 'multer';
 let canvasModule = null;
 async function getCanvasModule() {
   if (!canvasModule) {
-    // Temporarily suppress stderr during import to catch Fontconfig errors
+    // Suppress stderr during import - but the main function will also suppress it
+    // This is just a safety measure in case import happens before main suppression
     const originalStderrWrite = process.stderr.write.bind(process.stderr);
     const suppressFontconfig = function(chunk, encoding, fd) {
       const message = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
@@ -134,11 +135,17 @@ async function getCanvasModule() {
       if (arguments.length === 2) return originalStderrWrite(chunk, encoding);
       return originalStderrWrite(chunk, encoding, fd);
     };
-    process.stderr.write = suppressFontconfig;
-    try {
+    // Only suppress if not already suppressed (to avoid double-wrapping)
+    if (process.stderr.write === originalStderrWrite || process.platform !== 'win32') {
+      process.stderr.write = suppressFontconfig;
+      try {
+        canvasModule = await import('canvas');
+      } finally {
+        process.stderr.write = originalStderrWrite;
+      }
+    } else {
+      // Already suppressed, just import
       canvasModule = await import('canvas');
-    } finally {
-      process.stderr.write = originalStderrWrite;
     }
   }
   return canvasModule;
@@ -976,29 +983,8 @@ async function generateLeaderboardImage({
   platform = 'facebook', // 'facebook', 'discord', 'instagram'
   includeStats = false // Include correct count, avg per correct
 }) {
-  // Suppress Fontconfig errors for the ENTIRE function duration
-  // The native library may print errors asynchronously, so we need to keep suppression active
-  const originalStderrWrite = process.stderr.write.bind(process.stderr);
-  let stderrSuppressed = false;
-  
-  const suppressStderr = function(chunk, encoding, fd) {
-    const message = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
-    if (message.includes('Fontconfig error') || 
-        message.includes('Cannot load default config file') ||
-        message.toLowerCase().includes('fontconfig')) {
-      return true; // Suppress
-    }
-    if (arguments.length === 1) return originalStderrWrite(chunk);
-    if (arguments.length === 2) return originalStderrWrite(chunk, encoding);
-    return originalStderrWrite(chunk, encoding, fd);
-  };
-  
-  // Activate suppression for Windows
-  if (process.platform === 'win32') {
-    process.stderr.write = suppressStderr;
-    stderrSuppressed = true;
-  }
-  
+  // Fontconfig suppression is already active at module level for Windows
+  // No need to set it up again here - it's already suppressing errors
   try {
     // Dynamically import canvas after stderr interception is set up
     const { createCanvas, loadImage, registerFont } = await getCanvasModule();
@@ -1230,12 +1216,12 @@ async function generateLeaderboardImage({
     ctx.textAlign = 'left';
     
     return canvas.toBuffer('image/png');
-  } finally {
-    // Restore original stderr if we suppressed it
-    if (stderrSuppressed) {
-      process.stderr.write = originalStderrWrite;
-    }
+  } catch (err) {
+    // Re-throw any errors
+    throw err;
   }
+  // Note: We don't restore stderr here because suppression is active at module level
+  // This ensures Fontconfig errors are suppressed throughout the application lifetime
 }
 
 // Helper function to render leaderboard image modal
