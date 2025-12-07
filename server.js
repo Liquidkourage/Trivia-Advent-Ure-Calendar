@@ -73,8 +73,9 @@ import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import multer from 'multer';
-import { createCanvas, loadImage } from 'canvas';
+import { createCanvas, loadImage, registerFont } from 'canvas';
 import { join } from 'path';
+import { existsSync } from 'fs';
 // Avoid timezone library; store UTC in DB and compare in UTC
 
 dotenv.config();
@@ -906,6 +907,50 @@ async function generateLeaderboardImage({
   platform = 'facebook', // 'facebook', 'discord', 'instagram'
   includeStats = false // Include correct count, avg per correct
 }) {
+  // Register a system font to prevent empty rectangles
+  // Try common system fonts on different platforms
+  let fontFamily = 'Arial'; // Default fallback
+  const fontPaths = [
+    'C:/Windows/Fonts/arial.ttf',           // Windows
+    'C:/Windows/Fonts/ARIAL.TTF',           // Windows (uppercase)
+    '/System/Library/Fonts/Helvetica.ttc', // macOS
+    '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf', // Linux
+    '/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf' // Linux alternative
+  ];
+  
+  for (const fontPath of fontPaths) {
+    if (existsSync(fontPath)) {
+      try {
+        registerFont(fontPath, { family: 'Arial' });
+        fontFamily = 'Arial';
+        console.log(`[leaderboard-image] Registered font: ${fontPath}`);
+        break;
+      } catch (err) {
+        console.warn(`[leaderboard-image] Failed to register font ${fontPath}:`, err.message);
+      }
+    }
+  }
+  
+  // If no font was registered, try using a built-in canvas font
+  // Canvas package includes some fonts, but we'll use Arial as fallback
+  if (fontFamily === 'Arial') {
+    // Try to use a font that canvas knows about
+    // On some systems, 'Arial' might work even without registration
+    try {
+      // Test if Arial works by creating a small test canvas
+      const testCanvas = createCanvas(100, 100);
+      const testCtx = testCanvas.getContext('2d');
+      testCtx.font = '12px Arial';
+      testCtx.fillText('Test', 10, 10);
+      // If no error, Arial should work
+      fontFamily = 'Arial';
+    } catch (err) {
+      // Fallback to sans-serif if Arial doesn't work
+      console.warn('[leaderboard-image] Arial not available, using sans-serif fallback');
+      fontFamily = 'sans-serif';
+    }
+  }
+  
   // Platform dimensions
   const dimensions = {
     facebook: { width: 1200, height: 630 },
@@ -949,7 +994,7 @@ async function generateLeaderboardImage({
   const titleY = yPos;
   
   ctx.fillStyle = '#ffd700';
-  ctx.font = `bold ${titleFontSize}px sans-serif`;
+  ctx.font = `bold ${titleFontSize}px ${fontFamily}`;
   ctx.textAlign = 'left';
   
   let titleText = 'Leaderboard';
@@ -979,7 +1024,7 @@ async function generateLeaderboardImage({
   // Author and date (for quiz leaderboards)
   if (leaderboardType === 'quiz' && (quizAuthor || quizDate)) {
     ctx.fillStyle = '#ffffff';
-    ctx.font = `${platform === 'instagram' ? 24 : 20}px sans-serif`;
+    ctx.font = `${platform === 'instagram' ? 24 : 20}px ${fontFamily}`;
     let infoText = '';
     if (quizAuthor) {
       infoText = `by ${quizAuthor}`;
@@ -1013,7 +1058,7 @@ async function generateLeaderboardImage({
   
   // Header row
   ctx.fillStyle = '#ffd700';
-  ctx.font = `bold ${playerFontSize - 4}px sans-serif`;
+  ctx.font = `bold ${playerFontSize - 4}px ${fontFamily}`;
   ctx.fillText('Rank', 40, currentY);
   ctx.fillText('Player', 120, currentY);
   ctx.fillText('Points', width - 200, currentY);
@@ -1032,7 +1077,7 @@ async function generateLeaderboardImage({
   currentY += 10;
   
   // Player rows
-  ctx.font = `${playerFontSize}px sans-serif`;
+  ctx.font = `${playerFontSize}px ${fontFamily}`;
   topPlayers.forEach((player, idx) => {
     // Check if we have room
     if (currentY + playerLineHeight > height - 40) return;
@@ -1043,12 +1088,12 @@ async function generateLeaderboardImage({
     
     // Rank
     ctx.fillStyle = rank <= 3 ? '#ffd700' : '#ffffff';
-    ctx.font = `bold ${playerFontSize}px sans-serif`;
+    ctx.font = `bold ${playerFontSize}px ${fontFamily}`;
     ctx.fillText(rankText, 40, currentY);
     
     // Player name (truncate if too long)
     ctx.fillStyle = '#ffffff';
-    ctx.font = `${playerFontSize}px sans-serif`;
+    ctx.font = `${playerFontSize}px ${fontFamily}`;
     let playerName = player.handle || 'Unknown';
     const maxNameWidth = width - (includeStats ? 400 : 300);
     let nameMetrics = ctx.measureText(playerName);
@@ -1063,7 +1108,7 @@ async function generateLeaderboardImage({
     
     // Points
     ctx.fillStyle = '#ffd700';
-    ctx.font = `bold ${playerFontSize}px sans-serif`;
+    ctx.font = `bold ${playerFontSize}px ${fontFamily}`;
     const pointsText = formatPoints(player.points || 0);
     ctx.textAlign = 'right';
     ctx.fillText(pointsText, width - (includeStats ? 200 : 100), currentY);
@@ -1072,7 +1117,7 @@ async function generateLeaderboardImage({
     // Stats (optional)
     if (includeStats && player.correctCount !== undefined) {
       ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
-      ctx.font = `${playerFontSize - 4}px sans-serif`;
+      ctx.font = `${playerFontSize - 4}px ${fontFamily}`;
       const statsText = `${player.correctCount || 0} correct`;
       ctx.fillText(statsText, width - 100, currentY);
     }
@@ -1082,7 +1127,7 @@ async function generateLeaderboardImage({
   
   // Footer with site name
   ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
-  ctx.font = `${platform === 'instagram' ? 18 : 16}px sans-serif`;
+  ctx.font = `${platform === 'instagram' ? 18 : 16}px ${fontFamily}`;
   ctx.textAlign = 'center';
   ctx.fillText('Trivia Advent-ure', width / 2, height - 20);
   ctx.textAlign = 'left';
