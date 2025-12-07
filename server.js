@@ -1237,7 +1237,6 @@ async function generateLeaderboardImage({
     }
   }
 }
-}
 
 // Helper function to render leaderboard image modal
 function renderLeaderboardImageModal(type, quizId = null) {
