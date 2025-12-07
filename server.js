@@ -976,49 +976,49 @@ async function generateLeaderboardImage({
   platform = 'facebook', // 'facebook', 'discord', 'instagram'
   includeStats = false // Include correct count, avg per correct
 }) {
-  // Dynamically import canvas after stderr interception is set up
-  const { createCanvas, loadImage, registerFont } = await getCanvasModule();
+  // Suppress Fontconfig errors for the ENTIRE function duration
+  // The native library may print errors asynchronously, so we need to keep suppression active
+  const originalStderrWrite = process.stderr.write.bind(process.stderr);
+  let stderrSuppressed = false;
   
-  // Suppress Fontconfig errors during canvas operations
-  const suppressFontconfigErrors = async (fn) => {
-    if (process.platform !== 'win32') return await fn();
-    const originalStderrWrite = process.stderr.write.bind(process.stderr);
-    const suppress = function(chunk, encoding, fd) {
-      const message = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
-      if (message.includes('Fontconfig error') || 
-          message.includes('Cannot load default config file') ||
-          message.toLowerCase().includes('fontconfig')) {
-        return true;
-      }
-      if (arguments.length === 1) return originalStderrWrite(chunk);
-      if (arguments.length === 2) return originalStderrWrite(chunk, encoding);
-      return originalStderrWrite(chunk, encoding, fd);
-    };
-    process.stderr.write = suppress;
-    try {
-      return await fn();
-    } finally {
-      process.stderr.write = originalStderrWrite;
+  const suppressStderr = function(chunk, encoding, fd) {
+    const message = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
+    if (message.includes('Fontconfig error') || 
+        message.includes('Cannot load default config file') ||
+        message.toLowerCase().includes('fontconfig')) {
+      return true; // Suppress
     }
+    if (arguments.length === 1) return originalStderrWrite(chunk);
+    if (arguments.length === 2) return originalStderrWrite(chunk, encoding);
+    return originalStderrWrite(chunk, encoding, fd);
   };
   
-  // Register a system font to prevent empty rectangles
-  // Note: Fontconfig errors on Windows are harmless warnings - fonts will still work
-  // The canvas library uses Fontconfig on Linux/macOS but falls back to system fonts on Windows
-  let fontFamily = 'Arial'; // Default fallback
-  let fontRegistered = false;
+  // Activate suppression for Windows
+  if (process.platform === 'win32') {
+    process.stderr.write = suppressStderr;
+    stderrSuppressed = true;
+  }
   
-  // Try common system fonts on different platforms
-  const fontPaths = [
-    'C:/Windows/Fonts/arial.ttf',           // Windows
-    'C:/Windows/Fonts/ARIAL.TTF',           // Windows (uppercase)
-    'C:/Windows/Fonts/calibri.ttf',         // Windows alternative
-    '/System/Library/Fonts/Helvetica.ttc', // macOS
-    '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf', // Linux
-    '/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf' // Linux alternative
-  ];
-  
-  await suppressFontconfigErrors(async () => {
+  try {
+    // Dynamically import canvas after stderr interception is set up
+    const { createCanvas, loadImage, registerFont } = await getCanvasModule();
+    
+    // Register a system font to prevent empty rectangles
+    // Note: Fontconfig errors on Windows are harmless warnings - fonts will still work
+    // The canvas library uses Fontconfig on Linux/macOS but falls back to system fonts on Windows
+    let fontFamily = 'Arial'; // Default fallback
+    let fontRegistered = false;
+    
+    // Try common system fonts on different platforms
+    const fontPaths = [
+      'C:/Windows/Fonts/arial.ttf',           // Windows
+      'C:/Windows/Fonts/ARIAL.TTF',           // Windows (uppercase)
+      'C:/Windows/Fonts/calibri.ttf',         // Windows alternative
+      '/System/Library/Fonts/Helvetica.ttc', // macOS
+      '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf', // Linux
+      '/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf' // Linux alternative
+    ];
+    
     for (const fontPath of fontPaths) {
       if (existsSync(fontPath)) {
         try {
@@ -1041,196 +1041,207 @@ async function generateLeaderboardImage({
         }
       }
     }
-  });
-  
-  // If no font was registered, Arial should still work on Windows via system fonts
-  // The Fontconfig error is just a warning - Windows fonts are accessible directly
-  if (!fontRegistered) {
-    console.log('[leaderboard-image] Using system Arial font (Fontconfig warnings are harmless on Windows)');
-  }
-  
-  // Platform dimensions
-  const dimensions = {
-    facebook: { width: 1200, height: 630 },
-    discord: { width: 1200, height: 675 },
-    instagram: { width: 1080, height: 1080 }
-  };
-  
-  const { width, height } = dimensions[platform] || dimensions.facebook;
-  const canvas = await suppressFontconfigErrors(async () => createCanvas(width, height));
-  const ctx = canvas.getContext('2d');
-  
-  // Background gradient (dark theme)
-  const gradient = ctx.createLinearGradient(0, 0, 0, height);
-  gradient.addColorStop(0, '#0f1d5a');
-  gradient.addColorStop(0.6, '#15124a');
-  gradient.addColorStop(1, '#0b1338');
-  ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, width, height);
-  
-  // Load logo
-  let logoImage = null;
-  try {
-    const __filename = fileURLToPath(import.meta.url);
-    const __dirname = dirname(__filename);
-    const logoPath = join(__dirname, 'public', 'img', 'logo-banner.png');
-    logoImage = await suppressFontconfigErrors(async () => loadImage(logoPath));
     
-    // Draw logo (top left, scaled appropriately)
-    const logoHeight = Math.min(height * 0.15, 120);
-    const logoWidth = (logoImage.width / logoImage.height) * logoHeight;
-    const logoX = 40;
-    const logoY = 30;
-    ctx.drawImage(logoImage, logoX, logoY, logoWidth, logoHeight);
-  } catch (err) {
-    console.warn('[leaderboard-image] Could not load logo:', err.message);
-  }
-  
-  // Title section
-  let yPos = logoImage ? (logoImage ? 50 + Math.min(height * 0.15, 120) : 50) : 50;
-  const titleFontSize = platform === 'instagram' ? 48 : 42;
-  const titleY = yPos;
-  
-  ctx.fillStyle = '#ffd700';
-  ctx.font = `bold ${titleFontSize}px ${fontFamily}`;
-  ctx.textAlign = 'left';
-  
-  let titleText = 'Leaderboard';
-  if (leaderboardType === 'quiz' && quizTitle) {
-    titleText = quizTitle;
-  } else if (leaderboardType === 'quizmas') {
-    titleText = '12 Days of Quizmas Leaderboard';
-  } else if (leaderboardType === 'overall') {
-    titleText = 'Overall Leaderboard';
-  }
-  
-  // Truncate title if too long
-  const maxTitleWidth = width - 80;
-  let displayTitle = titleText;
-  let titleMetrics = ctx.measureText(displayTitle);
-  if (titleMetrics.width > maxTitleWidth) {
-    while (titleMetrics.width > maxTitleWidth && displayTitle.length > 0) {
-      displayTitle = displayTitle.slice(0, -1);
-      titleMetrics = ctx.measureText(displayTitle + '...');
+    // If no font was registered, Arial should still work on Windows via system fonts
+    // The Fontconfig error is just a warning - Windows fonts are accessible directly
+    if (!fontRegistered) {
+      console.log('[leaderboard-image] Using system Arial font (Fontconfig warnings are harmless on Windows)');
     }
-    displayTitle += '...';
-  }
-  
-  ctx.fillText(displayTitle, 40, titleY);
-  yPos = titleY + titleFontSize + 20;
-  
-  // Author and date (for quiz leaderboards)
-  if (leaderboardType === 'quiz' && (quizAuthor || quizDate)) {
-    ctx.fillStyle = '#ffffff';
-    ctx.font = `${platform === 'instagram' ? 24 : 20}px ${fontFamily}`;
-    let infoText = '';
-    if (quizAuthor) {
-      infoText = `by ${quizAuthor}`;
-    }
-    if (quizDate) {
-      const etParts = utcToEtParts(quizDate);
-      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-      const monthName = monthNames[etParts.m - 1];
-      const hour = etParts.h === 0 ? 12 : (etParts.h > 12 ? etParts.h - 12 : etParts.h);
-      const ampm = etParts.h < 12 ? 'AM' : 'PM';
-      const minute = String(etParts.et.getUTCMinutes()).padStart(2, '0');
-      const dateStr = `${monthName} ${etParts.d}, ${etParts.y} ${hour}:${minute} ${ampm} ET`;
-      if (infoText) {
-        infoText += ` • ${dateStr}`;
-      } else {
-        infoText = dateStr;
-      }
-    }
-    if (infoText) {
-      ctx.fillText(infoText, 40, yPos);
-      yPos += 30;
-    }
-  }
-  
-  // Players list
-  const topPlayers = players.slice(0, count);
-  const playerFontSize = platform === 'instagram' ? 28 : 24;
-  const playerLineHeight = platform === 'instagram' ? 40 : 36;
-  const startY = yPos + 20;
-  let currentY = startY;
-  
-  // Header row
-  ctx.fillStyle = '#ffd700';
-  ctx.font = `bold ${playerFontSize - 4}px ${fontFamily}`;
-  ctx.fillText('Rank', 40, currentY);
-  ctx.fillText('Player', 120, currentY);
-  ctx.fillText('Points', width - 200, currentY);
-  if (includeStats) {
-    ctx.fillText('Stats', width - 100, currentY);
-  }
-  currentY += playerLineHeight;
-  
-  // Draw divider line
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(40, currentY - 5);
-  ctx.lineTo(width - 40, currentY - 5);
-  ctx.stroke();
-  currentY += 10;
-  
-  // Player rows
-  ctx.font = `${playerFontSize}px ${fontFamily}`;
-  topPlayers.forEach((player, idx) => {
-    // Check if we have room
-    if (currentY + playerLineHeight > height - 40) return;
     
-    const rank = idx + 1;
-    const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : '';
-    const rankText = medal ? `${medal} ${rank}` : `${rank}.`;
+    // Platform dimensions
+    const dimensions = {
+      facebook: { width: 1200, height: 630 },
+      discord: { width: 1200, height: 675 },
+      instagram: { width: 1080, height: 1080 }
+    };
     
-    // Rank
-    ctx.fillStyle = rank <= 3 ? '#ffd700' : '#ffffff';
-    ctx.font = `bold ${playerFontSize}px ${fontFamily}`;
-    ctx.fillText(rankText, 40, currentY);
+    const { width, height } = dimensions[platform] || dimensions.facebook;
+    const canvas = createCanvas(width, height);
+    const ctx = canvas.getContext('2d');
     
-    // Player name (truncate if too long)
-    ctx.fillStyle = '#ffffff';
-    ctx.font = `${playerFontSize}px ${fontFamily}`;
-    let playerName = player.handle || 'Unknown';
-    const maxNameWidth = width - (includeStats ? 400 : 300);
-    let nameMetrics = ctx.measureText(playerName);
-    if (nameMetrics.width > maxNameWidth) {
-      while (nameMetrics.width > maxNameWidth && playerName.length > 0) {
-        playerName = playerName.slice(0, -1);
-        nameMetrics = ctx.measureText(playerName + '...');
-      }
-      playerName += '...';
+    // Background gradient (dark theme)
+    const gradient = ctx.createLinearGradient(0, 0, 0, height);
+    gradient.addColorStop(0, '#0f1d5a');
+    gradient.addColorStop(0.6, '#15124a');
+    gradient.addColorStop(1, '#0b1338');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, width, height);
+    
+    // Load logo
+    let logoImage = null;
+    try {
+      const __filename = fileURLToPath(import.meta.url);
+      const __dirname = dirname(__filename);
+      const logoPath = join(__dirname, 'public', 'img', 'logo-banner.png');
+      logoImage = await loadImage(logoPath);
+      
+      // Draw logo (top left, scaled appropriately)
+      const logoHeight = Math.min(height * 0.15, 120);
+      const logoWidth = (logoImage.width / logoImage.height) * logoHeight;
+      const logoX = 40;
+      const logoY = 30;
+      ctx.drawImage(logoImage, logoX, logoY, logoWidth, logoHeight);
+    } catch (err) {
+      console.warn('[leaderboard-image] Could not load logo:', err.message);
     }
-    ctx.fillText(playerName, 120, currentY);
     
-    // Points
+    // Title section
+    let yPos = logoImage ? (logoImage ? 50 + Math.min(height * 0.15, 120) : 50) : 50;
+    const titleFontSize = platform === 'instagram' ? 48 : 42;
+    const titleY = yPos;
+    
     ctx.fillStyle = '#ffd700';
-    ctx.font = `bold ${playerFontSize}px ${fontFamily}`;
-    const pointsText = formatPoints(player.points || 0);
-    ctx.textAlign = 'right';
-    ctx.fillText(pointsText, width - (includeStats ? 200 : 100), currentY);
+    ctx.font = `bold ${titleFontSize}px ${fontFamily}`;
     ctx.textAlign = 'left';
     
-    // Stats (optional)
-    if (includeStats && player.correctCount !== undefined) {
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
-      ctx.font = `${playerFontSize - 4}px ${fontFamily}`;
-      const statsText = `${player.correctCount || 0} correct`;
-      ctx.fillText(statsText, width - 100, currentY);
+    let titleText = 'Leaderboard';
+    if (leaderboardType === 'quiz' && quizTitle) {
+      titleText = quizTitle;
+    } else if (leaderboardType === 'quizmas') {
+      titleText = '12 Days of Quizmas Leaderboard';
+    } else if (leaderboardType === 'overall') {
+      titleText = 'Overall Leaderboard';
     }
     
+    // Truncate title if too long
+    const maxTitleWidth = width - 80;
+    let displayTitle = titleText;
+    let titleMetrics = ctx.measureText(displayTitle);
+    if (titleMetrics.width > maxTitleWidth) {
+      while (titleMetrics.width > maxTitleWidth && displayTitle.length > 0) {
+        displayTitle = displayTitle.slice(0, -1);
+        titleMetrics = ctx.measureText(displayTitle + '...');
+      }
+      displayTitle += '...';
+    }
+    
+    ctx.fillText(displayTitle, 40, titleY);
+    yPos = titleY + titleFontSize + 20;
+    
+    // Author and date (for quiz leaderboards)
+    if (leaderboardType === 'quiz' && (quizAuthor || quizDate)) {
+      ctx.fillStyle = '#ffffff';
+      ctx.font = `${platform === 'instagram' ? 24 : 20}px ${fontFamily}`;
+      let infoText = '';
+      if (quizAuthor) {
+        infoText = `by ${quizAuthor}`;
+      }
+      if (quizDate) {
+        const etParts = utcToEtParts(quizDate);
+        const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        const monthName = monthNames[etParts.m - 1];
+        const hour = etParts.h === 0 ? 12 : (etParts.h > 12 ? etParts.h - 12 : etParts.h);
+        const ampm = etParts.h < 12 ? 'AM' : 'PM';
+        const minute = String(etParts.et.getUTCMinutes()).padStart(2, '0');
+        const dateStr = `${monthName} ${etParts.d}, ${etParts.y} ${hour}:${minute} ${ampm} ET`;
+        if (infoText) {
+          infoText += ` • ${dateStr}`;
+        } else {
+          infoText = dateStr;
+        }
+      }
+      if (infoText) {
+        ctx.fillText(infoText, 40, yPos);
+        yPos += 30;
+      }
+    }
+    
+    // Players list
+    const topPlayers = players.slice(0, count);
+    const playerFontSize = platform === 'instagram' ? 28 : 24;
+    const playerLineHeight = platform === 'instagram' ? 40 : 36;
+    const startY = yPos + 20;
+    let currentY = startY;
+    
+    // Header row
+    ctx.fillStyle = '#ffd700';
+    ctx.font = `bold ${playerFontSize - 4}px ${fontFamily}`;
+    ctx.fillText('Rank', 40, currentY);
+    ctx.fillText('Player', 120, currentY);
+    ctx.fillText('Points', width - 200, currentY);
+    if (includeStats) {
+      ctx.fillText('Stats', width - 100, currentY);
+    }
     currentY += playerLineHeight;
-  });
+    
+    // Draw divider line
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(40, currentY - 5);
+    ctx.lineTo(width - 40, currentY - 5);
+    ctx.stroke();
+    currentY += 10;
+    
+    // Player rows
+    ctx.font = `${playerFontSize}px ${fontFamily}`;
+    topPlayers.forEach((player, idx) => {
+      // Check if we have room
+      if (currentY + playerLineHeight > height - 40) return;
+      
+      const rank = idx + 1;
+      const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : '';
+      const rankText = medal ? `${medal} ${rank}` : `${rank}.`;
+      
+      // Rank
+      ctx.fillStyle = rank <= 3 ? '#ffd700' : '#ffffff';
+      ctx.font = `bold ${playerFontSize}px ${fontFamily}`;
+      ctx.fillText(rankText, 40, currentY);
+      
+      // Player name (truncate if too long)
+      ctx.fillStyle = '#ffffff';
+      ctx.font = `${playerFontSize}px ${fontFamily}`;
+      let playerName = player.handle || 'Unknown';
+      const maxNameWidth = width - (includeStats ? 400 : 300);
+      let nameMetrics = ctx.measureText(playerName);
+      if (nameMetrics.width > maxNameWidth) {
+        while (nameMetrics.width > maxNameWidth && playerName.length > 0) {
+          playerName = playerName.slice(0, -1);
+          nameMetrics = ctx.measureText(playerName + '...');
+        }
+        playerName += '...';
+      }
+      ctx.fillText(playerName, 120, currentY);
+      
+      // Points
+      ctx.fillStyle = '#ffd700';
+      ctx.font = `bold ${playerFontSize}px ${fontFamily}`;
+      const pointsText = formatPoints(player.points || 0);
+      ctx.textAlign = 'right';
+      ctx.fillText(pointsText, width - (includeStats ? 200 : 100), currentY);
+      ctx.textAlign = 'left';
+      
+      // Stats (optional)
+      if (includeStats && player.correctCount !== undefined) {
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+        ctx.font = `${playerFontSize - 4}px ${fontFamily}`;
+        const statsText = `${player.correctCount || 0} correct`;
+        ctx.fillText(statsText, width - 100, currentY);
+      }
+      
+      currentY += playerLineHeight;
+    });
   
-  // Footer with site name
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
-  ctx.font = `${platform === 'instagram' ? 18 : 16}px ${fontFamily}`;
-  ctx.textAlign = 'center';
-  ctx.fillText('Trivia Advent-ure', width / 2, height - 20);
-  ctx.textAlign = 'left';
-  
-  return canvas.toBuffer('image/png');
+    // Footer with site name
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+    ctx.font = `${platform === 'instagram' ? 18 : 16}px ${fontFamily}`;
+    ctx.textAlign = 'center';
+    ctx.fillText('Trivia Advent-ure', width / 2, height - 20);
+    ctx.textAlign = 'left';
+    
+    return canvas.toBuffer('image/png');
+  } finally {
+    // Restore original stderr if we suppressed it
+    if (stderrSuppressed) {
+      process.stderr.write = originalStderrWrite;
+    }
+  }
+} finally {
+    // Restore original stderr if we suppressed it
+    if (stderrSuppressed) {
+      process.stderr.write = originalStderrWrite;
+    }
+  }
 }
 
 // Helper function to render leaderboard image modal
