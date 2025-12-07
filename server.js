@@ -65,14 +65,41 @@ app.get('/admin/writer-submissions/:id', requireAdmin, async (req, res) => {
 if (process.platform === 'win32') {
   const originalStderrWrite = process.stderr.write.bind(process.stderr);
   process.stderr.write = function(chunk, encoding, fd) {
-    const message = chunk.toString();
-    // Filter out Fontconfig errors - they're harmless on Windows
+    // Handle different call signatures
+    if (typeof chunk === 'string') {
+      if (chunk.includes('Fontconfig error') || 
+          chunk.includes('Cannot load default config file') ||
+          chunk.toLowerCase().includes('fontconfig')) {
+        return true; // Suppress the message
+      }
+    } else if (Buffer.isBuffer(chunk) || chunk instanceof Uint8Array) {
+      const message = chunk.toString('utf8');
+      if (message.includes('Fontconfig error') || 
+          message.includes('Cannot load default config file') ||
+          message.toLowerCase().includes('fontconfig')) {
+        return true; // Suppress the message
+      }
+    }
+    // Call original with all arguments
+    if (arguments.length === 1) {
+      return originalStderrWrite(chunk);
+    } else if (arguments.length === 2) {
+      return originalStderrWrite(chunk, encoding);
+    } else {
+      return originalStderrWrite(chunk, encoding, fd);
+    }
+  };
+  
+  // Also intercept console.error for Fontconfig errors
+  const originalConsoleError = console.error.bind(console);
+  console.error = function(...args) {
+    const message = args.join(' ');
     if (message.includes('Fontconfig error') || 
         message.includes('Cannot load default config file') ||
         message.toLowerCase().includes('fontconfig')) {
-      return true; // Suppress the message
+      return; // Suppress the message
     }
-    return originalStderrWrite(chunk, encoding, fd);
+    return originalConsoleError(...args);
   };
 }
 
@@ -94,7 +121,25 @@ import multer from 'multer';
 let canvasModule = null;
 async function getCanvasModule() {
   if (!canvasModule) {
-    canvasModule = await import('canvas');
+    // Temporarily suppress stderr during import to catch Fontconfig errors
+    const originalStderrWrite = process.stderr.write.bind(process.stderr);
+    const suppressFontconfig = function(chunk, encoding, fd) {
+      const message = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
+      if (message.includes('Fontconfig error') || 
+          message.includes('Cannot load default config file') ||
+          message.toLowerCase().includes('fontconfig')) {
+        return true; // Suppress
+      }
+      if (arguments.length === 1) return originalStderrWrite(chunk);
+      if (arguments.length === 2) return originalStderrWrite(chunk, encoding);
+      return originalStderrWrite(chunk, encoding, fd);
+    };
+    process.stderr.write = suppressFontconfig;
+    try {
+      canvasModule = await import('canvas');
+    } finally {
+      process.stderr.write = originalStderrWrite;
+    }
   }
   return canvasModule;
 }
@@ -934,6 +979,29 @@ async function generateLeaderboardImage({
   // Dynamically import canvas after stderr interception is set up
   const { createCanvas, loadImage, registerFont } = await getCanvasModule();
   
+  // Suppress Fontconfig errors during canvas operations
+  const suppressFontconfigErrors = async (fn) => {
+    if (process.platform !== 'win32') return await fn();
+    const originalStderrWrite = process.stderr.write.bind(process.stderr);
+    const suppress = function(chunk, encoding, fd) {
+      const message = typeof chunk === 'string' ? chunk : chunk.toString('utf8');
+      if (message.includes('Fontconfig error') || 
+          message.includes('Cannot load default config file') ||
+          message.toLowerCase().includes('fontconfig')) {
+        return true;
+      }
+      if (arguments.length === 1) return originalStderrWrite(chunk);
+      if (arguments.length === 2) return originalStderrWrite(chunk, encoding);
+      return originalStderrWrite(chunk, encoding, fd);
+    };
+    process.stderr.write = suppress;
+    try {
+      return await fn();
+    } finally {
+      process.stderr.write = originalStderrWrite;
+    }
+  };
+  
   // Register a system font to prevent empty rectangles
   // Note: Fontconfig errors on Windows are harmless warnings - fonts will still work
   // The canvas library uses Fontconfig on Linux/macOS but falls back to system fonts on Windows
@@ -950,28 +1018,30 @@ async function generateLeaderboardImage({
     '/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf' // Linux alternative
   ];
   
-  for (const fontPath of fontPaths) {
-    if (existsSync(fontPath)) {
-      try {
-        registerFont(fontPath, { family: 'Arial' });
-        fontFamily = 'Arial';
-        fontRegistered = true;
-        console.log(`[leaderboard-image] Registered font: ${fontPath}`);
-        break;
-      } catch (err) {
-        // Fontconfig errors are expected on Windows and can be ignored
-        // The font will still work via system font fallback
-        if (err.message && err.message.includes('Fontconfig')) {
-          console.log(`[leaderboard-image] Fontconfig warning (harmless): ${err.message}`);
-          // On Windows, fonts work even with Fontconfig errors, so mark as registered
+  await suppressFontconfigErrors(async () => {
+    for (const fontPath of fontPaths) {
+      if (existsSync(fontPath)) {
+        try {
+          registerFont(fontPath, { family: 'Arial' });
           fontFamily = 'Arial';
           fontRegistered = true;
+          console.log(`[leaderboard-image] Registered font: ${fontPath}`);
           break;
+        } catch (err) {
+          // Fontconfig errors are expected on Windows and can be ignored
+          // The font will still work via system font fallback
+          if (err.message && err.message.includes('Fontconfig')) {
+            console.log(`[leaderboard-image] Fontconfig warning (harmless): ${err.message}`);
+            // On Windows, fonts work even with Fontconfig errors, so mark as registered
+            fontFamily = 'Arial';
+            fontRegistered = true;
+            break;
+          }
+          console.warn(`[leaderboard-image] Failed to register font ${fontPath}:`, err.message);
         }
-        console.warn(`[leaderboard-image] Failed to register font ${fontPath}:`, err.message);
       }
     }
-  }
+  });
   
   // If no font was registered, Arial should still work on Windows via system fonts
   // The Fontconfig error is just a warning - Windows fonts are accessible directly
@@ -987,7 +1057,7 @@ async function generateLeaderboardImage({
   };
   
   const { width, height } = dimensions[platform] || dimensions.facebook;
-  const canvas = createCanvas(width, height);
+  const canvas = await suppressFontconfigErrors(async () => createCanvas(width, height));
   const ctx = canvas.getContext('2d');
   
   // Background gradient (dark theme)
@@ -1004,7 +1074,7 @@ async function generateLeaderboardImage({
     const __filename = fileURLToPath(import.meta.url);
     const __dirname = dirname(__filename);
     const logoPath = join(__dirname, 'public', 'img', 'logo-banner.png');
-    logoImage = await loadImage(logoPath);
+    logoImage = await suppressFontconfigErrors(async () => loadImage(logoPath));
     
     // Draw logo (top left, scaled appropriately)
     const logoHeight = Math.min(height * 0.15, 120);
