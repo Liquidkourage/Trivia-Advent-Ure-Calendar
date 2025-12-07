@@ -90,7 +90,14 @@ import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import multer from 'multer';
-import { createCanvas, loadImage, registerFont } from 'canvas';
+// Canvas will be imported dynamically after stderr interception is set up
+let canvasModule = null;
+async function getCanvasModule() {
+  if (!canvasModule) {
+    canvasModule = await import('canvas');
+  }
+  return canvasModule;
+}
 import { join } from 'path';
 import { existsSync } from 'fs';
 // Avoid timezone library; store UTC in DB and compare in UTC
@@ -924,6 +931,9 @@ async function generateLeaderboardImage({
   platform = 'facebook', // 'facebook', 'discord', 'instagram'
   includeStats = false // Include correct count, avg per correct
 }) {
+  // Dynamically import canvas after stderr interception is set up
+  const { createCanvas, loadImage, registerFont } = await getCanvasModule();
+  
   // Register a system font to prevent empty rectangles
   // Note: Fontconfig errors on Windows are harmless warnings - fonts will still work
   // The canvas library uses Fontconfig on Linux/macOS but falls back to system fonts on Windows
