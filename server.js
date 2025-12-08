@@ -7409,22 +7409,33 @@ app.get('/quiz/:id', async (req, res) => {
           // Quiz remains open indefinitely - no disabling based on freeze_at
           const required = q.number === 1 ? 'required' : '';
           // Highlight the "ask" text within the question text and preserve line breaks
+          // Allow safe HTML tags (i, b, em, strong, u) while escaping everything else
           let highlightedText = String(q.text || '');
           const ask = String(q.ask || '').trim();
           
-          // Escape HTML first for security
-          highlightedText = highlightedText.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-          // Convert line breaks to <br> tags
-          highlightedText = highlightedText.replace(/\n/g, '<br>');
+          // Helper function to allow safe HTML tags
+          const allowSafeHtml = (text) => {
+            // First escape all HTML
+            let safe = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            // Convert line breaks to <br> tags
+            safe = safe.replace(/\n/g, '<br>');
+            // Now unescape safe HTML tags: i, b, em, strong, u
+            // Opening tags
+            safe = safe.replace(/&lt;(i|b|em|strong|u)&gt;/gi, '<$1>');
+            // Closing tags
+            safe = safe.replace(/&lt;\/(i|b|em|strong|u)&gt;/gi, '</$1>');
+            return safe;
+          };
+          
+          highlightedText = allowSafeHtml(highlightedText);
           
           if (ask) {
             try {
-              // Escape HTML in ask text and convert newlines to <br> to match question text format
-              let escapedAsk = ask.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-              escapedAsk = escapedAsk.replace(/\n/g, '<br>');
+              // Process ask text similarly - allow safe HTML tags
+              let processedAsk = allowSafeHtml(ask);
               // Escape special regex characters for regex matching
-              escapedAsk = escapedAsk.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-              const re = new RegExp(escapedAsk, 'gi');
+              processedAsk = processedAsk.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+              const re = new RegExp(processedAsk, 'gi');
               highlightedText = highlightedText.replace(re, '<mark>$&</mark>');
             } catch (e) {
               // If regex fails, just use original text
