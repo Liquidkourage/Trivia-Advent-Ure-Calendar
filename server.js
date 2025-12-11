@@ -11375,6 +11375,19 @@ app.get('/admin/quiz/:id/grade', requireAdmin, async (req, res) => {
           <div class=\"grader-bar\">${nav}</div>
           ${sections}
         </main>
+        <button id=\"back-to-top\" onclick=\"window.scrollTo({top: 0, behavior: 'smooth'})\" style=\"display:none;position:fixed;bottom:24px;right:24px;z-index:1000;background:#ffd700;color:#111;border:none;border-radius:50%;width:48px;height:48px;font-size:20px;cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,0.3);transition:all 0.3s;opacity:0.9;\" onmouseover=\"this.style.opacity='1';this.style.transform='scale(1.1)'\" onmouseout=\"this.style.opacity='0.9';this.style.transform='scale(1)'\" title=\"Back to top\">↑</button>
+        <script>
+          (function() {
+            const backToTop = document.getElementById('back-to-top');
+            window.addEventListener('scroll', function() {
+              if (window.pageYOffset > 300) {
+                backToTop.style.display = 'block';
+              } else {
+                backToTop.style.display = 'none';
+              }
+            });
+          })();
+        </script>
       </body></html>
     `);
   } catch (e) {
@@ -12111,6 +12124,19 @@ app.get('/admin/quiz/:id/responses', requireAdmin, async (req, res) => {
           </section>
           ` : ''}
         </main>
+        <button id=\"back-to-top\" onclick=\"window.scrollTo({top: 0, behavior: 'smooth'})\" style=\"display:none;position:fixed;bottom:24px;right:24px;z-index:1000;background:#ffd700;color:#111;border:none;border-radius:50%;width:48px;height:48px;font-size:20px;cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,0.3);transition:all 0.3s;opacity:0.9;\" onmouseover=\"this.style.opacity='1';this.style.transform='scale(1.1)'\" onmouseout=\"this.style.opacity='0.9';this.style.transform='scale(1)'\" title=\"Back to top\">↑</button>
+        <script>
+          (function() {
+            const backToTop = document.getElementById('back-to-top');
+            window.addEventListener('scroll', function() {
+              if (window.pageYOffset > 300) {
+                backToTop.style.display = 'block';
+              } else {
+                backToTop.style.display = 'none';
+              }
+            });
+          })();
+        </script>
         ${renderFooter(req)}
       </body></html>
     `);
