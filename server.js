@@ -8596,6 +8596,7 @@ app.get('/archive/:id', async (req, res) => {
 // --- Overall leaderboard ---
 app.get('/leaderboard', async (req, res) => {
   try {
+    const sortBy = req.query.sort === 'correct' ? 'correct' : 'score'; // Default to 'score' for backward compatibility
     const { rows } = await pool.query(
       `SELECT r.user_email, COALESCE(p.username, r.user_email) AS handle, SUM(r.points) AS points
        FROM responses r
@@ -8700,32 +8701,56 @@ app.get('/leaderboard', async (req, res) => {
       }
     }
     
-    const sorted = Array.from(totals.values()).sort((a, b) => b.points - a.points);
+    const sorted = Array.from(totals.values()).sort((a, b) => {
+      if (sortBy === 'correct') {
+        // Sort by correct count first, then by points as tiebreaker
+        if (b.correctCount !== a.correctCount) return b.correctCount - a.correctCount;
+        return b.points - a.points;
+      } else {
+        // Default: sort by points
+        return b.points - a.points;
+      }
+    });
     const totalPlayers = sorted.length;
     const averagePoints = totalPlayers
       ? sorted.reduce((acc, r) => acc + Number(r.points || 0), 0) / totalPlayers
       : 0;
     const topCards = sorted.slice(0, 3).map((r, idx) => {
       const medal = ['🥇','🥈','🥉'][idx] || '⭐';
+      const mainValue = sortBy === 'correct' 
+        ? (r.correctCount || 0) 
+        : formatPoints(r.points);
       return `
         <div style="background:#1a1a1a;border:1px solid rgba(255,255,255,0.12);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:8px;box-shadow:0 8px 20px rgba(0,0,0,0.25);">
           <div style="font-size:32px;">${medal}</div>
           <div style="font-weight:800;font-size:18px;color:#ffd700;">${r.handle}</div>
-          <div style="font-size:28px;font-weight:700;">${formatPoints(r.points)}</div>
+          <div style="font-size:28px;font-weight:700;">${mainValue}</div>
         </div>
       `;
     }).join('');
     const tableRows = sorted.map((r, idx) => {
       const rank = idx + 1;
       const detail = `<span class="leaderboard-detail">${r.quizzesSubmitted} quiz${r.quizzesSubmitted !== 1 ? 'zes' : ''}</span> <span class="leaderboard-separator">•</span> <span class="leaderboard-detail">${r.correctCount} correct</span> <span class="leaderboard-separator">•</span> <span class="leaderboard-detail">${formatPoints(r.avgPerCorrect)} avg/correct</span>`;
-      return `
-        <tr style="border-bottom:1px solid rgba(255,255,255,0.08);${idx % 2 ? 'background:rgba(255,255,255,0.02);' : ''}">
-          <td style="padding:10px 8px;font-weight:700;color:${rank === 1 ? '#ffd700' : '#fff'};">${rank}</td>
-          <td style="padding:10px 8px;">${r.handle}</td>
-          <td style="padding:10px 8px;font-weight:600;">${formatPoints(r.points)}</td>
-          <td style="padding:10px 8px;font-size:13px;opacity:0.75;" class="leaderboard-details-cell">${detail}</td>
-        </tr>
-      `;
+      if (sortBy === 'correct') {
+        return `
+          <tr style="border-bottom:1px solid rgba(255,255,255,0.08);${idx % 2 ? 'background:rgba(255,255,255,0.02);' : ''}">
+            <td style="padding:10px 8px;font-weight:700;color:${rank === 1 ? '#ffd700' : '#fff'};">${rank}</td>
+            <td style="padding:10px 8px;">${r.handle}</td>
+            <td style="padding:10px 8px;font-weight:600;">${r.correctCount || 0}</td>
+            <td style="padding:10px 8px;font-weight:600;">${formatPoints(r.points)}</td>
+            <td style="padding:10px 8px;font-size:13px;opacity:0.75;" class="leaderboard-details-cell">${detail}</td>
+          </tr>
+        `;
+      } else {
+        return `
+          <tr style="border-bottom:1px solid rgba(255,255,255,0.08);${idx % 2 ? 'background:rgba(255,255,255,0.02);' : ''}">
+            <td style="padding:10px 8px;font-weight:700;color:${rank === 1 ? '#ffd700' : '#fff'};">${rank}</td>
+            <td style="padding:10px 8px;">${r.handle}</td>
+            <td style="padding:10px 8px;font-weight:600;">${formatPoints(r.points)}</td>
+            <td style="padding:10px 8px;font-size:13px;opacity:0.75;" class="leaderboard-details-cell">${detail}</td>
+          </tr>
+        `;
+      }
     }).join('');
     // Fetch all quizzes that have responses for the browse section
     const { rows: quizzesWithResponses } = await pool.query(`
@@ -8807,6 +8832,11 @@ app.get('/leaderboard', async (req, res) => {
         <main class="ta-main ta-container" style="max-width:960px;padding:24px;">
           ${renderBreadcrumb([{ label: 'Leaderboard' }])}
           <h1 class="ta-page-title">Overall Leaderboard</h1>
+          <div style="margin-bottom:20px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <span style="opacity:0.75;">Sort by:</span>
+            <a href="/leaderboard" class="ta-btn ta-btn-small ${sortBy === 'score' ? 'ta-btn-primary' : 'ta-btn-outline'}" style="text-decoration:none;">Score</a>
+            <a href="/leaderboard?sort=correct" class="ta-btn ta-btn-small ${sortBy === 'correct' ? 'ta-btn-primary' : 'ta-btn-outline'}" style="text-decoration:none;">Correct Answers</a>
+          </div>
           <section style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin:20px 0;">
             <div style="background:#1a1a1a;border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:16px;">
               <div style="font-size:14px;opacity:0.75;margin-bottom:6px;">Total players</div>
@@ -8835,12 +8865,13 @@ app.get('/leaderboard', async (req, res) => {
                   <tr>
                     <th style="padding:10px 8px;text-align:left;">Rank</th>
                     <th style="padding:10px 8px;text-align:left;">Player</th>
-                    <th style="padding:10px 8px;text-align:left;">Total Points</th>
+                    <th style="padding:10px 8px;text-align:left;">${sortBy === 'correct' ? 'Correct' : 'Total Points'}</th>
+                    ${sortBy === 'correct' ? '<th style="padding:10px 8px;text-align:left;">Total Points</th>' : ''}
                     <th style="padding:10px 8px;text-align:left;">Details</th>
                   </tr>
                 </thead>
                 <tbody>
-                  ${tableRows || '<tr><td colspan="4" style="padding:16px;text-align:center;opacity:0.75;">No submissions yet.</td></tr>'}
+                  ${tableRows || `<tr><td colspan="${sortBy === 'correct' ? '5' : '4'}" style="padding:16px;text-align:center;opacity:0.75;">No submissions yet.</td></tr>`}
                 </tbody>
         </table>
             </div>
