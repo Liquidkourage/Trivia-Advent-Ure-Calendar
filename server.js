@@ -7341,8 +7341,8 @@ app.get('/quiz/:id', async (req, res) => {
             <div style="background:#1a1a1a;border:1px solid rgba(255,255,255,0.15);border-radius:8px;padding:12px 16px;margin:16px 0;font-size:14px;opacity:0.85;">
               <strong>Note:</strong> Scores are subject to change based on admin grading decisions. Final scores may differ from initial calculations.
             </div>
-            <div class="ta-table-wrapper">
-              <table class="ta-table">
+            <div class="ta-table-wrapper ta-recap-table-wrapper">
+              <table class="ta-table ta-recap-table">
                 <thead>
             <tr><th>#</th><th>Question</th><th>Your answer</th><th>Correct answer</th><th>Points</th><th>Actions</th></tr>
                 </thead>

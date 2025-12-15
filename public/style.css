@@ -507,6 +507,55 @@ body.ta-modal-open{overflow:hidden}
 .recap-table th,.recap-table td{border:1px solid rgba(255,255,255,.2);padding:8px}
 .recap-table th{background:rgba(0,0,0,.25)}
 .recap-table tr.is-flagged td{border-left:3px solid var(--gold); background-image:linear-gradient(90deg, rgba(255,167,38,.12), rgba(0,0,0,0));}
+/* Mobile-friendly recap table - allow text wrapping */
+/* Override the default table wrapper behavior for recap pages */
+@media (max-width: 768px){
+  /* Allow recap tables to wrap text instead of forcing horizontal scroll */
+  .ta-recap-table-wrapper{
+    overflow-x:visible !important;
+  }
+  .ta-recap-table-wrapper .ta-recap-table{
+    min-width:auto !important;
+    width:100% !important;
+  }
+  .ta-recap-table-wrapper .ta-recap-table th,
+  .ta-recap-table-wrapper .ta-recap-table td{
+    white-space:normal !important;
+    word-wrap:break-word !important;
+    overflow-wrap:break-word !important;
+    word-break:break-word !important;
+    max-width:none !important;
+    min-width:0 !important;
+  }
+  /* Make question and answer columns more readable */
+  .ta-recap-table-wrapper .ta-recap-table th:nth-child(2),
+  .ta-recap-table-wrapper .ta-recap-table td:nth-child(2),
+  .ta-recap-table-wrapper .ta-recap-table th:nth-child(3),
+  .ta-recap-table-wrapper .ta-recap-table td:nth-child(3),
+  .ta-recap-table-wrapper .ta-recap-table th:nth-child(4),
+  .ta-recap-table-wrapper .ta-recap-table td:nth-child(4){
+    padding:10px 8px !important;
+    font-size:14px !important;
+    line-height:1.5 !important;
+  }
+}
+@media (max-width: 520px){
+  .ta-recap-table-wrapper .ta-recap-table th,
+  .ta-recap-table-wrapper .ta-recap-table td{
+    padding:8px 6px !important;
+    font-size:13px !important;
+  }
+  /* Make question and answer columns more readable on small screens */
+  .ta-recap-table-wrapper .ta-recap-table th:nth-child(2),
+  .ta-recap-table-wrapper .ta-recap-table td:nth-child(2),
+  .ta-recap-table-wrapper .ta-recap-table th:nth-child(3),
+  .ta-recap-table-wrapper .ta-recap-table td:nth-child(3),
+  .ta-recap-table-wrapper .ta-recap-table th:nth-child(4),
+  .ta-recap-table-wrapper .ta-recap-table td:nth-child(4){
+    font-size:12px !important;
+    line-height:1.4 !important;
+  }
+}
 @media (max-width: 700px){
   .ta-quiz-hero-body{grid-template-columns:1fr}
 }
