@@ -507,53 +507,135 @@ body.ta-modal-open{overflow:hidden}
 .recap-table th,.recap-table td{border:1px solid rgba(255,255,255,.2);padding:8px}
 .recap-table th{background:rgba(0,0,0,.25)}
 .recap-table tr.is-flagged td{border-left:3px solid var(--gold); background-image:linear-gradient(90deg, rgba(255,167,38,.12), rgba(0,0,0,0));}
-/* Mobile-friendly recap table - allow text wrapping */
+/* Mobile-friendly recap table - optimize column widths */
 /* Override the default table wrapper behavior for recap pages */
 @media (max-width: 768px){
-  /* Allow recap tables to wrap text instead of forcing horizontal scroll */
   .ta-recap-table-wrapper{
     overflow-x:visible !important;
   }
   .ta-recap-table-wrapper .ta-recap-table{
     min-width:auto !important;
     width:100% !important;
+    table-layout:fixed !important;
   }
-  .ta-recap-table-wrapper .ta-recap-table th,
-  .ta-recap-table-wrapper .ta-recap-table td{
+  /* Column 1: # - narrow */
+  .ta-recap-table-wrapper .ta-recap-table th:nth-child(1),
+  .ta-recap-table-wrapper .ta-recap-table td:nth-child(1){
+    width:8% !important;
+    min-width:35px !important;
+    max-width:45px !important;
+    padding:10px 4px !important;
+    font-size:14px !important;
+    white-space:nowrap !important;
+  }
+  /* Column 2: Question - truncated with ellipsis */
+  .ta-recap-table-wrapper .ta-recap-table th:nth-child(2),
+  .ta-recap-table-wrapper .ta-recap-table td:nth-child(2){
+    width:30% !important;
+    max-width:30% !important;
+    padding:10px 8px !important;
+    font-size:13px !important;
+    line-height:1.4 !important;
+    white-space:nowrap !important;
+    overflow:hidden !important;
+    text-overflow:ellipsis !important;
+  }
+  /* Column 3: Your answer - readable width */
+  .ta-recap-table-wrapper .ta-recap-table th:nth-child(3),
+  .ta-recap-table-wrapper .ta-recap-table td:nth-child(3){
+    width:18% !important;
+    min-width:80px !important;
+    padding:10px 6px !important;
+    font-size:13px !important;
+    line-height:1.4 !important;
     white-space:normal !important;
     word-wrap:break-word !important;
     overflow-wrap:break-word !important;
-    word-break:break-word !important;
-    max-width:none !important;
-    min-width:0 !important;
   }
-  /* Make question and answer columns more readable */
-  .ta-recap-table-wrapper .ta-recap-table th:nth-child(2),
-  .ta-recap-table-wrapper .ta-recap-table td:nth-child(2),
-  .ta-recap-table-wrapper .ta-recap-table th:nth-child(3),
-  .ta-recap-table-wrapper .ta-recap-table td:nth-child(3),
+  /* Column 4: Correct answer - readable width */
   .ta-recap-table-wrapper .ta-recap-table th:nth-child(4),
   .ta-recap-table-wrapper .ta-recap-table td:nth-child(4){
-    padding:10px 8px !important;
+    width:18% !important;
+    min-width:80px !important;
+    padding:10px 6px !important;
+    font-size:13px !important;
+    line-height:1.4 !important;
+    white-space:normal !important;
+    word-wrap:break-word !important;
+    overflow-wrap:break-word !important;
+  }
+  /* Column 5: Points - narrow */
+  .ta-recap-table-wrapper .ta-recap-table th:nth-child(5),
+  .ta-recap-table-wrapper .ta-recap-table td:nth-child(5){
+    width:8% !important;
+    min-width:50px !important;
+    max-width:60px !important;
+    padding:10px 4px !important;
     font-size:14px !important;
-    line-height:1.5 !important;
+    text-align:center !important;
+    white-space:nowrap !important;
+  }
+  /* Column 6: Actions - adequate width for button */
+  .ta-recap-table-wrapper .ta-recap-table th:nth-child(6),
+  .ta-recap-table-wrapper .ta-recap-table td:nth-child(6){
+    width:18% !important;
+    min-width:100px !important;
+    padding:10px 6px !important;
+    font-size:12px !important;
+    white-space:normal !important;
+    word-wrap:break-word !important;
   }
 }
 @media (max-width: 520px){
-  .ta-recap-table-wrapper .ta-recap-table th,
-  .ta-recap-table-wrapper .ta-recap-table td{
-    padding:8px 6px !important;
-    font-size:13px !important;
+  .ta-recap-table-wrapper .ta-recap-table{
+    font-size:12px !important;
   }
-  /* Make question and answer columns more readable on small screens */
+  /* Column 1: # */
+  .ta-recap-table-wrapper .ta-recap-table th:nth-child(1),
+  .ta-recap-table-wrapper .ta-recap-table td:nth-child(1){
+    padding:8px 3px !important;
+    font-size:12px !important;
+    min-width:30px !important;
+    max-width:35px !important;
+  }
+  /* Column 2: Question - even more truncated */
   .ta-recap-table-wrapper .ta-recap-table th:nth-child(2),
-  .ta-recap-table-wrapper .ta-recap-table td:nth-child(2),
+  .ta-recap-table-wrapper .ta-recap-table td:nth-child(2){
+    width:25% !important;
+    padding:8px 4px !important;
+    font-size:11px !important;
+  }
+  /* Column 3: Your answer */
   .ta-recap-table-wrapper .ta-recap-table th:nth-child(3),
-  .ta-recap-table-wrapper .ta-recap-table td:nth-child(3),
+  .ta-recap-table-wrapper .ta-recap-table td:nth-child(3){
+    width:20% !important;
+    min-width:70px !important;
+    padding:8px 4px !important;
+    font-size:11px !important;
+  }
+  /* Column 4: Correct answer */
   .ta-recap-table-wrapper .ta-recap-table th:nth-child(4),
   .ta-recap-table-wrapper .ta-recap-table td:nth-child(4){
+    width:20% !important;
+    min-width:70px !important;
+    padding:8px 4px !important;
+    font-size:11px !important;
+  }
+  /* Column 5: Points */
+  .ta-recap-table-wrapper .ta-recap-table th:nth-child(5),
+  .ta-recap-table-wrapper .ta-recap-table td:nth-child(5){
+    width:10% !important;
+    min-width:45px !important;
+    padding:8px 3px !important;
     font-size:12px !important;
-    line-height:1.4 !important;
+  }
+  /* Column 6: Actions */
+  .ta-recap-table-wrapper .ta-recap-table th:nth-child(6),
+  .ta-recap-table-wrapper .ta-recap-table td:nth-child(6){
+    width:15% !important;
+    min-width:90px !important;
+    padding:8px 4px !important;
+    font-size:11px !important;
   }
 }
 @media (max-width: 700px){

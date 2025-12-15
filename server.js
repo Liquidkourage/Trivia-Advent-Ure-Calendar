@@ -7302,12 +7302,13 @@ app.get('/quiz/:id', async (req, res) => {
         [email, id]
       );
       const total = gr.reduce((s, r) => s + Number(r.points || 0), 0);
+      const esc = (v) => String(v || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
       const rowsHtml = gr.map(r => `
         <tr${r.flagged ? ' class="is-flagged"' : ''}>
           <td>${r.number}${r.locked ? ' 🔒' : ''}</td>
-          <td>${r.text}</td>
-          <td>${r.response_text || ''}</td>
-          <td>${r.answer}</td>
+          <td title="${esc(r.text)}">${esc(r.text)}</td>
+          <td>${esc(r.response_text || '')}</td>
+          <td>${esc(r.answer)}</td>
           <td>${r.points || 0}</td>
           <td>
             ${r.flagged ? '<span class="status-badge status-mixed">🚩 flagged</span>' : `
