@@ -7303,10 +7303,17 @@ app.get('/quiz/:id', async (req, res) => {
       );
       const total = gr.reduce((s, r) => s + Number(r.points || 0), 0);
       const esc = (v) => String(v || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-      const rowsHtml = gr.map(r => `
+      const rowsHtml = gr.map(r => {
+        const questionId = `question-${r.qid}`;
+        const fullText = esc(r.text);
+        return `
         <tr${r.flagged ? ' class="is-flagged"' : ''}>
           <td>${r.number}${r.locked ? ' 🔒' : ''}</td>
-          <td title="${esc(r.text)}">${esc(r.text)}</td>
+          <td class="question-cell" style="position:relative;">
+            <span class="question-text-truncated" id="${questionId}-truncated">${fullText}</span>
+            <span class="question-text-full" id="${questionId}-full" style="display:none;">${fullText}</span>
+            <button type="button" class="question-toggle-btn" data-question-id="${questionId}" aria-label="Toggle full question text" style="margin-top:4px;padding:4px 8px;font-size:11px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);border-radius:4px;color:var(--gold);cursor:pointer;font-weight:600;">Show full question</button>
+          </td>
           <td>${esc(r.response_text || '')}</td>
           <td>${esc(r.answer)}</td>
           <td>${r.points || 0}</td>
@@ -7318,7 +7325,8 @@ app.get('/quiz/:id', async (req, res) => {
               </form>
             `}
           </td>
-        </tr>`).join('');
+        </tr>`;
+      }).join('');
       const header = await renderHeader(req);
       const subnav = renderQuizSubnav(id, 'recap', { allowRecap: true });
       return res.type('html').send(`
@@ -7355,6 +7363,42 @@ app.get('/quiz/:id', async (req, res) => {
           <p style="margin-top:16px;"><a href="/calendar" class="ta-btn ta-btn-outline">Back to Calendar</a></p>
           </main>
           ${renderFooter(req)}
+          <script>
+            (function() {
+              // Question text toggle functionality
+              document.addEventListener('click', function(e) {
+                const toggleBtn = e.target.closest('.question-toggle-btn');
+                if (!toggleBtn) return;
+                
+                const questionId = toggleBtn.getAttribute('data-question-id');
+                const truncatedEl = document.getElementById(questionId + '-truncated');
+                const fullEl = document.getElementById(questionId + '-full');
+                const questionCell = toggleBtn.closest('.question-cell');
+                
+                if (!truncatedEl || !fullEl || !questionCell) return;
+                
+                const isShowingFull = fullEl.style.display !== 'none';
+                
+                if (isShowingFull) {
+                  // Show truncated, hide full
+                  truncatedEl.style.display = '';
+                  fullEl.style.display = 'none';
+                  questionCell.style.whiteSpace = 'nowrap';
+                  questionCell.style.overflow = 'hidden';
+                  questionCell.style.textOverflow = 'ellipsis';
+                  toggleBtn.textContent = 'Show full question';
+                } else {
+                  // Show full, hide truncated
+                  truncatedEl.style.display = 'none';
+                  fullEl.style.display = '';
+                  questionCell.style.whiteSpace = 'normal';
+                  questionCell.style.overflow = 'visible';
+                  questionCell.style.textOverflow = '';
+                  toggleBtn.textContent = 'Show less';
+                }
+              });
+            })();
+          </script>
         </body></html>
       `);
     }
