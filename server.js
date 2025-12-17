@@ -7520,8 +7520,62 @@ app.get('/quiz/:id', async (req, res) => {
         form += `<div style="margin-top:16px;"><a href="/quiz/${id}/edit" class="ta-btn ta-btn-primary">Edit Quiz (Admin)</a></div>`;
       }
     } else if (effectiveIsAuthor && !previewAsPlayer) {
+      // Author view: Show questions and answers in read-only mode
+      const esc = (v) => String(v || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+      
+      // Helper function to allow safe HTML tags
+      const allowSafeHtml = (text) => {
+        let safe = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        safe = safe.replace(/\n/g, '<br>');
+        safe = safe.replace(/&lt;(i|b|em|strong|u)&gt;/gi, '<$1>');
+        safe = safe.replace(/&lt;\/(i|b|em|strong|u)&gt;/gi, '</$1>');
+        return safe;
+      };
+      
+      const questionsHtml = qs.map((q, idx) => {
+        let highlightedText = allowSafeHtml(String(q.text || ''));
+        const ask = String(q.ask || '').trim();
+        
+        if (ask) {
+          try {
+            let processedAsk = allowSafeHtml(ask);
+            processedAsk = processedAsk.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            const re = new RegExp(processedAsk, 'gi');
+            highlightedText = highlightedText.replace(re, '<mark>$&</mark>');
+          } catch (e) {
+            console.error('Error highlighting ask text:', e);
+          }
+        }
+        
+        return `
+          <div class="quiz-card" style="border:1px solid rgba(255,255,255,0.2);padding:16px;margin-bottom:16px;border-radius:8px;background:rgba(0,0,0,0.2);">
+            <div class="quiz-qhead" style="margin-bottom:12px;">
+              <div class="quiz-left">
+                <div class="quiz-qnum" style="font-weight:bold;color:#ffd700;">Q${q.number} <span style="font-size:14px;opacity:0.7;">(${idx + 1} of ${qs.length})</span></div>
+                <span class="quiz-cat" style="opacity:0.8;">${esc(q.category || 'General')}</span>
+              </div>
+            </div>
+            <div class="quiz-text" style="margin-bottom:12px;line-height:1.6;">${highlightedText}</div>
+            <div style="padding:12px;background:rgba(255,215,0,0.1);border-left:3px solid #ffd700;border-radius:4px;">
+              <div style="font-size:12px;opacity:0.8;margin-bottom:4px;">Correct Answer:</div>
+              <div style="font-weight:600;color:#ffd700;">${esc(q.answer)}</div>
+            </div>
+          </div>
+        `;
+      }).join('');
+      
       const editLink = locked ? `<div style="margin-top:16px;"><a href="/quiz/${id}/edit" class="ta-btn ta-btn-primary">Edit Quiz</a></div>` : '';
-      form = authorMessage + editLink;
+      form = `
+        ${authorMessage}
+        <div style="margin-top:24px;padding:16px;background:rgba(255,215,0,0.1);border:2px solid rgba(255,215,0,0.3);border-radius:8px;">
+          <h3 style="margin:0 0 12px 0;color:#ffd700;">📖 Quiz Questions & Answers (Read-Only)</h3>
+          <p style="margin:0 0 16px 0;opacity:0.9;">As the author, you can view all questions and correct answers below. You cannot submit answers to your own quiz.</p>
+        </div>
+        <div style="margin-top:20px;">
+          ${questionsHtml}
+        </div>
+        ${editLink}
+      `;
       // If author is also admin, show admin edit link even after unlock
       if (showAdminFeatures && !locked) {
         form += `<div style="margin-top:16px;"><a href="/quiz/${id}/edit" class="ta-btn ta-btn-primary">Edit Quiz (Admin)</a></div>`;
