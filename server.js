@@ -251,6 +251,55 @@ const PORT = process.env.PORT || 8080;
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
 const EVENT_TZ = process.env.EVENT_TZ || 'America/New_York';
 const KOFI_CUTOFF_ET = process.env.KOFI_CUTOFF_ET || '2025-11-01 00:00:00 America/New_York';
+
+// Simple in-memory cache for leaderboard queries
+// Can be upgraded to Redis later if needed
+const leaderboardCache = new Map();
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes default
+const LEADERBOARD_CACHE_ENABLED = process.env.LEADERBOARD_CACHE_ENABLED !== 'false'; // Enabled by default
+
+function getCacheKey(type, id = null, sortBy = 'score') {
+  return `leaderboard:${type}${id ? `:${id}` : ''}:${sortBy}`;
+}
+
+function getCached(key) {
+  if (!LEADERBOARD_CACHE_ENABLED) return null;
+  const entry = leaderboardCache.get(key);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) {
+    leaderboardCache.delete(key);
+    return null;
+  }
+  return entry.data;
+}
+
+function setCache(key, data, ttlMs = CACHE_TTL_MS) {
+  if (!LEADERBOARD_CACHE_ENABLED) return;
+  leaderboardCache.set(key, {
+    data,
+    expiresAt: Date.now() + ttlMs
+  });
+}
+
+function invalidateCache(pattern) {
+  // Invalidate all cache entries matching pattern
+  // Pattern can be like 'leaderboard:quiz:123' or 'leaderboard:overall'
+  for (const key of leaderboardCache.keys()) {
+    if (key.startsWith(pattern)) {
+      leaderboardCache.delete(key);
+    }
+  }
+}
+
+// Clean up expired cache entries periodically
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of leaderboardCache.entries()) {
+    if (now > entry.expiresAt) {
+      leaderboardCache.delete(key);
+    }
+  }
+}, 60000); // Clean up every minute
 const WEBHOOK_SHARED_SECRET = process.env.WEBHOOK_SHARED_SECRET || '';
 
 const PgSession = connectPgSimple(session);
@@ -333,6 +382,11 @@ async function initDb() {
       UNIQUE(user_email, question_id)
     );
     CREATE INDEX IF NOT EXISTS idx_responses_quiz_user ON responses(quiz_id, user_email);
+    -- Performance indexes for leaderboard queries
+    CREATE INDEX IF NOT EXISTS idx_responses_submitted_at ON responses(submitted_at);
+    CREATE INDEX IF NOT EXISTS idx_responses_quiz_submitted ON responses(quiz_id, submitted_at);
+    CREATE INDEX IF NOT EXISTS idx_responses_user_submitted ON responses(user_email, submitted_at);
+    CREATE INDEX IF NOT EXISTS idx_players_email ON players(email);
     -- Backfill columns for existing deployments
     DO $$ BEGIN
       ALTER TABLE responses ADD COLUMN IF NOT EXISTS locked BOOLEAN NOT NULL DEFAULT FALSE;
@@ -7920,6 +7974,14 @@ app.get('/quiz/:id/leaderboard', async (req, res) => {
   try {
     const id = Number(req.params.id);
     const sortBy = req.query.sort === 'correct' ? 'correct' : 'score'; // Default to 'score' for backward compatibility
+    const cacheKey = getCacheKey('quiz', id, sortBy);
+    
+    // Check cache first
+    const cached = getCached(cacheKey);
+    if (cached) {
+      return res.type('html').send(cached);
+    }
+    
     const { rows: qr } = await pool.query('SELECT id, title, freeze_at, author_email FROM quizzes WHERE id = $1', [id]);
     if (qr.length === 0) return res.status(404).send('Quiz not found');
     const freezeUtc = new Date(qr[0].freeze_at);
@@ -8106,7 +8168,7 @@ app.get('/quiz/:id/leaderboard', async (req, res) => {
     const allowRecapLink = !!(req.session?.user);
     const subnav = renderQuizSubnav(id, 'leaderboard', { allowRecap: allowRecapLink });
     const modalHtml = isAdmin ? renderLeaderboardImageModal('quiz', id) : '';
-    res.type('html').send(`
+    const htmlResponse = `
       ${renderHead(`Leaderboard • Quiz ${id}`, false)}
       <body class="ta-body" style="padding:24px;">
       ${header}
@@ -8169,7 +8231,12 @@ app.get('/quiz/:id/leaderboard', async (req, res) => {
         ${modalHtml}
         ${renderFooter(req)}
       </body></html>
-    `);
+    `;
+    
+    // Cache the response
+    setCache(cacheKey, htmlResponse);
+    
+    res.type('html').send(htmlResponse);
   } catch (e) {
     console.error(e);
     res.status(500).send('Failed to load leaderboard');
@@ -8696,6 +8763,15 @@ app.get('/archive/:id', async (req, res) => {
 app.get('/leaderboard', async (req, res) => {
   try {
     const sortBy = req.query.sort === 'correct' ? 'correct' : 'score'; // Default to 'score' for backward compatibility
+    const cacheKey = getCacheKey('overall', null, sortBy);
+    
+    // Check cache first
+    const cached = getCached(cacheKey);
+    if (cached) {
+      return res.type('html').send(cached);
+    }
+    
+    // Main aggregation query - get all player points
     const { rows } = await pool.query(
       `SELECT r.user_email, COALESCE(p.username, r.user_email) AS handle, SUM(r.points) AS points
        FROM responses r
@@ -8712,88 +8788,123 @@ app.get('/leaderboard', async (req, res) => {
       existing.points += points;
       totals.set(email, existing);
     });
-    // Only add author bonuses if the author has actually submitted responses to quizzes
-    const { rows: quizAuthors } = await pool.query('SELECT id, author_email FROM quizzes WHERE author_email IS NOT NULL AND author_email <> \'\'');
-    for (const qa of quizAuthors) {
-      const authorEmail = (qa.author_email || '').toLowerCase();
+    
+    // Batch author bonus calculation - get all author bonuses in one query
+    const { rows: authorBonuses } = await pool.query(`
+      WITH author_quiz_responses AS (
+        SELECT 
+          q.id as quiz_id,
+          q.author_email,
+          r.user_email,
+          r.points,
+          CASE WHEN r.user_email = q.author_email THEN 1 ELSE 0 END as is_author_response
+        FROM quizzes q
+        LEFT JOIN responses r ON r.quiz_id = q.id AND r.submitted_at IS NOT NULL
+        WHERE q.author_email IS NOT NULL AND q.author_email <> ''
+      ),
+      author_response_counts AS (
+        SELECT 
+          quiz_id,
+          author_email,
+          COUNT(*) FILTER (WHERE is_author_response = 0) as player_count
+        FROM author_quiz_responses
+        GROUP BY quiz_id, author_email
+        HAVING COUNT(*) FILTER (WHERE is_author_response = 1) > 0
+      ),
+      author_averages AS (
+        SELECT 
+          aqr.quiz_id,
+          aqr.author_email,
+          AVG(aqr.points) FILTER (WHERE aqr.is_author_response = 0) as average_points,
+          arc.player_count
+        FROM author_quiz_responses aqr
+        JOIN author_response_counts arc ON arc.quiz_id = aqr.quiz_id AND arc.author_email = aqr.author_email
+        WHERE aqr.is_author_response = 0
+        GROUP BY aqr.quiz_id, aqr.author_email, arc.player_count
+      )
+      SELECT 
+        author_email,
+        SUM(average_points) as total_bonus
+      FROM author_averages
+      GROUP BY author_email
+    `);
+    
+    // Apply author bonuses
+    for (const bonus of authorBonuses) {
+      const authorEmail = (bonus.author_email || '').toLowerCase();
       if (!authorEmail) continue;
-      
-      // Check if author has any actual responses (not just author bonus)
-      const { rows: authorResponses } = await pool.query(
-        'SELECT COUNT(*) as count FROM responses WHERE user_email = $1',
-        [authorEmail]
-      );
-      
-      // Only add author bonus if they have actual responses
-      if (authorResponses.length && parseInt(authorResponses[0].count) > 0) {
-        const avgInfo = await computeAuthorAveragePoints(pool, qa.id, authorEmail);
-        let entry = totals.get(authorEmail);
-        if (!entry) {
-          const { rows: playerRows } = await pool.query('SELECT username FROM players WHERE email=$1', [authorEmail]);
-          entry = { handle: (playerRows.length && playerRows[0].username) ? playerRows[0].username : authorEmail, points: 0, email: authorEmail };
-        }
-        entry.points += avgInfo.average;
+      let entry = totals.get(authorEmail);
+      if (!entry) {
+        const { rows: playerRows } = await pool.query('SELECT username FROM players WHERE email=$1', [authorEmail]);
+        entry = { handle: (playerRows.length && playerRows[0].username) ? playerRows[0].username : authorEmail, points: 0, email: authorEmail };
         totals.set(authorEmail, entry);
       }
+      entry.points += parseFloat(bonus.total_bonus || 0);
     }
     
-    // Get stats for each player: quizzes submitted, correct answers, avg score per correct
-    // Note: We need to replicate the grading logic which uses isCorrectAnswer() and isAcceptedAnswer()
-    // Since SQL can't easily replicate JavaScript normalization, we'll use a more comprehensive check
-    for (const [email, entry] of totals.entries()) {
-      const statsResult = await pool.query(`
-        WITH normalized_responses AS (
-          SELECT 
-            r.id,
-            r.quiz_id,
-            r.question_id,
-            r.user_email,
-            r.response_text,
-            r.override_correct,
-            r.points,
-            q.answer,
-            -- Simple normalization: remove punctuation and whitespace, lowercase
-            LOWER(REGEXP_REPLACE(TRIM(r.response_text), '[^a-z0-9]', '', 'g')) as norm_response,
-            LOWER(REGEXP_REPLACE(TRIM(q.answer), '[^a-z0-9]', '', 'g')) as norm_answer
-          FROM responses r
-          JOIN questions q ON q.id = r.question_id
-          WHERE r.user_email = $1 AND r.submitted_at IS NOT NULL
-        ),
-        accepted_norms AS (
-          SELECT DISTINCT
-            r2.question_id,
-            LOWER(REGEXP_REPLACE(TRIM(r2.response_text), '[^a-z0-9]', '', 'g')) as accepted_norm
-          FROM responses r2
-          WHERE r2.override_correct = true 
-            AND r2.response_text IS NOT NULL 
-            AND TRIM(r2.response_text) != ''
-        )
+    // Batch stats calculation - get all player stats in one query (eliminates N+1)
+    const statsRows = await pool.query(`
+      WITH normalized_responses AS (
         SELECT 
-          COUNT(DISTINCT nr.quiz_id) as quizzes_submitted,
-          SUM(CASE 
-            WHEN nr.points > 0 THEN 1
-            WHEN nr.response_text IS NULL OR TRIM(nr.response_text) = '' THEN 0
-            WHEN nr.override_correct = true AND nr.response_text IS NOT NULL AND TRIM(nr.response_text) != '' THEN 1
-            WHEN nr.override_correct = false THEN 0
-            WHEN EXISTS (
-              SELECT 1 FROM accepted_norms an 
-              WHERE an.question_id = nr.question_id 
-                AND an.accepted_norm = nr.norm_response
-            ) THEN 1
-            WHEN nr.norm_response = nr.norm_answer THEN 1
-            ELSE 0
-          END) as correct_count,
-          SUM(nr.points) as total_points
-        FROM normalized_responses nr
-      `, [email]);
-      
-      if (statsResult.rows.length) {
-        const stats = statsResult.rows[0];
-        entry.quizzesSubmitted = parseInt(stats.quizzes_submitted) || 0;
-        entry.correctCount = parseInt(stats.correct_count) || 0;
-        entry.totalPoints = parseFloat(stats.total_points) || 0;
+          r.id,
+          r.quiz_id,
+          r.question_id,
+          r.user_email,
+          r.response_text,
+          r.override_correct,
+          r.points,
+          q.answer,
+          LOWER(REGEXP_REPLACE(TRIM(r.response_text), '[^a-z0-9]', '', 'g')) as norm_response,
+          LOWER(REGEXP_REPLACE(TRIM(q.answer), '[^a-z0-9]', '', 'g')) as norm_answer
+        FROM responses r
+        JOIN questions q ON q.id = r.question_id
+        WHERE r.submitted_at IS NOT NULL
+      ),
+      accepted_norms AS (
+        SELECT DISTINCT
+          r2.question_id,
+          LOWER(REGEXP_REPLACE(TRIM(r2.response_text), '[^a-z0-9]', '', 'g')) as accepted_norm
+        FROM responses r2
+        WHERE r2.override_correct = true 
+          AND r2.response_text IS NOT NULL 
+          AND TRIM(r2.response_text) != ''
+      )
+      SELECT 
+        nr.user_email,
+        COUNT(DISTINCT nr.quiz_id) as quizzes_submitted,
+        SUM(CASE 
+          WHEN nr.points > 0 THEN 1
+          WHEN nr.response_text IS NULL OR TRIM(nr.response_text) = '' THEN 0
+          WHEN nr.override_correct = true AND nr.response_text IS NOT NULL AND TRIM(nr.response_text) != '' THEN 1
+          WHEN nr.override_correct = false THEN 0
+          WHEN EXISTS (
+            SELECT 1 FROM accepted_norms an 
+            WHERE an.question_id = nr.question_id 
+              AND an.accepted_norm = nr.norm_response
+          ) THEN 1
+          WHEN nr.norm_response = nr.norm_answer THEN 1
+          ELSE 0
+        END) as correct_count,
+        SUM(nr.points) as total_points
+      FROM normalized_responses nr
+      GROUP BY nr.user_email
+    `);
+    
+    // Apply stats to totals
+    statsRows.rows.forEach(stat => {
+      const email = (stat.user_email || '').toLowerCase();
+      const entry = totals.get(email);
+      if (entry) {
+        entry.quizzesSubmitted = parseInt(stat.quizzes_submitted) || 0;
+        entry.correctCount = parseInt(stat.correct_count) || 0;
+        entry.totalPoints = parseFloat(stat.total_points) || 0;
         entry.avgPerCorrect = entry.correctCount > 0 ? (entry.totalPoints / entry.correctCount) : 0;
-      } else {
+      }
+    });
+    
+    // Set defaults for entries without stats
+    for (const [email, entry] of totals.entries()) {
+      if (entry.quizzesSubmitted === undefined) {
         entry.quizzesSubmitted = 0;
         entry.correctCount = 0;
         entry.avgPerCorrect = 0;
@@ -8810,6 +8921,9 @@ app.get('/leaderboard', async (req, res) => {
         return b.points - a.points;
       }
     });
+    
+    // Build HTML response (rest of function continues below)
+    // Cache will be set after HTML is generated
     const totalPlayers = sorted.length;
     const averagePoints = totalPlayers
       ? sorted.reduce((acc, r) => acc + Number(r.points || 0), 0) / totalPlayers
@@ -8924,7 +9038,7 @@ app.get('/leaderboard', async (req, res) => {
     const header = await renderHeader(req);
     const isAdmin = await isAdminUser(req);
     const modalHtml = isAdmin ? renderLeaderboardImageModal('overall', null) : '';
-    res.type('html').send(`
+    const htmlResponse = `
       ${renderHead('Overall Leaderboard', false)}
       <body class="ta-body">
         ${header}
@@ -8991,7 +9105,12 @@ app.get('/leaderboard', async (req, res) => {
         ${modalHtml}
         ${renderFooter(req)}
       </body></html>
-    `);
+    `;
+    
+    // Cache the response
+    setCache(cacheKey, htmlResponse);
+    
+    res.type('html').send(htmlResponse);
   } catch (e) {
     console.error(e);
     res.status(500).send('Failed to load leaderboard');
@@ -9144,6 +9263,11 @@ app.post('/quiz/:id/submit', requireAuthOrAdmin, async (req, res) => {
     
     // grade and redirect to recap
     const gradeResult = await gradeQuiz(pool, id, email);
+    
+    // Invalidate leaderboard cache for this quiz and overall
+    invalidateCache(`leaderboard:quiz:${id}`);
+    invalidateCache('leaderboard:overall');
+    invalidateCache('leaderboard:quizmas');
     console.log(`[submit] Quiz ${id}, User ${email}: Graded ${gradeResult.graded.length} questions, total points: ${gradeResult.total}`);
     
     res.redirect(`/quiz/${id}?recap=1`);
@@ -10586,6 +10710,10 @@ app.get('/admin/quiz/:id/seed-responses', requireAdmin, async (req, res) => {
       }
       // Grade this user to compute points
       await gradeQuiz(pool, quizId, email);
+      // Invalidate leaderboard cache
+      invalidateCache(`leaderboard:quiz:${quizId}`);
+      invalidateCache('leaderboard:overall');
+      invalidateCache('leaderboard:quizmas');
     }
     res.type('html').send(`
       <html><body style="font-family: system-ui; padding:24px;">
@@ -11628,6 +11756,11 @@ app.post('/admin/quiz/:id/override', requireAdmin, async (req, res) => {
       await gradeQuiz(pool, quizId, user.user_email);
     }
     
+    // Invalidate leaderboard cache
+    invalidateCache(`leaderboard:quiz:${quizId}`);
+    invalidateCache('leaderboard:overall');
+    invalidateCache('leaderboard:quizmas');
+    
     // Redirect back to the same question section to maintain scroll position
     res.redirect(`/admin/quiz/${quizId}/grade${queryString}${anchor}`);
   } catch (e) {
@@ -11664,6 +11797,11 @@ app.post('/admin/quiz/:id/override-all', requireAdmin, async (req, res) => {
       await gradeQuiz(pool, quizId, user.user_email);
     }
     
+    // Invalidate leaderboard cache
+    invalidateCache(`leaderboard:quiz:${quizId}`);
+    invalidateCache('leaderboard:overall');
+    invalidateCache('leaderboard:quizmas');
+    
     res.redirect(`/admin/quiz/${quizId}/grade`);
   } catch (e) {
     console.error(e);
@@ -11680,6 +11818,12 @@ app.post('/admin/quiz/:id/regrade', requireAdmin, async (req, res) => {
       await gradeQuiz(pool, quizId, u.user_email);
       regraded++;
     }
+    
+    // Invalidate leaderboard cache
+    invalidateCache(`leaderboard:quiz:${quizId}`);
+    invalidateCache('leaderboard:overall');
+    invalidateCache('leaderboard:quizmas');
+    
     res.redirect(`/admin/quiz/${quizId}/grade?regraded=${regraded}`);
   } catch (e) {
     console.error(e);
@@ -11696,6 +11840,12 @@ app.post('/admin/quiz/:id/regrade-user', requireAdmin, async (req, res) => {
       return res.status(400).send('Email required');
     }
     await gradeQuiz(pool, quizId, userEmail);
+    
+    // Invalidate leaderboard cache
+    invalidateCache(`leaderboard:quiz:${quizId}`);
+    invalidateCache('leaderboard:overall');
+    invalidateCache('leaderboard:quizmas');
+    
     const redirectTo = req.body.redirect_to || 'responses';
     if (redirectTo === 'responses') {
       res.redirect(`/admin/quiz/${quizId}/responses?email=${encodeURIComponent(userEmail)}&regraded=1`);
