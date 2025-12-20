@@ -5955,16 +5955,38 @@ app.post('/writer/:token', express.urlencoded({ extended: true }), async (req, r
 // --- Admin: list and publish writer submissions ---
 app.get('/admin/writer-submissions', requireAdmin, async (req, res) => {
   try {
+    // Get all writer submissions (started quizzes)
     const { rows } = await pool.query(`
       SELECT ws.id, ws.submitted_at, ws.updated_at, ws.author, ws.data, ws.token,
-             wi.submitted_at as invite_submitted_at, wi.published_at
+             wi.submitted_at as invite_submitted_at, wi.published_at,
+             wi.slot_date, wi.slot_half, wi.email
       FROM writer_submissions ws
       LEFT JOIN writer_invites wi ON wi.token = ws.token
       ORDER BY ws.id DESC
       LIMIT 200
     `);
+    
+    // Get unstarted invites (assigned slots with no submission yet)
+    const { rows: unstartedInvites } = await pool.query(`
+      SELECT wi.token, wi.author, wi.email, wi.slot_date, wi.slot_half, 
+             wi.sent_at, wi.clicked_at, wi.created_at, wi.published_at
+      FROM writer_invites wi
+      WHERE wi.slot_date IS NOT NULL 
+        AND wi.slot_half IS NOT NULL
+        AND wi.active = true
+        AND wi.published_at IS NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM writer_submissions ws WHERE ws.token = wi.token
+        )
+      ORDER BY wi.slot_date ASC, wi.slot_half ASC, wi.created_at ASC
+      LIMIT 200
+    `);
+    
     const esc = (v) => String(v || '').replace(/&/g,'&amp;').replace(/</g,'&lt;');
-    const list = rows.map(r => {
+    const baseUrl = process.env.PUBLIC_BASE_URL || '';
+    
+    // Map submissions to list items
+    const submissionsList = rows.map(r => {
       let first = '';
       try { first = (r.data?.questions?.[0]?.text) || ''; } catch {}
       // Determine status: draft, submitted, or published
@@ -6002,6 +6024,38 @@ app.get('/admin/writer-submissions', requireAdmin, async (req, res) => {
         </li>
       `;
     }).join('');
+    
+    // Map unstarted invites to list items
+    const unstartedList = unstartedInvites.map(wi => {
+      const slotDate = wi.slot_date ? (typeof wi.slot_date === 'string' ? wi.slot_date : new Date(wi.slot_date).toISOString().slice(0,10)) : '';
+      const slotHalf = wi.slot_half || '';
+      const slotStr = slotDate && slotHalf ? `${slotDate} ${slotHalf}` : 'Unassigned slot';
+      const writerLink = `${baseUrl}/writer/${wi.token}`;
+      const sentStatus = wi.sent_at ? `Sent: ${fmtEt(wi.sent_at)}` : 'Not sent yet';
+      const clickedStatus = wi.clicked_at ? ` · Clicked: ${fmtEt(wi.clicked_at)}` : '';
+      
+      return `
+        <li data-status="unstarted" style="margin:16px 0;padding:16px;background:#1a0a1a;border:3px solid #666;border-radius:8px;border-left-width:8px;box-shadow:0 4px 12px rgba(0,0,0,0.3);opacity:0.85;">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap;">
+            <span style="background:#666;color:#fff;padding:6px 12px;border-radius:6px;font-size:14px;font-weight:800;text-transform:uppercase;letter-spacing:1px;">⏳ NOT STARTED</span>
+            <div style="flex:1;min-width:200px;">
+              <div style="font-size:16px;font-weight:700;color:#fff;margin-bottom:4px;"><strong>Author:</strong> ${esc(wi.author || 'Unnamed')} ${wi.email ? `<span style="opacity:0.7;">(${esc(wi.email)})</span>` : ''}</div>
+              <div style="font-size:14px;margin-top:4px;color:#aaa;">
+                <span style="color:#ffaa44;font-weight:600;">Slot: ${slotStr}</span> · ${sentStatus}${clickedStatus}
+              </div>
+            </div>
+          </div>
+          <div style="margin-top:12px;padding:8px;background:rgba(0,0,0,0.3);border-radius:4px;color:#888;font-size:13px;">
+            <em>Writer has not started this quiz yet.</em>
+          </div>
+          <div style="margin-top:12px;">
+            <a href="${writerLink}" target="_blank" class="ta-btn ta-btn-outline" style="font-weight:600;padding:10px 20px;margin-right:8px;">Open Writer Form</a>
+            <a href="/admin/writer-invites/list" class="ta-btn ta-btn-outline" style="font-weight:600;padding:10px 20px;">Manage Invites</a>
+          </div>
+        </li>
+      `;
+    }).join('');
+    
     const header = await renderHeader(req);
     res.type('html').send(`
       ${renderHead('Writer Submissions', false)}
@@ -6013,28 +6067,44 @@ app.get('/admin/writer-submissions', requireAdmin, async (req, res) => {
         <div style="margin:16px 0;display:flex;gap:12px;flex-wrap:wrap;align-items:center;">
           <select id="statusFilter" style="padding:8px;border-radius:6px;border:1px solid #444;background:#2a2a2a;color:#fff;min-width:200px;">
             <option value="all">All Statuses</option>
+            <option value="unstarted">Not Started</option>
             <option value="draft">Draft</option>
             <option value="submitted">Submitted</option>
             <option value="published">Published</option>
           </select>
           <span id="filterCount" style="opacity:0.7;font-size:14px;"></span>
         </div>
-        <ul id="submissionsList" style="list-style:none;padding:0;margin:0;">
-          ${list || '<li>No submissions yet.</li>'}
-        </ul>
+        ${unstartedList ? `
+        <section style="margin:32px 0;">
+          <h2 style="margin:0 0 16px 0;color:#ffd700;font-size:20px;">Not Started (${unstartedInvites.length})</h2>
+          <ul id="unstartedList" style="list-style:none;padding:0;margin:0;">
+            ${unstartedList}
+          </ul>
+        </section>
+        ` : ''}
+        <section style="margin:32px 0;">
+          <h2 style="margin:0 0 16px 0;color:#ffd700;font-size:20px;">Started Quizzes (${rows.length})</h2>
+          <ul id="submissionsList" style="list-style:none;padding:0;margin:0;">
+            ${submissionsList || '<li>No submissions yet.</li>'}
+          </ul>
+        </section>
         <p style="margin-top:16px;"><a href="/admin" class="ta-btn ta-btn-outline">Back</a></p>
         <script>
           (function() {
             const statusFilter = document.getElementById('statusFilter');
             const filterCount = document.getElementById('filterCount');
             const submissionsList = document.getElementById('submissionsList');
-            const items = Array.from(submissionsList.querySelectorAll('li[data-status]'));
+            const unstartedList = document.getElementById('unstartedList');
+            const allItems = [
+              ...(submissionsList ? Array.from(submissionsList.querySelectorAll('li[data-status]')) : []),
+              ...(unstartedList ? Array.from(unstartedList.querySelectorAll('li[data-status]')) : [])
+            ];
             
             function updateFilter() {
               const statusValue = statusFilter.value;
               let visibleCount = 0;
               
-              items.forEach(item => {
+              allItems.forEach(item => {
                 const matchesStatus = statusValue === 'all' || item.getAttribute('data-status') === statusValue;
                 
                 if (matchesStatus) {
@@ -6045,10 +6115,22 @@ app.get('/admin/writer-submissions', requireAdmin, async (req, res) => {
                 }
               });
               
-              filterCount.textContent = 'Showing ' + visibleCount + ' of ' + items.length;
+              // Also show/hide sections based on filter
+              if (statusValue === 'all') {
+                if (submissionsList && submissionsList.parentElement) submissionsList.parentElement.style.display = '';
+                if (unstartedList && unstartedList.parentElement) unstartedList.parentElement.style.display = '';
+              } else if (statusValue === 'unstarted') {
+                if (submissionsList && submissionsList.parentElement) submissionsList.parentElement.style.display = 'none';
+                if (unstartedList && unstartedList.parentElement) unstartedList.parentElement.style.display = '';
+              } else {
+                if (submissionsList && submissionsList.parentElement) submissionsList.parentElement.style.display = '';
+                if (unstartedList && unstartedList.parentElement) unstartedList.parentElement.style.display = 'none';
+              }
+              
+              filterCount.textContent = 'Showing ' + visibleCount + ' of ' + allItems.length;
             }
             
-            if (statusFilter && items.length > 0) {
+            if (statusFilter && allItems.length > 0) {
               statusFilter.addEventListener('change', updateFilter);
               // Initial count
               updateFilter();
