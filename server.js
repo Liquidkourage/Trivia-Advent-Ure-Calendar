@@ -5296,22 +5296,34 @@ app.get('/quizmas', async (req, res) => {
             var isProcessing = false;
             
             function handleDoorClick(e){
+              var door = e.currentTarget;
+              
               // If clicking on a button, let it handle navigation - don't toggle door
-              if (e.target.closest('.quizmas-btn')) {
-                var door = e.target.closest('.quizmas-gift');
-                // Only block if door is closed or recently opened
-                if (!door || !door.classList.contains('is-open')) {
+              var clickedButton = e.target.closest('.quizmas-btn');
+              if (clickedButton) {
+                // Only allow button click if door is open and not recently opened
+                if (!door.classList.contains('is-open')) {
                   e.preventDefault();
                   e.stopPropagation();
+                  e.stopImmediatePropagation();
                   return false;
                 }
                 if (recentlyOpened.has(door)) {
                   e.preventDefault();
                   e.stopPropagation();
+                  e.stopImmediatePropagation();
                   return false;
                 }
                 // Door is open and not recently opened - allow button click
+                // Don't stop propagation here - let the button's href work
                 return;
+              }
+              
+              // Don't toggle if door is locked
+              if (!door.classList.contains('is-unlocked')) {
+                e.preventDefault();
+                e.stopPropagation();
+                return false;
               }
               
               if (isProcessing) {
@@ -5320,8 +5332,8 @@ app.get('/quizmas', async (req, res) => {
                 return false;
               }
               
-              var door = e.currentTarget;
-              if (!door.classList.contains('is-unlocked')) return;
+              e.preventDefault();
+              e.stopPropagation();
               
               isProcessing = true;
               
@@ -5356,7 +5368,7 @@ app.get('/quizmas', async (req, res) => {
             function setupDoors(){
               var doors = document.querySelectorAll('.quizmas-gift');
               doors.forEach(function(d){
-                // Block clicks on buttons when door is closed
+                // Block clicks on buttons when door is closed - use capture phase
                 var slotButtons = d.querySelectorAll('.quizmas-btn');
                 slotButtons.forEach(function(btn){
                   btn.addEventListener('click', function(e){
@@ -5373,12 +5385,14 @@ app.get('/quizmas', async (req, res) => {
                       e.stopImmediatePropagation();
                       return false;
                     }
-                    // Allow navigation
+                    // Allow navigation - stop propagation so door handler doesn't fire
+                    e.stopPropagation();
                     return true;
                   }, true);
                 });
                 
                 // Unified click handler for both mobile and desktop
+                // Use capture: false so button handler can stop propagation first
                 d.addEventListener('click', function(e){
                   handleDoorClick(e);
                 }, false);
