@@ -1531,11 +1531,27 @@ function fmtEt(dateLike){
 }
 // --- Grading helpers ---
 function normalizeAnswer(s) {
-  return String(s || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '') // strip diacritics
+  const str = String(s || '').trim();
+  if (!str) return '';
+  
+  // Normalize Unicode (NFD) and strip diacritics
+  let normalized = str.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  
+  // Check if contains emojis (common emoji ranges)
+  const emojiRegex = /[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F600}-\u{1F64F}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2190}-\u{21FF}\u{2300}-\u{23FF}\u{24C2}-\u{1F251}]/u;
+  const hasEmoji = emojiRegex.test(normalized);
+  
+  if (hasEmoji) {
+    // For emoji-containing strings: preserve emojis, normalize whitespace only
+    return normalized
+      .replace(/\s+/g, ' ') // normalize whitespace to single spaces
+      .trim();
+  }
+  
+  // For text-only strings: existing normalization (strip punctuation, lowercase)
+  return normalized
     .toLowerCase()
-    .replace(/[^a-z0-9]/g, '') // remove punctuation AND whitespace (treat "yel low" == "yellow")
+    .replace(/[^a-z0-9]/g, '') // remove punctuation AND whitespace
     .trim();
 }
 
