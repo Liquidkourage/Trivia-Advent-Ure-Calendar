@@ -5293,11 +5293,27 @@ app.get('/quizmas', async (req, res) => {
         <script>
           (function(){
             var recentlyOpened = new Set();
-            var touchStartDoor = null;
-            var touchStartTime = 0;
             var isProcessing = false;
             
             function handleDoorClick(e){
+              // If clicking on a button, let it handle navigation - don't toggle door
+              if (e.target.closest('.quizmas-btn')) {
+                var door = e.target.closest('.quizmas-gift');
+                // Only block if door is closed or recently opened
+                if (!door || !door.classList.contains('is-open')) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  return false;
+                }
+                if (recentlyOpened.has(door)) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  return false;
+                }
+                // Door is open and not recently opened - allow button click
+                return;
+              }
+              
               if (isProcessing) {
                 e.preventDefault();
                 e.stopPropagation();
@@ -5305,59 +5321,42 @@ app.get('/quizmas', async (req, res) => {
               }
               
               var door = e.currentTarget;
-              
-              // CRITICAL: If door is NOT open, block ALL clicks from reaching buttons
-              var isOpen = door.classList.contains('is-open');
-              if (!isOpen) {
-                // Door is closed - prevent any clicks from reaching buttons
-                if (e.target.closest('.quizmas-btn')) {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  e.stopImmediatePropagation();
-                  return false;
-                }
-              } else {
-                // Door is open - let slot buttons work normally
-                if (e.target && e.target.closest && e.target.closest('.quizmas-btn')) {
-                  // If door was just opened, prevent immediate navigation
-                  if (recentlyOpened.has(door)) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    e.stopImmediatePropagation();
-                    return false;
-                  }
-                  return; // Allow normal button navigation
-                }
-              }
-              
               if (!door.classList.contains('is-unlocked')) return;
               
               isProcessing = true;
               
-              // Toggle door open/closed (works on both mobile and desktop)
+              // Toggle door open/closed
               var wasOpen = door.classList.contains('is-open');
+              // Close all other open doors
               document.querySelectorAll('.quizmas-gift.is-open').forEach(function(x){ 
-                x.classList.remove('is-open');
-                recentlyOpened.delete(x);
+                if (x !== door) {
+                  x.classList.remove('is-open');
+                  recentlyOpened.delete(x);
+                }
               });
+              
               if (!wasOpen){
+                // Open this door
                 door.classList.add('is-open');
-                // Mark as recently opened to prevent immediate button clicks
                 recentlyOpened.add(door);
-                // Longer delay for mobile to ensure animation completes
                 setTimeout(function(){
                   recentlyOpened.delete(door);
                   isProcessing = false;
-                }, 800);
+                }, 600);
               } else {
-                isProcessing = false;
+                // Close this door
+                door.classList.remove('is-open');
+                recentlyOpened.delete(door);
+                setTimeout(function(){
+                  isProcessing = false;
+                }, 300);
               }
             }
             
             function setupDoors(){
               var doors = document.querySelectorAll('.quizmas-gift');
               doors.forEach(function(d){
-                // Block all clicks on slot buttons when door is closed
+                // Block clicks on buttons when door is closed
                 var slotButtons = d.querySelectorAll('.quizmas-btn');
                 slotButtons.forEach(function(btn){
                   btn.addEventListener('click', function(e){
@@ -5374,53 +5373,15 @@ app.get('/quizmas', async (req, res) => {
                       e.stopImmediatePropagation();
                       return false;
                     }
-                    return; // Allow normal button navigation
+                    // Allow navigation
+                    return true;
                   }, true);
                 });
                 
-                // Handle touch events first to prevent double-firing
-                if ('ontouchstart' in window) {
-                  d.addEventListener('touchstart', function(e){
-                    // Block touch on buttons when door is closed
-                    if (e.target.closest('.quizmas-btn')) {
-                      var door = e.target.closest('.quizmas-gift');
-                      if (!door || !door.classList.contains('is-open')) {
-                        return;
-                      }
-                    }
-                    if (!e.target.closest('.quizmas-btn')) {
-                      touchStartDoor = d;
-                      touchStartTime = Date.now();
-                    }
-                  }, { passive: true });
-                  
-                  d.addEventListener('touchend', function(e){
-                    // Block touch on buttons when door is closed
-                    if (e.target.closest('.quizmas-btn')) {
-                      var door = e.target.closest('.quizmas-gift');
-                      if (!door || !door.classList.contains('is-open')) {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        return false;
-                      }
-                    }
-                  }, { passive: false });
-                  
-                  // Also prevent click on touch devices
-                  d.addEventListener('click', function(e){
-                    if (touchStartDoor === d || recentlyOpened.has(d)) {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      e.stopImmediatePropagation();
-                      return false;
-                    }
-                  }, true);
-                } else {
-                  // Use click for desktop
-                  d.addEventListener('click', function(e){
-                    handleDoorClick(e);
-                  }, true);
-                }
+                // Unified click handler for both mobile and desktop
+                d.addEventListener('click', function(e){
+                  handleDoorClick(e);
+                }, false);
               });
             }
             
@@ -8560,11 +8521,20 @@ app.get('/admin/leaderboard-image/preview', requireAdmin, async (req, res) => {
 // --- Quizmas Leaderboard ---
 app.get('/quizmas/leaderboard', async (req, res) => {
   try {
+    const cacheKey = getCacheKey('quizmas', null, 'score');
+    
+    // Check cache first
+    const cached = getCached(cacheKey);
+    if (cached) {
+      return res.type('html').send(cached);
+    }
+    
     const now = new Date();
     const currentYear = now.getUTCFullYear();
     const quizmasStart = new Date(Date.UTC(currentYear, 11, 26, 5, 0, 0)); // Dec 26 midnight ET (UTC+5)
     const quizmasEnd = new Date(Date.UTC(currentYear + 1, 0, 7, 5, 0, 0)); // Jan 7 midnight ET (UTC+5)
     
+    // Batch query: Get all player points in one query
     const { rows } = await pool.query(
       `SELECT r.user_email, COALESCE(p.username, r.user_email) AS handle, SUM(r.points) AS points
        FROM responses r
@@ -8584,29 +8554,28 @@ app.get('/quizmas/leaderboard', async (req, res) => {
       existing.points += points;
       totals.set(email, existing);
     });
-    // Only add author bonuses if the author has actually submitted responses to quizzes
+    
+    // Batch query: Get all author bonuses in one query
     const { rows: quizAuthors } = await pool.query(
-      `SELECT id, author_email FROM quizzes 
-       WHERE (quiz_type = 'quizmas' OR (unlock_at >= $1 AND unlock_at < $2))
-         AND author_email IS NOT NULL AND author_email <> ''`,
+      `SELECT q.id, q.author_email,
+         (SELECT COUNT(*) FROM responses r2 
+          JOIN quizzes q2 ON q2.id = r2.quiz_id
+          WHERE r2.user_email = q.author_email 
+            AND (q2.quiz_type = 'quizmas' OR (q2.unlock_at >= $1 AND q2.unlock_at < $2))
+            AND r2.submitted_at IS NOT NULL) as response_count
+       FROM quizzes q
+       WHERE (q.quiz_type = 'quizmas' OR (q.unlock_at >= $1 AND q.unlock_at < $2))
+         AND q.author_email IS NOT NULL AND q.author_email <> ''`,
       [quizmasStart, quizmasEnd]
     );
+    
+    // Batch author bonus calculation
     for (const qa of quizAuthors) {
       const authorEmail = (qa.author_email || '').toLowerCase();
       if (!authorEmail) continue;
       
-      // Check if author has any actual responses (not just author bonus)
-      const { rows: authorResponses } = await pool.query(
-        `SELECT COUNT(*) as count FROM responses r
-         JOIN quizzes q ON q.id = r.quiz_id
-         WHERE r.user_email = $1 
-           AND (q.quiz_type = 'quizmas' OR (q.unlock_at >= $2 AND q.unlock_at < $3))
-           AND r.submitted_at IS NOT NULL`,
-        [authorEmail, quizmasStart, quizmasEnd]
-      );
-      
       // Only add author bonus if they have actual responses
-      if (authorResponses.length && parseInt(authorResponses[0].count) > 0) {
+      if (qa.response_count && parseInt(qa.response_count) > 0) {
         const avgInfo = await computeAuthorAveragePoints(pool, qa.id, authorEmail);
         let entry = totals.get(authorEmail);
         if (!entry) {
@@ -8618,8 +8587,9 @@ app.get('/quizmas/leaderboard', async (req, res) => {
       }
     }
     
-    // Get stats for each player: quizzes submitted, correct answers, avg score per correct
-    for (const [email, entry] of totals.entries()) {
+    // Batch query: Get all player stats in one query
+    const allEmails = Array.from(totals.keys());
+    if (allEmails.length > 0) {
       const statsResult = await pool.query(`
         WITH normalized_responses AS (
           SELECT 
@@ -8631,13 +8601,12 @@ app.get('/quizmas/leaderboard', async (req, res) => {
             r.override_correct,
             r.points,
             q.answer,
-            -- Simple normalization: remove punctuation and whitespace, lowercase
             LOWER(REGEXP_REPLACE(TRIM(r.response_text), '[^a-z0-9]', '', 'g')) as norm_response,
             LOWER(REGEXP_REPLACE(TRIM(q.answer), '[^a-z0-9]', '', 'g')) as norm_answer
           FROM responses r
           JOIN questions q ON q.id = r.question_id
           JOIN quizzes qu ON qu.id = r.quiz_id
-          WHERE r.user_email = $1 
+          WHERE LOWER(r.user_email) = ANY($1)
             AND (qu.quiz_type = 'quizmas' OR (qu.unlock_at >= $2 AND qu.unlock_at < $3))
             AND r.submitted_at IS NOT NULL
         ),
@@ -8646,11 +8615,14 @@ app.get('/quizmas/leaderboard', async (req, res) => {
             r2.question_id,
             LOWER(REGEXP_REPLACE(TRIM(r2.response_text), '[^a-z0-9]', '', 'g')) as accepted_norm
           FROM responses r2
+          JOIN quizzes qu2 ON qu2.id = r2.quiz_id
           WHERE r2.override_correct = true 
             AND r2.response_text IS NOT NULL 
             AND TRIM(r2.response_text) != ''
+            AND (qu2.quiz_type = 'quizmas' OR (qu2.unlock_at >= $2 AND qu2.unlock_at < $3))
         )
         SELECT 
+          nr.user_email,
           COUNT(DISTINCT nr.quiz_id) as quizzes_submitted,
           SUM(CASE 
             WHEN nr.points > 0 THEN 1
@@ -8667,18 +8639,32 @@ app.get('/quizmas/leaderboard', async (req, res) => {
           END) as correct_count,
           SUM(nr.points) as total_points
         FROM normalized_responses nr
-      `, [email, quizmasStart, quizmasEnd]);
+        GROUP BY nr.user_email
+      `, [allEmails, quizmasStart, quizmasEnd]);
       
-      if (statsResult.rows.length) {
-        const stats = statsResult.rows[0];
-        entry.quizzesSubmitted = parseInt(stats.quizzes_submitted) || 0;
-        entry.correctCount = parseInt(stats.correct_count) || 0;
-        entry.totalPoints = parseFloat(stats.total_points) || 0;
-        entry.avgPerCorrect = entry.correctCount > 0 ? (entry.totalPoints / entry.correctCount) : 0;
-      } else {
-        entry.quizzesSubmitted = 0;
-        entry.correctCount = 0;
-        entry.avgPerCorrect = 0;
+      const statsMap = new Map();
+      statsResult.rows.forEach(stat => {
+        const email = (stat.user_email || '').toLowerCase();
+        statsMap.set(email, {
+          quizzesSubmitted: parseInt(stat.quizzes_submitted) || 0,
+          correctCount: parseInt(stat.correct_count) || 0,
+          totalPoints: parseFloat(stat.total_points) || 0
+        });
+      });
+      
+      // Apply stats to entries
+      for (const [email, entry] of totals.entries()) {
+        const stats = statsMap.get(email);
+        if (stats) {
+          entry.quizzesSubmitted = stats.quizzesSubmitted;
+          entry.correctCount = stats.correctCount;
+          entry.totalPoints = stats.totalPoints;
+          entry.avgPerCorrect = stats.correctCount > 0 ? (stats.totalPoints / stats.correctCount) : 0;
+        } else {
+          entry.quizzesSubmitted = 0;
+          entry.correctCount = 0;
+          entry.avgPerCorrect = 0;
+        }
       }
     }
     
@@ -8699,7 +8685,7 @@ app.get('/quizmas/leaderboard', async (req, res) => {
     }).join('');
     const tableRows = sorted.map((r, idx) => {
       const rank = idx + 1;
-      const detail = `<span class="leaderboard-detail">${r.quizzesSubmitted} quiz${r.quizzesSubmitted !== 1 ? 'zes' : ''}</span> <span class="leaderboard-separator">•</span> <span class="leaderboard-detail">${r.correctCount} correct</span> <span class="leaderboard-separator">•</span> <span class="leaderboard-detail">${formatPoints(r.avgPerCorrect)} avg/correct</span>`;
+      const detail = `<span class="leaderboard-detail">${r.quizzesSubmitted || 0} quiz${(r.quizzesSubmitted || 0) !== 1 ? 'zes' : ''}</span> <span class="leaderboard-separator">•</span> <span class="leaderboard-detail">${r.correctCount || 0} correct</span> <span class="leaderboard-separator">•</span> <span class="leaderboard-detail">${formatPoints(r.avgPerCorrect || 0)} avg/correct</span>`;
       return `
         <tr style="border-bottom:1px solid rgba(255,255,255,0.08);${idx % 2 ? 'background:rgba(255,255,255,0.02);' : ''}">
           <td style="padding:10px 8px;font-weight:700;color:${rank === 1 ? '#ffd700' : '#fff'};">${rank}</td>
@@ -8710,7 +8696,9 @@ app.get('/quizmas/leaderboard', async (req, res) => {
       `;
     }).join('');
     const header = await renderHeader(req);
-    res.type('html').send(`
+    const isAdmin = await isAdminUser(req);
+    const modalHtml = isAdmin ? renderLeaderboardImageModal('quizmas', null) : '';
+    const htmlResponse = `
       ${renderHead('12 Days of Quizmas Leaderboard', false)}
       <body class="ta-body">
       ${header}
@@ -8764,7 +8752,12 @@ app.get('/quizmas/leaderboard', async (req, res) => {
         ${modalHtml}
         ${renderFooter(req)}
       </body></html>
-    `);
+    `;
+    
+    // Cache the response
+    setCache(cacheKey, htmlResponse);
+    
+    res.type('html').send(htmlResponse);
   } catch (e) {
     console.error(e);
     res.status(500).send('Failed to load Quizmas leaderboard');
